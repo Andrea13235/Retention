@@ -78,6 +78,28 @@ listed as a proposal. **Never render before reading `review_cuts`** —
 a short pause may be deliberate drama, a "false start" may be
 anaphora. Promote skipped cuts via `extraCuts` or leave them kept.
 
+## 3d. CUTS FIRST: never motion near a cut (READ THIS)
+
+A cut on a zoomed frame is a visible scale jump — the two sides of a
+splice meeting at different magnifications. So the strategy is fixed:
+**finalize the KEEP splice FIRST, place motion only AFTER, and keep
+every zoom's FULL span clear of every CUT edge on BOTH sides:**
+
+- 0.8s BEFORE a CUT starts (pre-cut mask): nothing may start there —
+  a punch on the last pre-cut frame spotlights the seam.
+- 2.0s AFTER a CUT ends (post-cut settle): nothing may start there —
+  the resume must play clean before any scale change.
+- NO CROSSING: a zoom span may never contain a CUT inside it — a
+  slow_zoom running across a splice lands on the next clip at the
+  wrong scale.
+
+One definition, two enforcers (`src/types.ts` `motionSpanAllowed`):
+the planner relocates (nearest CUT-clear second within ±6s), clamps a
+slow_zoom that overruns the next CUT, or skips with a
+`structure_notes` entry — never silent. The renderer rejects any
+hand-written plan that violates the rule, with the exact fix in the
+error message.
+
 ## 3c. `needs_review`: the first-take safety net (READ THIS)
 
 Whisper-small mangles exactly the words that matter most on screen:

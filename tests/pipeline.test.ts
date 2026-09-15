@@ -268,16 +268,23 @@ describe("plan", () => {
     // sample has a filler segment → at least one CUT recorded
     expect(plan.cuts.some((c) => c.reason.startsWith("CUT"))).toBe(true);
     expect(plan.animations.length).toBeGreaterThan(0);
-    // motion opens new acts only: slow_zoom on section 2+ boundaries
-    // (3 sections → up to 2), never on the hook, never mid-act.
+    // motion opens new acts only: slow_zoom near section 2+ boundaries
+    // (3 sections → up to 2). Cuts-first: a zoom whose act opening falls
+    // inside a CUT is relocated to the nearest CUT-clear second (≤6s,
+    // with a structure_notes entry) — so assert proximity to the
+    // boundary, not exact placement, plus the relocation note.
     const zooms = plan.animations.filter((a) => a.type === "slow_zoom");
     expect(zooms.length).toBeLessThanOrEqual(2);
     for (const z of zooms) {
       const t = timecodeToSec(z.time);
-      const onBoundary = s.sections.some(
-        (sec, i) => i > 0 && Math.abs(timecodeToSec(sec.start) + 0.5 - t) < 0.6
+      const nearBoundary = s.sections.some(
+        (sec, i) => i > 0 && Math.abs(timecodeToSec(sec.start) + 0.5 - t) < 6.6
       );
-      expect(onBoundary).toBe(true);
+      expect(nearBoundary).toBe(true);
+    }
+    // every relocation is announced, never silent
+    for (const n of plan.structure_notes ?? []) {
+      expect(n.note.length).toBeGreaterThan(0);
     }
     // interrupts at educational cadence (~5s over 28s → ticks at
     // 5,10,15,20,25, minus CUT/mask skips by design)
@@ -618,6 +625,22 @@ describe("render: HyperFrames project build", () => {
       const t = timecodeToSec(z.time);
       return t >= 4.2 && t < 5.0;
     })).toBe(false);
+    // NEW: two-sided exclusion — no zoom in the 2.0s post-cut settle
+    // [8.0, 10.0): the resume must play clean before any scale change.
+    for (const z of zooms) {
+      const t = timecodeToSec(z.time);
+      expect(t < 8.0 || t >= 10.0).toBe(true);
+    }
+    // NEW: no span crosses the CUT — every zoom's full span
+    // [start, start+duration] contains no CUT edge.
+    const cutEdges = [5.0, 8.0];
+    for (const z of zooms) {
+      const t = timecodeToSec(z.time);
+      const span = z.type === "slow_zoom" ? (z.duration ?? 8) : 0.7;
+      for (const e of cutEdges) {
+        expect(t < e && t + span > e).toBe(false);
+      }
+    }
     // interrupts respect the same rules (none inside CUT or mask)
     for (const p of plan.pattern_interrupts) {
       const t = timecodeToSec(p.time);

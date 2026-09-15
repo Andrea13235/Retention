@@ -120,10 +120,13 @@ fixed — follow it in this order, no improvising:
    0.5–0.85 applied+flagged in `review_cuts`, <0.5 skipped as
    proposal; manual extraCuts always apply).
 5. **Captions**: non-overlapping karaoke with only kept, corrected
-   words + keyword emphasis, NO zoom on cleanup-cut resumes — hard
+   words + keyword emphasis, NO zoom near cuts on EITHER side — hard
    cuts stay naked, slow_zoom opens new acts only, zoom_punch solely
    for explicit agent attentionRiskPoints (with real coverage) or
-   section boundaries, veto on any zoom in CUTs/pre-cut masks.
+   section boundaries. CUTS FIRST: the splice is final before any
+   motion is placed; every zoom span keeps 0.8s clear before a CUT,
+   2.0s clear after its resume, never crosses a CUT (nearest
+   relocate/clamp/skip with a note; renderer rejects — guide §3d).
 6. **Graphics**: content-aware banners (`act_title` on new acts,
    `number_stat` on spoken numbers, `highlight` on top keywords,
    `quote` recap past midpoint on >8min media) — text ALWAYS

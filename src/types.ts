@@ -219,6 +219,85 @@ export const REGISTER_CADENCE: Record<RegisterName, number> = {
  */
 export type FootageMode = "single_take" | "multi_take";
 
+/**
+ * CUT-adjacency exclusion for MOTION (cuts-first strategy).
+ *
+ * A cut on a zoomed frame is a visible scale jump: the two sides of a
+ * splice meet at different magnifications. So every zoom's FULL span —
+ * start to start+duration — must keep clear of every CUT edge:
+ * - ZOOM_PRE_CUT_MASK_S (0.8s): nothing may start in the window before
+ *   a CUT starts (a punch on the last pre-cut frame spotlights the seam).
+ * - ZOOM_POST_CUT_SETTLE_S (2.0s): nothing may start in the window after
+ *   a CUT ends (the resume must play clean before any scale change).
+ * - Crossing: a span may never contain a CUT inside it (a slow_zoom
+ *   running across a splice lands on the next clip at the wrong scale).
+ *
+ * ONE definition — the planner (`motionSpanAllowed` in tools_plan.ts)
+ * and the renderer (last-gate validation in tools_render.ts) both read
+ * these numbers, never a second copy.
+ */
+export const ZOOM_PRE_CUT_MASK_S = 0.8;
+export const ZOOM_POST_CUT_SETTLE_S = 2.0;
+
+/** Zoom span kinds the exclusion rule applies to. */
+export type MotionKind = "zoom_in" | "zoom_out" | "slow_zoom";
+
+/**
+ * Effective visible duration of a motion span (seconds).
+ * zoom_in/zoom_out punches render as a 0.18s push + 0.5s settle
+ * (≈0.7s total); slow_zoom renders for `duration` (default 8s).
+ */
+export function motionSpanDuration(
+  kind: MotionKind,
+  duration?: number
+): number {
+  if (kind === "slow_zoom")
+    return Math.max(1, Math.min(duration ?? 8, 30));
+  return 0.7;
+}
+
+/**
+ * motionSpanAllowed(start, kind, duration, cutRanges) → { ok, reason? }.
+ * Returns ok=false when the span [start, start+spanDur] would:
+ * - start inside the pre-cut mask of any CUT, OR
+ * - start inside the post-cut settle of any CUT, OR
+ * - contain a CUT edge inside it (crossing), OR
+ * - start inside a CUT range itself.
+ * Cut ranges are { s, e } in seconds (SOURCE clock).
+ */
+export function motionSpanAllowed(
+  start: number,
+  kind: MotionKind,
+  duration: number | undefined,
+  cutRanges: Array<{ s: number; e: number }>
+): { ok: boolean; reason?: string } {
+  const spanDur = motionSpanDuration(kind, duration);
+  const end = start + spanDur;
+  for (const c of cutRanges) {
+    if (start >= c.s && start < c.e)
+      return {
+        ok: false,
+        reason: `starts inside CUT [${secToTimecode(c.s)}–${secToTimecode(c.e)}]`,
+      };
+    if (start >= c.s - ZOOM_PRE_CUT_MASK_S && start < c.s)
+      return {
+        ok: false,
+        reason: `starts inside the ${ZOOM_PRE_CUT_MASK_S}s pre-cut mask of CUT ${secToTimecode(c.s)}`,
+      };
+    if (start >= c.e && start < c.e + ZOOM_POST_CUT_SETTLE_S)
+      return {
+        ok: false,
+        reason: `starts inside the ${ZOOM_POST_CUT_SETTLE_S}s post-cut settle of CUT ending ${secToTimecode(c.e)}`,
+      };
+    if (start < c.s && end > c.s)
+      return {
+        ok: false,
+        reason: `span ${spanDur.toFixed(2)}s crosses CUT ${secToTimecode(c.s)} (would land zoomed on the next clip)`,
+      };
+  }
+  return { ok: true };
+}
+
 /** Resolve takesCount → mode. 1 (or unknown) is single_take: prudence by default. */
 export function footageMode(takesCount?: number): FootageMode {
   return (takesCount ?? 1) >= 2 ? "multi_take" : "single_take";

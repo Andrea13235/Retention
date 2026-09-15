@@ -10,10 +10,13 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 import {
   CANVAS,
+  motionSpanAllowed,
+  motionSpanDuration,
   RENDER_PRESETS,
   secToTimecode,
   timecodeToSec,
   type EditPlan,
+  type MotionKind,
   type RenderPreset,
 } from "./types.js";
 
@@ -114,14 +117,35 @@ export async function buildHyperframesProject(
     const cutStarts = plan.cuts
       .filter((c) => c.reason.startsWith("CUT"))
       .map((c) => ({ s: timecodeToSec(c.start), e: timecodeToSec(c.end) }));
+    // CUTS-FIRST last gate: hand-written plans must obey the same rule as
+    // the planner — the FULL zoom span (not just its start) keeps clear of
+    // every CUT edge on both sides (types.ts motionSpanAllowed). A zoom
+    // landing on a cleanup resume, or a slow_zoom running across a splice,
+    // renders as a visible scale jump — reject with the exact fix.
     for (const a of plan.animations) {
       if (a.type !== "zoom_in" && a.type !== "zoom_out" && a.type !== "slow_zoom") continue;
       const src = timecodeToSec(a.time);
-      const hit = cutStarts.find((c) => src >= c.s - 0.8 && src < c.s);
-      if (hit) {
+      const spanDur = motionSpanDuration(a.type as MotionKind, a.duration);
+      const verdict = motionSpanAllowed(src, a.type as MotionKind, a.duration, cutStarts);
+      if (!verdict.ok) {
+        // Find the nearest CUT-clear slot (same relocation the planner uses)
+        // so the error message carries the exact fix, not just the veto.
+        let fix = "drop it";
+        for (let d = 1; d <= 6; d++) {
+          let found: number | null = null;
+          for (const t of [Math.floor(src) - d, Math.ceil(src) + d]) {
+            if (t >= 0 && motionSpanAllowed(t, a.type as MotionKind, a.duration, cutStarts).ok) {
+              found = t;
+              break;
+            }
+          }
+          if (found !== null) {
+            fix = `move it to ${secToTimecode(found)}`;
+            break;
+          }
+        }
         throw new Error(
-          `build: ${a.type} at ${a.time} fires inside the 0.8s pre-cut mask of CUT ${secToTimecode(hit.s)} — ` +
-            `move it ≥0.8s earlier or onto the resume at ${secToTimecode(hit.e)}`
+          `build: ${a.type} at ${a.time} (span ${spanDur.toFixed(2)}s) ${verdict.reason} — ` + fix
         );
       }
     }

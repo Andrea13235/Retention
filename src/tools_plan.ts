@@ -30,6 +30,7 @@
  */
 import {
   footageMode,
+  motionSpanAllowed,
   REGISTER_CADENCE,
   resolveRegister,
   secToTimecode,
@@ -38,6 +39,7 @@ import {
   type CutCandidate,
   type EditPlan,
   type GraphicBeat,
+  type MotionKind,
   type NarrativeStructure,
   type RegisterName,
   type StylePreset,
@@ -259,6 +261,15 @@ export function generateEditPlan(
   // (no separate top caption: double captions + black boxes are banned —
   // the Apple restraint rule).
   //
+  // CUTS-FIRST strategy: the KEEP splice above is FINAL before any motion
+  // is placed. A cut on a zoomed frame is a visible scale jump — the two
+  // sides of a splice meeting at different magnifications — so every zoom
+  // span keeps clear of every CUT edge on BOTH sides (types.ts
+  // ZOOM_PRE_CUT_MASK_S / ZOOM_POST_CUT_SETTLE_S + no crossing). Motion
+  // that cannot fit is relocated when possible, clamped when a slow_zoom
+  // overruns the next CUT, skipped with a structure_notes entry when
+  // neither works — never silent, never overlapping a cut.
+  //
   // HARD-CUT rule: cleanup cuts (stutter, dead air, filler, false starts,
   // trims) are NET cuts — the splice alone, no animation on top. A zoom
   // landing on a cleanup resume tells the viewer "something was hidden
@@ -266,13 +277,68 @@ export function generateEditPlan(
   //
   // Zooms live ONLY on genuine scene changes: section boundaries (a new
   // act starts — coherent emphasis, not a cover-up) and explicit agent
-  // attentionRiskPoints (the agent judged the moment worthy). The 0.8s
-  // pre-cut mask still vetoes everything: a punch on the last pre-cut
-  // frame would spotlight the seam.
+  // attentionRiskPoints (the agent judged the moment worthy).
   const CUT_MASK_S = 0.8;
   const cutStarts = mergedCuts.map((c) => c.s); // cuts start here
   const nearCutStart = (t: number): boolean =>
     cutStarts.some((cs) => t >= cs - CUT_MASK_S && t < cs);
+  // Downgrade is never silent: the agent reads WHY the rhythm changed.
+  // (declared early: motion relocation below also writes here.)
+  const structure_notes: EditPlan["structure_notes"] = [];
+  // Cuts-first placement helper. Tries, in order:
+  // 1. place at `wanted` when the full span is CUT-clear;
+  // 2. relocate the start within ±6s (prefer the nearest CUT-clear second,
+  //    earlier slots first — the act opening stays near its boundary);
+  // 3. clamp a slow_zoom's duration so it ends at the next CUT edge;
+  // 4. skip with a structure_notes entry (never silent).
+  // Returns the placed start (sec) or null when skipped.
+  const pushMotion = (
+    wanted: number,
+    kind: MotionKind,
+    duration: number | undefined,
+    label: string
+  ): number | null => {
+    const ok = motionSpanAllowed(wanted, kind, duration, mergedCuts);
+    if (ok.ok && isKept(wanted)) {
+      animations.push({ time: secToTimecode(wanted), type: kind, target: "face", ...(kind === "slow_zoom" ? { direction: "in" as const, intensity: isShort ? 2 : 3, duration: Math.max(1, Math.min(duration ?? 8, 30)) } : {}) });
+      return wanted;
+    }
+    const skipReason = !isKept(wanted) ? "inside a CUT range" : (ok.reason ?? "cut-adjacent");
+    for (let d = 1; d <= 6; d++) {
+      for (const t of [Math.floor(wanted) - d, Math.ceil(wanted) + d]) {
+        if (t < 0 || t > mediaEnd) continue;
+        if (!isKept(t)) continue;
+        if (motionSpanAllowed(t, kind, duration, mergedCuts).ok) {
+          animations.push({ time: secToTimecode(t), type: kind, target: "face", ...(kind === "slow_zoom" ? { direction: "in" as const, intensity: isShort ? 2 : 3, duration: Math.max(1, Math.min(duration ?? 8, 30)) } : {}) });
+          structure_notes.push({
+            time: secToTimecode(t),
+            note: `${label}: moved ${secToTimecode(wanted)} → ${secToTimecode(t)} (${skipReason})`,
+          });
+          return t;
+        }
+      }
+    }
+    if (kind === "slow_zoom") {
+      const nextEdge = mergedCuts
+        .map((c) => c.s)
+        .filter((e) => e > wanted + 1)
+        .sort((a, b) => a - b)[0];
+      const clamped = nextEdge !== undefined ? nextEdge - 0.2 - wanted : 0;
+      if (clamped >= 3 && motionSpanAllowed(wanted, kind, clamped, mergedCuts).ok && isKept(wanted)) {
+        animations.push({ time: secToTimecode(wanted), type: kind, target: "face", direction: "in" as const, intensity: isShort ? 2 : 3, duration: Math.round(clamped * 10) / 10 });
+        structure_notes.push({
+          time: secToTimecode(wanted),
+          note: `${label}: duration clamped to ${clamped.toFixed(1)}s (next CUT at ${secToTimecode(nextEdge!)})`,
+        });
+        return wanted;
+      }
+    }
+    structure_notes.push({
+      time: secToTimecode(wanted),
+      note: `${label} at ${secToTimecode(wanted)} skipped (${skipReason}; no CUT-clear slot ≤6s ahead)`,
+    });
+    return null;
+  };
   const isSceneChange = (t: number): boolean =>
     structure.sections.some(
       (sec, i) => i > 0 && Math.abs(timecodeToSec(sec.start) - t) < 0.5
@@ -280,40 +346,33 @@ export function generateEditPlan(
   // Scene-change emphasis ONLY: a slow_zoom opens a new act (section
   // boundary = genuine change of scene/topic, coherent by definition).
   // Mid-act motion is restraint: no drift over continuous speech.
+  // Placed cuts-first via pushMotion: the full span must clear every CUT
+  // edge (pre-mask + post-settle + no crossing) or it relocates/clamps.
   structure.sections.forEach((s, i) => {
     if (i === 0) return; // first section opens on the hook — no zoom needed
     const sStart = timecodeToSec(s.start);
     const sEnd = timecodeToSec(s.end);
     const dur = Math.min(12, Math.max(3, sEnd - sStart - 1));
-    if (dur >= 3 && isKept(sStart + 0.5) && !nearCutStart(sStart + 0.5)) {
-      animations.push({
-        time: secToTimecode(sStart + 0.5),
-        type: "slow_zoom",
-        target: "face",
-        direction: i % 2 === 0 ? "in" : "out",
-        intensity: isShort ? 2 : 3,
-        duration: dur,
-      });
+    if (dur >= 3) {
+      const want = sStart + 0.5;
+      const placed = pushMotion(want, "slow_zoom", dur, `slow_zoom (act "${s.title}")`);
+      if (placed !== null) {
+        const last = animations[animations.length - 1];
+        if (last && last.type === "slow_zoom")
+          last.direction = i % 2 === 0 ? "in" : "out";
+      }
     }
   });
   for (const spot of structure.slow_spots ?? []) {
     const t = timecodeToSec(spot.start);
-    if (isKept(t) && !nearCutStart(t) && isSceneChange(t)) {
-      animations.push({
-        time: spot.start,
-        type: "zoom_in",
-        target: "face",
-      });
+    if (isSceneChange(t)) {
+      pushMotion(t, "zoom_in", undefined, `zoom_in (slow spot: ${spot.reason})`);
     }
   }
   for (const d of structure.attention_dips.slice(0, 10)) {
     const t = timecodeToSec(d.start);
-    if (isKept(t) && !nearCutStart(t) && isSceneChange(t)) {
-      animations.push({
-        time: d.start,
-        type: "zoom_in",
-        target: "face",
-      });
+    if (isSceneChange(t)) {
+      pushMotion(t, "zoom_in", undefined, `zoom_in (attention dip: ${d.reason})`);
     }
   }
   animations.sort((a, b) => timecodeToSec(a.time) - timecodeToSec(b.time));
@@ -503,8 +562,8 @@ export function generateEditPlan(
   }
   graphics.sort((a, b) => timecodeToSec(a.time) - timecodeToSec(b.time));
 
-  // Downgrade is never silent: the agent reads WHY the rhythm changed.
-  const structure_notes: EditPlan["structure_notes"] = [];
+  // (structure_notes was declared up in the motion block: downgrade +
+  // relocation + skip notes all land there.)
   if (downgraded) {
     structure_notes.push({
       time: secToTimecode(0),
