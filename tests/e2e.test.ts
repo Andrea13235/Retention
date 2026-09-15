@@ -12,13 +12,14 @@ import { analyzeTranscript } from "../src/tools_analyze.js";
 import { importRawMedia } from "../src/tools_ingest.js";
 import { generateEditPlan } from "../src/tools_plan.js";
 import { buildHyperframesProject } from "../src/tools_render.js";
+import { fileURLToPath } from "node:url";
 import type { Transcript } from "../src/types.js";
 
 /** Local hyperframes binary (avoids npx re-downloading the package).
  *  Points at the real .mjs file: .bin/hyperframes is a symlink that breaks
  *  when tests run with a different cwd. */
-const SKILL_ROOT = "/Users/andrea/Desktop/opensource skill videoediting";
-const HF_BIN = `${SKILL_ROOT}/node_modules/hyperframes/bin/hyperframes.mjs`;
+const SKILL_ROOT = fileURLToPath(new URL("..", import.meta.url));
+const HF_BIN = join(SKILL_ROOT, "node_modules", "hyperframes", "bin", "hyperframes.mjs");
 
 describe("e2e pipeline", () => {
   it("RAW → EditPlan → HyperFrames project → clean lint", async () => {
