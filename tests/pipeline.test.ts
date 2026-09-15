@@ -251,12 +251,14 @@ describe("analyze", () => {
 });
 
 describe("plan", () => {
-  it("generates a coherent EditPlan 1.2 with a real splice", () => {
+  it("generates a coherent EditPlan 1.3 with a real splice", () => {
     const s = analyzeTranscript(SAMPLE_TRANSCRIPT);
-    const plan = generateEditPlan(s, { style: "youtube_talking_head" });
-    expect(plan.version).toBe("1.2");
-    expect(plan.style).toBe("youtube_talking_head");
+    const plan = generateEditPlan(s, { style: "educational" });
+    expect(plan.version).toBe("1.3");
+    expect(plan.style).toBe("educational");
     expect(plan.format).toBe("long");
+    // resolved register is always written — what you read is what ran
+    expect(plan.resolvedRegister).toBe("educational");
     // KEEP cuts first (sorted, non-overlapping), CUT record appended
     const keeps = plan.cuts.filter((c) => !c.reason.startsWith("CUT"));
     expect(keeps.length).toBeGreaterThan(0);
@@ -277,8 +279,10 @@ describe("plan", () => {
       );
       expect(onBoundary).toBe(true);
     }
-    // interrupts every ~25s over 28s of video → 1
-    expect(plan.pattern_interrupts).toHaveLength(1);
+    // interrupts at educational cadence (~5s over 28s → ticks at
+    // 5,10,15,20,25, minus CUT/mask skips by design)
+    expect(plan.pattern_interrupts.length).toBeGreaterThanOrEqual(2);
+    expect(plan.pattern_interrupts.length).toBeLessThanOrEqual(6);
   });
   it("short_form → 9:16 format, tiny cards, keyword emphasis", () => {
     const t: Transcript = {
@@ -463,6 +467,45 @@ describe("render: HyperFrames project build", () => {
       rmSync(dir, { recursive: true, force: true });
     }
   });
+  it("renders graphic banners TOP with transcript text — and rejects overlaps", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "cutcraft-gfx-"));
+    try {
+      const plan = {
+        version: "1.3" as const,
+        style: "educational",
+        format: "long" as const,
+        media_id: "gfx-media",
+        cuts: [{ start: "00:00:00.000", end: "00:00:20.000", reason: "keep" }],
+        animations: [],
+        broll: [],
+        pattern_interrupts: [],
+        graphics: [
+          { time: "00:00:02.000", kind: "act_title" as const, title: "TRE SEGRETI", subtitle: "Section 2", duration: 2.5 },
+          { time: "00:00:10.000", kind: "number_stat" as const, title: "3000 AL MESE", duration: 3.5 },
+        ],
+      };
+      await buildHyperframesProject(plan, dir);
+      const { readFileSync } = await import("node:fs");
+      const html = readFileSync(join(dir, "index.html"), "utf8");
+      // TOP banners, transcript text, kind styling hooks
+      expect(html).toContain('class="clip overlay gfx gfx-act_title"');
+      expect(html).toContain('class="clip overlay gfx gfx-number_stat"');
+      expect(html).toContain("TRE SEGRETI");
+      expect(html).toContain("3000 AL MESE");
+      expect(html).toContain("Section 2");
+      // overlapping banners fail loud with the fix
+      const bad = {
+        ...plan,
+        graphics: [
+          { time: "00:00:02.000", kind: "act_title" as const, title: "UNO", duration: 5 },
+          { time: "00:00:04.000", kind: "highlight" as const, title: "DUE", duration: 3 },
+        ],
+      };
+      await expect(buildHyperframesProject(bad, dir)).rejects.toThrow(/banners overlap/);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
   it("renderer rejects overlapping karaoke captions with a fix hint", async () => {
     const dir = mkdtempSync(join(tmpdir(), "cutcraft-reject-"));
     try {
@@ -556,7 +599,6 @@ describe("render: HyperFrames project build", () => {
       s,
       {
         style: "short_form",
-        interruptEverySec: 4,
         extraCuts: [{ start: "00:00:05.000", end: "00:00:08.000", reason: "test cut" }],
       },
       words
@@ -602,7 +644,7 @@ describe("render: HyperFrames project build", () => {
       { sectionCount: 3 }
     );
     expect(s.sections).toHaveLength(3);
-    const plan = generateEditPlan(s, { style: "youtube_talking_head" }, words);
+    const plan = generateEditPlan(s, { style: "educational" }, words);
     const slowZooms = plan.animations.filter((a) => a.type === "slow_zoom");
     expect(slowZooms.length).toBeGreaterThanOrEqual(1);
     for (const z of slowZooms) {
@@ -612,6 +654,91 @@ describe("render: HyperFrames project build", () => {
         (sec, i) => i > 0 && Math.abs(timecodeToSec(sec.start) + 0.5 - t) < 0.6
       );
       expect(onBoundary).toBe(true);
+    }
+  });
+  it("registers: measured cadences, legacy alias folds to educational", () => {
+    const s = analyzeTranscript(SAMPLE_TRANSCRIPT);
+    // educational default: ~5s cadence over 28s → ~5 interrupts
+    const edu = generateEditPlan(s, { style: "educational", takesCount: 2 });
+    expect(edu.resolvedRegister).toBe("educational");
+    expect(edu.pattern_interrupts.length).toBeGreaterThanOrEqual(3);
+    expect(edu.pattern_interrupts.length).toBeLessThanOrEqual(7);
+    // legacy alias behaves identically
+    const legacy = generateEditPlan(s, { style: "youtube_talking_head", takesCount: 2 });
+    expect(legacy.resolvedRegister).toBe("educational");
+    expect(legacy.pattern_interrupts).toHaveLength(edu.pattern_interrupts.length);
+    // show with real coverage: ~2s cadence → dense interrupts
+    const show = generateEditPlan(s, { style: "show", takesCount: 3 });
+    expect(show.resolvedRegister).toBe("show");
+    expect(show.pattern_interrupts.length).toBeGreaterThan(edu.pattern_interrupts.length);
+    // tutorial: ~20s cadence → sparse
+    const tut = generateEditPlan(s, { style: "tutorial" });
+    expect(tut.resolvedRegister).toBe("tutorial");
+    expect(tut.pattern_interrupts.length).toBeLessThanOrEqual(2);
+  });
+  it("footage gate: single_take never fakes multi-cam energy", () => {
+    const s = analyzeTranscript(SAMPLE_TRANSCRIPT);
+    // show on a single take → downgraded, WITH a visible note
+    const single = generateEditPlan(s, { style: "show" });
+    expect(single.resolvedRegister).toBe("educational");
+    expect(single.takesCount).toBe(1);
+    expect((single.structure_notes ?? []).some((n) => n.note.includes("downgraded"))).toBe(true);
+    for (const p of single.pattern_interrupts) expect(p.kind).toBe("caption_pop");
+    // same style with real coverage → show rhythm unlocked. At show
+    // pace (tick every 2s, coverage ±1s) the only cadence hole is past
+    // the last tick (26s → 28s end): an agent-flagged risk there punches
+    // instead of being skipped as covered.
+    const multi = generateEditPlan(s, {
+      style: "show",
+      takesCount: 3,
+      attentionRiskPoints: [{ start: "00:00:27.000", end: "00:00:27.800", reason: "agent-flagged static" }],
+    });
+    expect(multi.resolvedRegister).toBe("show");
+    expect((multi.structure_notes ?? []).some((n) => n.note.includes("downgraded"))).toBe(false);
+    expect(multi.pattern_interrupts.some((p) => p.kind === "zoom_punch")).toBe(true);
+  });
+  it("speech wpm is measured and carried into the plan", () => {
+    const s = analyzeTranscript(SAMPLE_TRANSCRIPT);
+    expect(s.speech).toBeDefined();
+    expect(s.speech!.totalWords).toBeGreaterThan(0);
+    expect(s.speech!.wpm).toBeGreaterThan(0);
+    const plan = generateEditPlan(s, { style: "educational" });
+    expect(plan.speech).toBeDefined();
+    expect(plan.speech!.totalWords).toBe(s.speech!.totalWords);
+  });
+  it("graphics: content-aware banners, transcript-verbatim, max 1 at a time", () => {
+    const s = analyzeTranscript(SAMPLE_TRANSCRIPT, { sectionCount: 3 });
+    const flat = SAMPLE_TRANSCRIPT.segments.flatMap((sg) =>
+      (sg.text.split(/\s+/).map((w, j) => ({
+        start: secToTimecode(timecodeToSec(sg.start) + j * 0.3),
+        word: w,
+      })))
+    );
+    const plan = generateEditPlan(s, { style: "educational" }, flat);
+    const gfx = plan.graphics ?? [];
+    expect(gfx.length).toBeGreaterThan(0);
+    // every banner: known kind, non-empty transcript text, sane duration
+    for (const g of gfx) {
+      expect(["act_title", "number_stat", "highlight", "quote"]).toContain(g.kind);
+      expect(g.title.length).toBeGreaterThan(0);
+      expect(g.duration).toBeGreaterThanOrEqual(1);
+      expect(g.duration).toBeLessThanOrEqual(8);
+    }
+    // max 1 at a time: no two banners overlap
+    const spans = gfx
+      .map((g) => ({ s: timecodeToSec(g.time), e: timecodeToSec(g.time) + g.duration }))
+      .sort((a, b) => a.s - b.s);
+    for (let i = 0; i + 1 < spans.length; i++) {
+      expect(spans[i].e).toBeLessThanOrEqual(spans[i + 1].s + 0.001);
+    }
+    // no banner inside a CUT range or the pre-cut mask
+    const cutSpans = (s.cut_candidates ?? []).map((c) => ({
+      s: timecodeToSec(c.start),
+      e: timecodeToSec(c.end),
+    }));
+    for (const g of gfx) {
+      const t = timecodeToSec(g.time);
+      expect(cutSpans.every((c) => t < c.s - 0.8 || t >= c.e)).toBe(true);
     }
   });
 });

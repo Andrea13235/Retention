@@ -14,7 +14,8 @@ import { z } from "zod";
 import { importRawMedia } from "./tools_ingest.js";
 import { transcribeMedia } from "./tools_transcribe.js";
 import { analyzeTranscript } from "./tools_analyze.js";
-import { generateEditPlan, type StylePreset } from "./tools_plan.js";
+import { generateEditPlan } from "./tools_plan.js";
+import { REGISTER_CADENCE, type StylePreset } from "./types.js";
 import {
   buildHyperframesProject,
   renderVideo,
@@ -84,23 +85,28 @@ server.tool(
 );
 
 const STYLE: [StylePreset, ...StylePreset[]] = [
-  "youtube_talking_head",
+  "show",
+  "educational",
+  "tutorial",
   "podcast",
   "short_form",
+  "youtube_talking_head",
 ];
 
 server.tool(
   "generate_edit_plan",
-  "Step 4 — Generate the Action Plan JSON v1.2: a real KEEP splice (confidence-gated cuts), kept-words-only karaoke captions, act-based motion. ALWAYS inspect `review_cuts` in the output before rendering: SKIPPED entries need an explicit promote-or-keep decision, APPLIED entries need a rhetoric check. Reading guide: docs/analysis-guide.md. Every attention_risk_point gets interrupt coverage.",
+  "Step 4 — Generate the Action Plan JSON v1.3: a real KEEP splice (confidence-gated cuts), kept-words-only karaoke captions, act-based motion, content-aware graphic banners. STYLE picks the rhythm register (show ~2s / educational ~5s / tutorial ~20s / podcast ~60s cadence, measured on real reference videos). TAKESCOUNT is the footage gate and defaults to 1 (single_take): with one take the plan NEVER fakes multi-cam energy (caption pops only); pass the real take count (≥2) to unlock show rhythm and punch zooms. Legacy youtube_talking_head = educational. ALWAYS inspect `review_cuts` in the output before rendering: SKIPPED entries need an explicit promote-or-keep decision, APPLIED entries need a rhetoric check. Reading guide: docs/analysis-guide.md. Every attention_risk_point gets interrupt coverage.",
   {
     structure: z.string().describe("NarrativeStructure JSON (analyze_transcript output)"),
     transcript: z
       .string()
       .optional()
       .describe("Transcript JSON (transcribe_media output) — word timestamps feed karaoke captions (only kept words render)"),
-    style: z.enum(STYLE).optional(),
+    style: z.enum(STYLE).optional().describe(
+      `Rhythm register. educational (default): steady explainer pace (~5s cadence). show: MrBeast-grade energy (~2s) — needs takesCount ≥2, downgraded to educational on a single take. tutorial: locked-off screen-led pace (~20s). podcast: conversation breathing room (~60s). short_form: vertical snap (~4s). Cadences: ${Object.entries(REGISTER_CADENCE).map(([k, v]) => `${k}=${v}s`).join(", ")}.`
+    ),
     sourcePortrait: z.boolean().optional().describe("Set when the source footage is portrait (forces 9:16 short canvas)"),
-    interruptEverySec: z.number().optional(),
+    takesCount: z.number().int().min(1).optional().describe("Takes in hand (default 1 = single_take: no faked coverage, caption pops only). Pass the real count — ≥2 unlocks show rhythm and punch zooms."),
     brollSources: z.array(z.string()).optional(),
     attentionRiskPoints: z
       .array(RiskPoint)
@@ -115,7 +121,7 @@ server.tool(
       .optional()
       .describe("Fix ASR-mangled words in captions (also accepted by analyze_transcript)"),
   },
-  async ({ structure, transcript, style, sourcePortrait, interruptEverySec, brollSources, attentionRiskPoints, extraCuts, corrections }) => {
+  async ({ structure, transcript, style, sourcePortrait, takesCount, brollSources, attentionRiskPoints, extraCuts, corrections }) => {
     let words: Array<{ start: string; word: string }> | undefined;
     if (transcript) {
       try {
@@ -138,7 +144,7 @@ server.tool(
             generateEditPlan(JSON.parse(structure), {
               style,
               sourcePortrait,
-              interruptEverySec,
+              takesCount,
               brollSources,
               attentionRiskPoints,
               extraCuts,

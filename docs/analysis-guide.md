@@ -166,16 +166,65 @@ attention curve demands them.
 - Near-constant text overlays (continuous narrative drive, not just keywords).
 - Zoom or scale change on every cut — never static for more than 3 s.
 
-## 6. Technique intensity by content type
+## 6. Rhythm registers by content type (measured 2026-09-15)
 
-| Content type | Pattern-interrupt cadence | Overlay style | B-roll |
-|---|---|---|---|
-| Podcast / long interviews | Low (every 15–20 s) | Only on key quotes/numbers | If available, every 2–3 min |
-| Tutorial / educational | Medium (every 10–15 s) | Frequent on technical terms | Screenshots/demo when relevant |
-| YouTube talking-head (vlog, commentary) | Medium-high (every 8–10 s) | On keywords and emotions | Every 60–90 s |
-| Shorts/Reels/TikTok | Very high (every 2–4 s) | Constant | If available, near every cut |
+One table, one truth — the planner reads `REGISTER_CADENCE`
+(`src/types.ts`), which mirrors these numbers. Pick the register by
+content energy AND by `structure.speech.wpm`, not by gut feeling:
 
-## 7. Output format: Action Plan JSON (EditPlan v1.2)
+| Content type | Style | Cadence | wpm | Overlay style | B-roll |
+|---|---|---|---|---|---|
+| High-energy show (MrBeast-grade) | `show` | ~2s | ~182 | Context labels only (DAY counters, place tags) | Constant — the cut IS the energy |
+| Explainer / talking-head / product | `educational` | ~5s | ~174–188 | Keyword banners, numbers, act titles | Every 60–90s |
+| Screen-led tutorial | `tutorial` | ~20s | ~257 (!) | Headlines + product mockups (the screen carries it) | The screen IS the b-roll |
+| Podcast / long interviews | `podcast` | ~60s | conversational | Only on key quotes/numbers | If available, every 2–3 min |
+| Shorts/Reels/TikTok | `short_form` | ~4s | dense | Near-constant captions, caption pops | If available, near every cut |
+
+Reference measurements (4 videos, frame-by-frame):
+MrBeast "100 Days in a Circle" 16:51 — 479 cuts (28/min, median shot
+1.4s), 182 wpm, zero push-ins, zero karaoke, graphics = cartoon
+context labels (DAY 4, MIDDLE OF NOWHERE, countdown) lasting ~5–8s.
+Higgsfield educational 7:21 — 99 cuts (~13/min, median ~4–5s),
+188 wpm, graphics = section hooks ("3 STEPS") + full-screen number
+formulas ("100,000 VIEWS = $3,000/MONTH"). Higgsfield
+motion-graphics 13:50 — 124 cuts (~9/min), 174 wpm, talking-head
+base that never leaves + full-screen typo cards (2–3s, cream +
+pastel, payoff in black) + product PiP top-left. Nate Herk tutorial
+29:57 — ~38 scene changes (locked-off PiP face, the IDE carries it),
+257 wpm, longest pause in 30min = 2.0s, zero push-ins, captions only
+on product A-rolls.
+
+Two lessons that became rules:
+1. **The slow push-in appears in NONE of the four.** It is OUR tool
+   for static talking-heads the references never needed — use with
+   restraint (act opens), never as default motion.
+2. **Graphics are always functional**: context (where/when),
+   proof (numbers), structure (act titles) — never decoration of
+   the spoken word. Every `GraphicBeat` title is transcript-verbatim
+   for exactly this reason.
+
+## 6b. Footage gate: adapt to what you hold (READ THIS)
+
+The register says the RHYTHM. The footage says what is LEGAL.
+`takesCount` (default 1) decides `FootageMode`:
+
+- **single_take (1 take): ONE continuous recording.** There is no
+  second angle, no coverage, no B-roll — so the plan MUST NOT fake
+  any: no shot-change transitions, no multi-cam rhythm, no
+  `zoom_punch` (punching every 2s on the same frame reads as a
+  glitch, not energy). Legal: cleanup hard cuts, caption pops,
+  graphic banners, slow push-ins on act opens. A `show` request is
+  downgraded to `educational` WITH a `structure_notes` entry — the
+  agent reads WHY, never silent.
+- **multi_take (≥2 takes): real coverage exists.** The agent can cut
+  between takes, so `show` rhythm (~2s) and `zoom_punch` on agent
+  risk points / scene changes are legal.
+
+MrBeast publishes show rhythm because he SHOOTS show coverage
+(10 takes, B-roll, crew) — the rhythm follows the material, never
+the reverse. Never promise what the footage cannot deliver.
+
+## 7. Output format: Action Plan JSON (EditPlan v1.3)
 
 Every intervention must be written in this format — field for field what
 `buildHyperframesProject` consumes. Unknown fields are ignored by the
@@ -183,10 +232,13 @@ renderer, so stick to this contract.
 
 ```json
 {
-  "version": "1.2",
-  "style": "youtube_talking_head",
+  "version": "1.3",
+  "style": "educational",
   "format": "long",
   "media_id": "<media_id from import_raw_media>",
+  "resolvedRegister": "educational",
+  "takesCount": 1,
+  "speech": {"wpm": 181.5, "totalWords": 1240},
   "cuts": [
     {"start": "00:00:00.000", "end": "00:00:15.500", "reason": "opening hook (trimmed)"},
     {"start": "00:00:15.500", "end": "00:00:22.000", "reason": "Section 1"},
@@ -225,14 +277,26 @@ renderer, so stick to this contract.
     {"start": "00:04:00.000", "end": "00:04:06.000", "source": "library/screenshot_01.png", "reason": "visual reinforcement of cited statistic"}
   ],
   "pattern_interrupts": [
-    {"time": "00:00:25.000", "kind": "zoom_punch", "detail": "interrupt every ~25s"},
-    {"time": "00:01:55.000", "kind": "zoom_punch", "detail": "risk-point coverage: 30s static block"}
+    {"time": "00:00:05.000", "kind": "caption_pop", "detail": "interrupt every ~5s"},
+    {"time": "00:01:55.000", "kind": "caption_pop", "detail": "risk-point coverage: 30s static block"}
+  ],
+  "graphics": [
+    {"time": "00:00:10.500", "kind": "act_title", "title": "TRE SEGRETI", "subtitle": "Section 2", "duration": 2.5},
+    {"time": "00:01:20.000", "kind": "number_stat", "title": "$3,000 / MONTH", "duration": 3.5}
   ],
   "structure_notes": [
     {"time": "00:00:00.000", "note": "hook missing: consider cold open with moment at 00:03:12"}
   ]
 }
 ```
+
+Graphic kinds (all transcript-verbatim, TOP banners, max 1 at a time):
+`act_title` (new act opens — section's own words, ≤6, UPPERCASE),
+`number_stat` (spoken number worth reading — digit keyword, accent
+color), `highlight` (top non-numeric keyword as context label, clear
+of numbers ±20s), `quote` (hook replay past midpoint, >8min media
+only). Beats inside CUTs/masks are dropped; overlapping banners fail
+loud in the renderer — same contract as karaoke.
 
 Field notes:
 
@@ -244,7 +308,10 @@ Field notes:
   dropped, and the output duration is the KEEP sum (shorter than source).
 - `format` selects the canvas: `short` → 1080×1920 (9:16),
   `long` → 1920×1080 (16:9). Never render a portrait source as landscape.
-- `animations[].type` must be one of: `text_overlay` | `caption` | `karaoke_caption` | `lower_third` | `zoom_in` | `zoom_out` | `slow_zoom` | `transition`. Anything else renders nothing.
+- `animations[].type` must be one of: `text_overlay` | `caption` | `karaoke_caption` | `lower_third` | `zoom_in` | `zoom_out` | `slow_zoom` | `transition` | `graphic_card`. Anything else renders nothing.
+- `resolvedRegister` is the register that RAN (alias folded, downgrade
+  applied) — trust it over the requested `style`. `takesCount` is what
+  the gate saw. `speech.wpm` is the measured pace (compare §6).
 - `karaoke_caption.words[]` carry SOURCE timecodes; only kept words
   reach the screen (CUT words are dropped and the rest remapped).
   `emphasis: true` words render as keyword pops.
@@ -281,6 +348,10 @@ does with each entry — no more, no less:
 - [ ] Every cut has an explicit `reason` (no random cuts).
 - [ ] No hook, number, promise, or CTA was cut by mistake.
 - [ ] Every `attention_risk_point` has an associated interrupt (the planner adds midpoint coverage automatically — verify it is present in `pattern_interrupts`).
-- [ ] Technique frequency matches the target format (see Section 6).
+- [ ] Technique frequency matches the target register (see Section 6:
+  show ~2s / educational ~5s / tutorial ~20s / podcast ~60s /
+  short ~4s) AND the footage gate (§6b: single_take = caption pops
+  only, no faked coverage).
 - [ ] Timecodes are `HH:MM:SS.mmm` everywhere, within media bounds, no zero-length segments.
-- [ ] The plan is valid JSON with `version: "1.2"`, `format`, and `media_id`, ready for `render_video`.
+- [ ] The plan is valid JSON with `version: "1.3"`, `format`,
+  `resolvedRegister`, `takesCount`, and `media_id`, ready for `render_video`.

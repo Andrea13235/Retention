@@ -106,6 +106,13 @@ export interface NarrativeStructure {
   hook_moment?: { start: Timecode; end: Timecode; text: string };
   slow_spots?: Array<{ start: Timecode; end: Timecode; reason: string }>;
   /**
+   * Measured speech pace over KEPT words (CUT words excluded — the pace
+   * that reaches the screen, not the RAW ramble). The agent compares
+   * this against the measured registers (show ~182, educational ~174–188,
+   * tutorial ~257 wpm) to pick the rhythm honestly instead of guessing.
+   */
+  speech?: { wpm: number; totalWords: number };
+  /**
    * Total media duration in seconds (when known). Lets the planner use
    * the full [0, mediaEnd] range so tail trims are exact.
    */
@@ -146,7 +153,115 @@ export type AnimationType =
   | "zoom_in"
   | "zoom_out"
   | "slow_zoom"
-  | "transition";
+  | "transition"
+  | "graphic_card";
+
+/**
+ * Editing style requested by the agent (Step 0 + Step 4).
+ * - show / educational / tutorial / podcast: LONG-form rhythm registers,
+ *   measured on real reference videos (see REGISTER below). Pick by
+ *   content energy, not by gut feeling — check analyze's speech.wpm.
+ * - short_form: VERTICAL short (format "short"), its own cadence.
+ * - youtube_talking_head: LEGACY alias of educational (kept so old plans
+ *   still parse; new work should say educational).
+ */
+export type StylePreset =
+  | "show"
+  | "educational"
+  | "tutorial"
+  | "podcast"
+  | "short_form"
+  | "youtube_talking_head";
+
+/** Rhythm register after alias resolution (never contains the legacy alias). */
+export type RegisterName = "show" | "educational" | "tutorial" | "podcast" | "short_form";
+
+/**
+ * Measured interruption cadence per register (seconds between beats).
+ * Source: 4 reference videos analyzed frame-by-frame 2026-09-15 —
+ * MrBeast "100 Days" (28 cuts/min → ~2s), Higgsfield edu (13/min → ~5s),
+ * Higgsfield graphics (9/min → ~7s, rounded into educational),
+ * Nate Herk tutorial (locked-off 30min, screen carries it → ~20s).
+ * podcast (60s) and short_form (4s) are carried over: conversations
+ * breathe, verticals snap. ONE table — planner, guide and SKILL.md
+ * all read these numbers, never a second copy.
+ */
+export const REGISTER_CADENCE: Record<RegisterName, number> = {
+  show: 2,
+  educational: 5,
+  tutorial: 20,
+  podcast: 60,
+  short_form: 4,
+};
+
+/**
+ * What the editor physically has in hand. Decided by takesCount:
+ * - single_take (1 take): ONE continuous recording. There is no second
+ *   angle, no B-roll, no coverage — so the plan MUST NOT fake any:
+ *   no shot-change transitions, no multi-cam rhythm. Caption pops,
+ *   graphic banners and slow push-ins are legal (they add, not fake).
+ * - multi_take (≥2 takes): real coverage exists — the agent can cut
+ *   between takes, so show-rhythm and punch zooms are legal.
+ */
+export type FootageMode = "single_take" | "multi_take";
+
+/** Resolve takesCount → mode. 1 (or unknown) is single_take: prudence by default. */
+export function footageMode(takesCount?: number): FootageMode {
+  return (takesCount ?? 1) >= 2 ? "multi_take" : "single_take";
+}
+
+/**
+ * Resolve (style, takes) → effective register.
+ * - youtube_talking_head → educational (legacy alias, same cadence).
+ * - show + single_take → educational + note: MrBeast rhythm needs real
+ *   coverage (10 takes, B-roll, crew). Faking it on one take reads as
+ *   cheap, not energetic. The downgrade is recorded in structure_notes
+ *   so the agent sees it — never silent.
+ */
+export function resolveRegister(
+  style: StylePreset | undefined,
+  takesCount?: number
+): { register: RegisterName; downgraded: boolean } {
+  const s = style ?? "educational";
+  const base: RegisterName = s === "youtube_talking_head" ? "educational" : s;
+  if (base === "show" && footageMode(takesCount) === "single_take")
+    return { register: "educational", downgraded: true };
+  return { register: base, downgraded: false };
+}
+
+/**
+ * Graphic kinds the planner may emit — all CONTENT-AWARE (text comes
+ * from the real transcript/analysis, never invented):
+ * - act_title: new act opens (section boundary) — title from the
+ *   section's own words (video-4 "3 STEPS" hook banner).
+ * - number_stat: a spoken number/stat worth reading (video-3
+ *   "$3,000/MONTH" full-screen formula) — from keywords with digits.
+ * - highlight: a top keyword as a context label (MrBeast "MIDDLE OF
+ *   NOWHERE") — from top-scoring non-numeric keywords.
+ * - quote: the hook's most quotable line replayed mid-video as a recap
+ *   (guide §5.4 visual recap) — from hook_moment.text.
+ */
+export type GraphicKind = "act_title" | "number_stat" | "highlight" | "quote";
+
+/**
+ * One content-aware graphic banner (planner output, renderer input).
+ * Times are SOURCE timecodes (same clock as cuts/animations); the
+ * renderer remaps them and drops beats inside CUT ranges.
+ * Rendered as a TOP banner (below nothing, above the face is free
+ * space on talking-heads) so it NEVER covers the bottom karaoke
+ * captions — "max 1 graphic at a time, never over captions" holds
+ * by construction, no cross-check needed.
+ */
+export interface GraphicBeat {
+  time: Timecode;
+  kind: GraphicKind;
+  /** Main line: section words / number / keyword / quote (transcript-verbatim). */
+  title: string;
+  /** Optional second line (act_title only). */
+  subtitle?: string;
+  /** Visible seconds (act 2.5, number 3.5, highlight 3, quote 4). */
+  duration: number;
+}
 
 /** Target canvas presets. short = 9:16 vertical, long = 16:9 landscape. */
 export type CanvasFormat = "short" | "long";
@@ -156,9 +271,16 @@ export const CANVAS: Record<CanvasFormat, { width: number; height: number }> = {
   long: { width: 1920, height: 1080 },
 };
 
-/** Machine-actionable Action Plan (Step 4). */
+/** Machine-actionable Action Plan (Steps 4–6). Version history:
+ * - 1.2: KEEP splice + kept-words karaoke + act-based motion.
+ * - 1.3: ADDS speech (wpm from analyze), takesCount→footage gate,
+ *   resolvedRegister (legacy alias folded, show+single_take downgraded
+ *   with a structure_notes entry — never silent), graphics[]
+ *   (content-aware banners: act_title / number_stat / highlight / quote,
+ *   transcript-verbatim). Old 1.2 plans still parse (new fields optional).
+ */
 export interface EditPlan {
-  version: "1.2";
+  version: "1.2" | "1.3";
   style: string;
   media_id: string;
   /** Target canvas: "short" (9:16) or "long" (16:9). Renderer sizes to it. */
@@ -197,6 +319,30 @@ export interface EditPlan {
     reason?: string;
   }>;
   pattern_interrupts: Array<{ time: Timecode; kind: string; detail?: string }>;
+  /**
+   * Measured speech pace from analyze (words/min over kept words).
+   * The agent reads this to pick the register honestly: ≥220 sustained =
+   * tutorial-grade density (the screen must change, not the face);
+   * ~170–190 = educational/show-grade (cut on ideas).
+   */
+  speech?: { wpm: number; totalWords: number };
+  /**
+   * Takes the editor has in hand (default 1 = single_take = prudent).
+   * Decides FootageMode: 1 → no faked coverage; ≥2 → real cutting.
+   */
+  takesCount?: number;
+  /**
+   * Effective rhythm register AFTER resolveRegister ran (alias folded,
+   * downgrade applied). The planner always writes it — what you read
+   * here is what the cadence obeyed, no guessing.
+   */
+  resolvedRegister?: RegisterName;
+  /**
+   * Content-aware graphic banners (all transcript-verbatim, TOP position
+   * so captions stay clear). The renderer drops beats in CUT ranges and
+   * enforces max-1-at-a-time (fail-loud on overlap, like karaoke).
+   */
+  graphics?: GraphicBeat[];
   /** Free-form agent notes (hook missing, cold-open proposal, …). */
   structure_notes?: Array<{ time: Timecode; note: string }>;
   /**

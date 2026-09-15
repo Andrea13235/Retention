@@ -1,34 +1,49 @@
 /**
- * tools_plan.ts — Step 4: Action Plan generation (v1.2).
+ * tools_plan.ts — Step 4: Action Plan generation (v1.3).
  * Turns the NarrativeStructure into a machine-actionable EditPlan:
  * a real KEEP splice (complement of cut_candidates), kept-words-only
- * karaoke captions, act-based motion.
+ * karaoke captions, act-based motion, content-aware graphics.
  *
- * Rules:
- * - format "short" (explicit or portrait source): 9:16 canvas, tight,
- *   hook-first, punch every ~4s, captions always on.
- * - format "long": 16:9 canvas, breathing room, punch every ~25s.
- * - cuts = complement of cut_candidates over [0, mediaEnd]: sorted,
- *   non-overlapping, edge-to-edge. CUT entries are ALSO listed
- *   (reason "CUT — …") for the human-readable record.
+ * Rules (ONE decision chain, in this order):
+ * 1. format: "short" (explicit or portrait source) → 9:16 canvas,
+ *    hook-first, punch every ~4s, captions always on. "long" → 16:9,
+ *    breathing room, register cadence below.
+ * 2. register: style → resolveRegister (types.ts): legacy
+ *    youtube_talking_head folds to educational; show + single_take
+ *    downgrades to educational WITH a structure_notes entry (never
+ *    silent — MrBeast rhythm needs real coverage, faking it reads cheap).
+ *    Cadence comes from REGISTER_CADENCE — the measured table, no copies.
+ * 3. footage gate: takesCount 1 (default) = single_take → NO faked
+ *    coverage: no shot-change transitions, show-rhythm only with ≥2
+ *    takes. Caption pops, graphic banners, push-ins stay legal.
+ * 4. cuts = complement of cut_candidates over [0, mediaEnd]: sorted,
+ *    non-overlapping, edge-to-edge. CUT entries are ALSO listed
+ *    (reason "CUT — …") for the human-readable record.
  * - Karaoke captions contain ONLY kept words; corrected text
  *   (structure.corrections_applied) replaces ASR-mangled words.
  * - Motion follows narrative acts (one slow_zoom per section), not a
  *   metronome; slow_spots get punch-ins.
+ * - Graphics (NEW v1.3): max 1 banner at a time, TOP position (captions
+ *   live at the bottom — no overlap possible), text ALWAYS
+ *   transcript-verbatim (section words, spoken numbers, top keywords,
+ *   hook quote). Dropped inside CUTs, validated by the renderer.
  */
 import {
+  footageMode,
+  REGISTER_CADENCE,
+  resolveRegister,
   secToTimecode,
   timecodeToSec,
   type CanvasFormat,
   type CutCandidate,
   type EditPlan,
+  type GraphicBeat,
   type NarrativeStructure,
+  type RegisterName,
+  type StylePreset,
 } from "./types.js";
 
-export type StylePreset =
-  | "youtube_talking_head"
-  | "podcast"
-  | "short_form";
+export type { StylePreset };
 
 export interface PlanOptions {
   style?: StylePreset;
@@ -39,8 +54,12 @@ export interface PlanOptions {
   format?: CanvasFormat;
   /** True when the source footage is portrait (vertical video). */
   sourcePortrait?: boolean;
-  /** Pattern-interrupt cadence in seconds (default per style). */
-  interruptEverySec?: number;
+  /**
+   * Takes the editor has in hand (default 1 = single_take = prudent).
+   * 1 → no faked coverage (no shot-change transitions, no multi-cam
+   * rhythm); ≥2 → real cutting between takes is legal.
+   */
+  takesCount?: number;
   /** Available b-roll sources (paths). */
   brollSources?: string[];
   /**
@@ -71,22 +90,21 @@ export interface PlanOptions {
   maxWordsPerCard?: number;
 }
 
-const DEFAULT_INTERRUPT: Record<StylePreset, number> = {
-  youtube_talking_head: 25,
-  podcast: 60,
-  short_form: 4,
-};
-
 export function generateEditPlan(
   structure: NarrativeStructure,
   opts: PlanOptions = {},
   transcriptWords?: Array<{ start: string; word: string }>
 ): EditPlan {
-  const style = opts.style ?? "youtube_talking_head";
+  const style = opts.style ?? "educational";
   const format: CanvasFormat =
     opts.format ?? (style === "short_form" || opts.sourcePortrait ? "short" : "long");
   const isShort = format === "short";
-  const every = opts.interruptEverySec ?? DEFAULT_INTERRUPT[style];
+  // Register + cadence: ONE measured table (types.ts). short_form keeps
+  // its own cadence; long-form reads the resolved register.
+  const { register, downgraded } = isShort
+    ? { register: "short_form" as RegisterName, downgraded: false }
+    : resolveRegister(style, opts.takesCount);
+  const every = REGISTER_CADENCE[register];
   const maxWords = opts.maxWordsPerCard ?? (isShort ? 5 : 8);
 
   const endSec = timecodeToSec(
@@ -318,15 +336,23 @@ export function generateEditPlan(
     });
   }
 
-  // Pattern interrupts on cadence (short-form keeps every ~4s)…
+  // Pattern interrupts on cadence (register-measured: show ~2s,
+  // educational ~5s, tutorial ~20s, podcast ~60s, short ~4s)…
   // …skipped inside CUT ranges and inside the pre-cut mask (same rule).
-  // Long-form cadence is caption_pop by default; zoom_punch ONLY on
-  // genuine scene changes (section boundary) — motion stays coherent.
+  // FOOTAGE GATE: single_take (default) gets caption_pop ONLY — no
+  // zoom_punch, no fake shot-change energy. There is one camera and one
+  // take: punching every 2s on the same frame reads as a glitch, not
+  // energy. multi_take unlocks zoom_punch on scene changes / agent risk.
+  const mode = footageMode(opts.takesCount);
   const pattern_interrupts: EditPlan["pattern_interrupts"] = [];
   for (let t = every; t < endSec; t += every) {
     if (!isKept(t) || nearCutStart(t)) continue;
     const kind =
-      style === "short_form" ? "caption_pop" : isSceneChange(t) ? "zoom_punch" : "caption_pop";
+      isShort || mode === "single_take"
+        ? "caption_pop"
+        : isSceneChange(t)
+          ? "zoom_punch"
+          : "caption_pop";
     pattern_interrupts.push({
       time: secToTimecode(t),
       kind,
@@ -358,8 +384,11 @@ export function generateEditPlan(
     );
     if (covered) continue;
     const fromAgent = agentRisk.has(`${r.start}|${r.end}`);
+    // Agent risk points may carry zoom_punch ONLY with real coverage
+    // (multi_take): on a single take even an agent-flagged moment gets
+    // caption_pop — the punch would land on the same frame as everything.
     const kind =
-      style === "short_form"
+      isShort || mode === "single_take"
         ? "caption_pop"
         : fromAgent || isSceneChange(mid)
           ? "zoom_punch"
@@ -374,8 +403,124 @@ export function generateEditPlan(
     (a, b) => timecodeToSec(a.time) - timecodeToSec(b.time)
   );
 
+  // ——— Content-aware graphics (v1.3): WHAT is said decides the banner ———
+  // Max 1 banner alive at a time (checked below), TOP position (renderer),
+  // text ALWAYS transcript-verbatim. Four kinds, each with its trigger:
+  // 1. act_title — each new act opens with its own words (video-4 "3 STEPS"
+  //    banner). Title = section's first ≤6 content words (stopwords cut,
+  //    UPPERCASED for the banner look). Max 3 banners per video: titles
+  //    are emphasis — the 4th act doesn't need a hat.
+  // 2. number_stat — a spoken number/stat worth READING, not just hearing
+  //    (video-3 "$3,000/MONTH"). Trigger: keyword containing a digit with
+  //    score in the top 10. Title = the number + its ≤3-word context
+  //    ("$3,000 / MONTH"). Max 2: numbers are rare by nature.
+  // 3. highlight — a top keyword as a context label (MrBeast "MIDDLE OF
+  //    NOWHERE"). Trigger: top-5 non-numeric keyword, only when no
+  //    number_stat fired within ±20s (labels and numbers don't stack).
+  // 4. quote — the hook's most quotable line replayed ONCE past midpoint
+  //    (guide §5.4 visual recap for >8min). Trigger: hook_moment exists
+  //    AND media >8min. Title = hook_moment.text (≤90 chars).
+  // ALL beats are dropped when: inside a CUT range, inside the 0.8s
+  // pre-cut mask, overlapping another banner, or shorter than 1s of KEEP.
+  const graphics: GraphicBeat[] = [];
+  const graphicSpans: Array<{ s: number; e: number }> = [];
+  const claimGraphic = (t: number, dur: number): boolean => {
+    if (!isKept(t) || nearCutStart(t)) return false;
+    if (t + 1 > mediaEnd) return false;
+    if (graphicSpans.some((g) => t < g.e && t + dur > g.s)) return false;
+    graphicSpans.push({ s: t, e: t + dur });
+    return true;
+  };
+  const contentWords = (text: string): string[] =>
+    text.split(/\s+/).filter((w) => {
+      const c = w.toLowerCase().replace(/[.,!?;:]+$/, "");
+      return c.length > 0 && !CONTENT_STOP.has(c);
+    });
+  // 1. act titles (section 2+, max 3)
+  let actCount = 0;
+  for (let i = 1; i < structure.sections.length && actCount < 3; i++) {
+    const sec = structure.sections[i];
+    const sStart = timecodeToSec(sec.start);
+    const words = contentWords(fixWord(sec.summary)).slice(0, 6);
+    if (words.length === 0) continue;
+    const t = sStart + 0.5;
+    const dur = 2.5;
+    if (!claimGraphic(t, dur)) continue;
+    graphics.push({
+      time: secToTimecode(t),
+      kind: "act_title",
+      title: words.join(" ").toUpperCase().slice(0, 48),
+      subtitle: sec.title,
+      duration: dur,
+    });
+    actCount++;
+  }
+  // 2. number stats (top-10 digit keywords, max 2)
+  const numKws = (structure.keywords ?? [])
+    .filter((k, i) => i < 10 && /\d/.test(k.word))
+    .slice(0, 2);
+  for (const k of numKws) {
+    const t = timecodeToSec(k.start);
+    const dur = 3.5;
+    if (!claimGraphic(t, dur)) continue;
+    graphics.push({
+      time: secToTimecode(t),
+      kind: "number_stat",
+      title: fixWord(k.word).slice(0, 48),
+      duration: dur,
+    });
+  }
+  // 3. highlights (top-5 non-numeric, clear of numbers ±20s, max 2)
+  const numTimes = numKws.map((k) => timecodeToSec(k.start));
+  let hlCount = 0;
+  for (const k of (structure.keywords ?? []).slice(0, 5)) {
+    if (hlCount >= 2) break;
+    if (/\d/.test(k.word)) continue;
+    const t = timecodeToSec(k.start);
+    if (numTimes.some((n) => Math.abs(n - t) < 20)) continue;
+    const dur = 3;
+    if (!claimGraphic(t, dur)) continue;
+    graphics.push({
+      time: secToTimecode(t),
+      kind: "highlight",
+      title: fixWord(k.word).toUpperCase().slice(0, 40),
+      duration: dur,
+    });
+    hlCount++;
+  }
+  // 4. quote recap (hook replay past midpoint, >8min media only)
+  if (structure.hook_moment && mediaEnd > 8 * 60) {
+    const t = mediaEnd / 2;
+    const dur = 4;
+    if (claimGraphic(t, dur)) {
+      graphics.push({
+        time: secToTimecode(t),
+        kind: "quote",
+        title: fixWord(structure.hook_moment.text).slice(0, 90),
+        duration: dur,
+      });
+    }
+  }
+  graphics.sort((a, b) => timecodeToSec(a.time) - timecodeToSec(b.time));
+
+  // Downgrade is never silent: the agent reads WHY the rhythm changed.
+  const structure_notes: EditPlan["structure_notes"] = [];
+  if (downgraded) {
+    structure_notes.push({
+      time: secToTimecode(0),
+      note:
+        `style "show" requested but takesCount=${opts.takesCount ?? 1} ` +
+        `(single_take): downgraded to "educational" cadence (~5s). ` +
+        `MrBeast rhythm needs real coverage (≥2 takes / B-roll). ` +
+        `Pass takesCount: N to unlock show rhythm.`,
+    });
+  }
+
+  const keptWords = transcriptWords
+    ? transcriptWords.filter((w) => isKept(timecodeToSec(w.start))).length
+    : undefined;
   return {
-    version: "1.2",
+    version: "1.3",
     style,
     format,
     media_id: structure.media_id,
@@ -383,6 +528,30 @@ export function generateEditPlan(
     animations,
     broll,
     pattern_interrupts,
+    speech:
+      keptWords !== undefined && mediaEnd > 0
+        ? {
+            wpm: Math.round((keptWords / (mediaEnd / 60)) * 10) / 10,
+            totalWords: keptWords,
+          }
+        : structure.speech,
+    takesCount: opts.takesCount ?? 1,
+    resolvedRegister: register,
+    graphics: graphics.length > 0 ? graphics : undefined,
+    structure_notes: structure_notes.length > 0 ? structure_notes : undefined,
     review_cuts: reviewCuts.length > 0 ? reviewCuts : undefined,
   };
 }
+
+/** Stopwords for banner titles (banner = content words only). */
+const CONTENT_STOP = new Set([
+  "il", "lo", "la", "i", "gli", "le", "di", "a", "da", "in", "con", "su",
+  "per", "tra", "fra", "e", "ed", "o", "ma", "che", "cui", "non", "si",
+  "ci", "ne", "come", "questo", "questa", "questi", "queste", "quello",
+  "quella", "anche", "solo", "molto", "tutto", "tutti", "del", "della",
+  "dei", "delle", "al", "alla", "dal", "nella", "sul", "hai", "ho",
+  "sono", "era", "the", "a", "an", "of", "to", "and", "or", "but",
+  "in", "on", "with", "for", "is", "are", "was", "were", "be", "it",
+  "this", "that", "these", "those", "you", "your", "we", "our", "they",
+  "their", "have", "has", "will", "would", "can", "could", "just",
+]);

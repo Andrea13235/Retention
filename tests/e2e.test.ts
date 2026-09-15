@@ -55,8 +55,8 @@ describe("e2e pipeline", () => {
       // 4. analyze → plan
       const structure = analyzeTranscript(transcript, { sectionCount: 2 });
       expect(structure.fillers.length).toBeGreaterThanOrEqual(1);
-      const plan = generateEditPlan(structure, { style: "youtube_talking_head" });
-      expect(plan.version).toBe("1.2");
+      const plan = generateEditPlan(structure, { style: "educational" });
+      expect(plan.version).toBe("1.3");
 
       // 5. build project with RAW mounted (copied to ./assets by the builder).
       // NB: project inside the skill — the lint/render CLI takes a positional

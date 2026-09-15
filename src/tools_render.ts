@@ -57,6 +57,7 @@ export async function buildHyperframesProject(
   // Canvas follows the plan format (v1.2): shorts render 1080×1920,
   // long-form 1920×1080. Explicit opts override (back-compat).
   // NOTE: plan.version "1.0"/"1.1" have no format → default long.
+  // v1.2 plans have no graphics/takesCount — handled as empty/absent.
   const canvas = CANVAS[(plan as EditPlan).format ?? "long"] ?? CANVAS.long;
   const width = opts.width ?? canvas.width;
   const height = opts.height ?? canvas.height;
@@ -121,6 +122,25 @@ export async function buildHyperframesProject(
         throw new Error(
           `build: ${a.type} at ${a.time} fires inside the 0.8s pre-cut mask of CUT ${secToTimecode(hit.s)} — ` +
             `move it ≥0.8s earlier or onto the resume at ${secToTimecode(hit.e)}`
+        );
+      }
+    }
+    // Graphic banners: same invisibility contract as karaoke — max ONE
+    // alive at a time (they are TOP banners, karaoke lives at the bottom,
+    // so the two families never collide; but two banners would stack).
+    const gb = (plan.graphics ?? [])
+      .map((g) => {
+        const t = srcToTl(timecodeToSec(g.time));
+        if (t === null) return null; // inside a CUT — dropped, harmless
+        return { t, e: t + g.duration, at: g.time, kind: g.kind };
+      })
+      .filter((s): s is NonNullable<typeof s> => s !== null)
+      .sort((x, y) => x.t - y.t);
+    for (let i = 0; i + 1 < gb.length; i++) {
+      if (gb[i].e > gb[i + 1].t + 0.05) {
+        throw new Error(
+          `build: graphic banners overlap (${gb[i].kind} at ${gb[i].at} runs ${(gb[i].e - gb[i].t).toFixed(2)}s into ${gb[i + 1].kind} at ${gb[i + 1].at}) — ` +
+            `keep max 1 banner at a time: shorten duration or drop one`
         );
       }
     }
@@ -304,6 +324,27 @@ export async function buildHyperframesProject(
   });
   const overlays = overlayDivs.join("\n");
 
+  // ——— Graphic banners (v1.3): content-aware TOP banners ———
+  // Position: TOP (top 6–8%) — karaoke captions live at the BOTTOM, so a
+  // banner and a caption can share the screen without touching (the
+  // video-4 pattern: talking head + "3 STEPS" banner, face always free).
+  // Style: Apple restraint — clean white type, no boxes, no pills; the
+  // number_stat kind gets the accent color (video-3 "$3,000" lime logic).
+  // Beats inside CUT ranges are dropped (same clock honesty as karaoke).
+  const graphicDivs: string[] = [];
+  (plan.graphics ?? []).forEach((g, gi) => {
+    const t = srcToTl(timecodeToSec(g.time));
+    if (t === null) return;
+    const dur = Math.max(1, Math.min(g.duration, 8));
+    graphicDivs.push(
+      `      <div id="gfx-${gi}" class="clip overlay gfx gfx-${g.kind}" data-start="${t}" data-duration="${dur}" style="top:${portrait ? "6%" : "8%"}">\n        <span class="gfx-title">${escHtml(g.title)}</span>${g.subtitle ? `\n        <span class="gfx-sub">${escHtml(g.subtitle)}</span>` : ""}\n      </div>`
+    );
+    overlayTimelines.push(
+      `      tl.fromTo("#gfx-${gi}", { y: -22, opacity: 0 }, { y: 0, opacity: 1, duration: 0.45, ease: "power2.out" }, ${t});`
+    );
+  });
+  const graphicsHtml = graphicDivs.join("\n");
+
   const beats = [
     ...overlayTimelines,
     ...zoomTweens,
@@ -370,6 +411,33 @@ export async function buildHyperframesProject(
       }
       /* keyword pop: accent color set by GSAP at speech onset */
       .overlay.karaoke .kw.hl { font-weight: 800; }
+      /* graphic banners (v1.3): TOP, Apple restraint — white type, no
+         boxes. Kind accents: number_stat = money/attention color. */
+      .overlay.gfx { background: none; }
+      .overlay.gfx span { background: none; padding: 0; border-radius: 0; }
+      .overlay.gfx .gfx-title {
+        display: block;
+        font-size: 40px;
+        font-weight: 800;
+        letter-spacing: 0.06em;
+        color: #fff;
+        text-shadow: 0 2px 18px rgba(0,0,0,0.55), 0 1px 3px rgba(0,0,0,0.6);
+      }
+      .overlay.gfx.gfx-number_stat .gfx-title { color: #ffd60a; }
+      .overlay.gfx.gfx-quote .gfx-title {
+        font-size: 32px;
+        font-weight: 600;
+        letter-spacing: 0.01em;
+        font-style: italic;
+      }
+      .overlay.gfx .gfx-sub {
+        display: block;
+        margin-top: 6px;
+        font-size: 24px;
+        font-weight: 500;
+        letter-spacing: 0.12em;
+        opacity: 0.75;
+      }
       .punch { position: absolute; inset: 0; z-index: 5; pointer-events: none; }
     </style>
   </head>
@@ -377,6 +445,7 @@ export async function buildHyperframesProject(
     <div id="root" data-composition-id="${compositionId}" data-start="0" data-width="${width}" data-height="${height}" data-duration="${durationSec}">
 ${clips}
 ${overlays}
+${graphicsHtml}
 ${punchDivs}
     </div>
     <script>

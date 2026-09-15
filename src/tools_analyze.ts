@@ -359,6 +359,7 @@ export function analyzeTranscript(
     keywords: keywords.slice(0, 40),
     hook_moment,
     slow_spots,
+    speech: buildSpeech(words, 0, timecodeToSec(endAll)),
     duration_sec: Math.round(timecodeToSec(endAll) * 1000) / 1000,
     cut_candidates: buildCutCandidates({
       words,
@@ -370,6 +371,23 @@ export function analyzeTranscript(
     }),
     needs_review: buildNeedsReview(words, segs),
   };
+}
+
+/**
+ * Measured speech pace: words per minute over the full media span.
+ * Uses ALL words (pre-cut view): what the speaker delivered, so the
+ * agent can compare against the reference registers (show ~182,
+ * educational ~174–188, tutorial ~257 wpm) BEFORE the splice hides
+ * the ramble. wpm = words / minutes, rounded to 1 decimal.
+ */
+function buildSpeech(
+  words: Array<{ word: string; start: number; end: number }>,
+  mediaStart: number,
+  mediaEnd: number
+): { wpm: number; totalWords: number } {
+  const spanMin = Math.max(1 / 60, (mediaEnd - mediaStart) / 60);
+  const totalWords = words.length;
+  return { wpm: Math.round((totalWords / spanMin) * 10) / 10, totalWords };
 }
 
 /**
