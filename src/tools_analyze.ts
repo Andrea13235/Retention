@@ -1,8 +1,12 @@
 /**
- * tools_analyze.ts — Step 3: analisi narrativa e attenzione (spec §4).
- * Euristiche deterministiche sul transcript: hook, sezioni, filler,
- * cali di attenzione, highlight. L'agente LLM può poi raffinare il testo,
- * ma la struttura temporale resta questa (verificabile, no allucinazioni).
+ * tools_analyze.ts — Step 3: narrative & attention analysis.
+ * Deterministic heuristics over the transcript: hook, sections, fillers,
+ * attention dips, highlights. The LLM agent may refine wording afterwards,
+ * but the temporal structure stays this one (verifiable, no hallucinations).
+ *
+ * Language note: filler detection covers Italian + English out of the box.
+ * Timing-based signals (pauses, density, hook position) are language-agnostic
+ * and work with any of Whisper's ~100 languages.
  */
 import {
   secToTimecode,
@@ -11,7 +15,7 @@ import {
   type Transcript,
 } from "./types.js";
 
-/** Filler italiani + inglesi (case-insensitive, match per parola). */
+/** Italian + English fillers (case-insensitive, per-word match). */
 const FILLER_WORDS = new Set(
   [
     "ehm",
@@ -29,6 +33,8 @@ const FILLER_WORDS = new Set(
     "vabbè",
     "um",
     "uh",
+    "er",
+    "hmm",
     "like",
     "you know",
     "basically",
@@ -37,13 +43,15 @@ const FILLER_WORDS = new Set(
     "so",
     "well",
     "anyway",
+    "right",
+    "I mean",
   ].map((w) => w.toLowerCase())
 );
 
 export interface AnalyzeOptions {
-  /** Soglia pausa lunga → attention dip (sec, default 2.5). */
+  /** Long-pause threshold → attention dip (sec, default 2.5). */
   longPauseSec?: number;
-  /** Quante sezioni tematiche dividere (default 3). */
+  /** How many thematic sections to split into (default 3). */
   sectionCount?: number;
 }
 
@@ -54,12 +62,12 @@ export function analyzeTranscript(
   const { longPauseSec = 2.5, sectionCount = 3 } = opts;
   const segs = transcript.segments;
   if (segs.length === 0)
-    throw new Error("analyze_transcript: transcript senza segmenti");
+    throw new Error("analyze_transcript: transcript has no segments");
 
   const startAll = segs[0].start;
   const endAll = segs[segs.length - 1].end;
 
-  // Hook: primi 30s (o primo segmento se più corto).
+  // Hook: first 30s (or first segment if shorter).
   const hookEndSec = Math.min(timecodeToSec(segs[0].start) + 30, timecodeToSec(endAll));
   const hookText = segs
     .filter((s) => timecodeToSec(s.start) < hookEndSec)
@@ -67,7 +75,7 @@ export function analyzeTranscript(
     .join(" ")
     .slice(0, 200);
 
-  // Sezioni: divisione uniforme con sommario = prime parole.
+  // Sections: uniform split with summary = leading words.
   const total = timecodeToSec(endAll) - timecodeToSec(startAll);
   const n = Math.max(1, Math.min(sectionCount, segs.length));
   const sections = Array.from({ length: n }, (_, i) => {
@@ -77,14 +85,14 @@ export function analyzeTranscript(
       (s) => timecodeToSec(s.start) >= sStart && timecodeToSec(s.start) < sEnd
     );
     return {
-      title: `Sezione ${i + 1}`,
+      title: `Section ${i + 1}`,
       start: secToTimecode(sStart),
       end: secToTimecode(sEnd),
       summary: (inSection.map((s) => s.text).join(" ") || "").slice(0, 160),
     };
   });
 
-  // Filler: parole filler + segmenti quasi vuoti.
+  // Fillers: filler words + near-empty segments.
   const fillers: NarrativeStructure["fillers"] = [];
   for (const s of segs) {
     const words = s.text.toLowerCase().split(/\s+/).filter(Boolean);
@@ -95,12 +103,12 @@ export function analyzeTranscript(
       fillers.push({
         start: s.start,
         end: s.end,
-        reason: `filler: ${fillerCount}/${words.length} parole riempitive`,
+        reason: `filler: ${fillerCount}/${words.length} filler words`,
       });
     }
   }
 
-  // Attention dips: pause lunghe tra segmenti.
+  // Attention dips: long pauses between segments.
   const attention_dips: NarrativeStructure["attention_dips"] = [];
   for (let i = 1; i < segs.length; i++) {
     const gap = timecodeToSec(segs[i].start) - timecodeToSec(segs[i - 1].end);
@@ -108,17 +116,17 @@ export function analyzeTranscript(
       attention_dips.push({
         start: segs[i - 1].end,
         end: segs[i].start,
-        reason: `pausa di ${gap.toFixed(1)}s`,
+        reason: `pause of ${gap.toFixed(1)}s`,
       });
     }
   }
 
-  // Highlights: segmenti più lunghi/densi (top 20% per caratteri).
+  // Highlights: longest/densest segments (top 20% by characters).
   const byLen = [...segs].sort((a, b) => b.text.length - a.text.length);
   const highlights = byLen.slice(0, Math.max(1, Math.ceil(segs.length * 0.2))).map((s) => ({
     start: s.start,
     end: s.end,
-    reason: "segmento denso di contenuto",
+    reason: "content-dense segment",
   }));
 
   return {

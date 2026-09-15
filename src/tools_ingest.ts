@@ -1,6 +1,6 @@
 /**
- * tools_ingest.ts — Step 1: import RAW (spec §4).
- * Registra i file, ne estrae i metadati con ffprobe, assegna un media_id.
+ * tools_ingest.ts — Step 1: RAW import.
+ * Registers files, extracts metadata with ffprobe, assigns a media_id.
  */
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
@@ -31,13 +31,13 @@ function parseFps(avg: string | undefined): number {
 
 export async function importRawMedia(paths: string[]): Promise<MediaAsset[]> {
   if (!Array.isArray(paths) || paths.length === 0)
-    throw new Error("import_raw_media: `paths` deve essere un array non vuoto");
+    throw new Error("import_raw_media: `paths` must be a non-empty array");
 
   const assets: MediaAsset[] = [];
   for (const path of paths) {
     const st = await stat(path).catch(() => null);
     if (!st || !st.isFile())
-      throw new Error(`import_raw_media: file non trovato: ${path}`);
+      throw new Error(`import_raw_media: file not found: ${path}`);
 
     let probe: FfprobeOutput;
     try {
@@ -53,7 +53,7 @@ export async function importRawMedia(paths: string[]): Promise<MediaAsset[]> {
       probe = JSON.parse(stdout) as FfprobeOutput;
     } catch (err) {
       throw new Error(
-        `import_raw_media: ffprobe fallito su ${path} — ${(err as Error).message}`
+        `import_raw_media: ffprobe failed on ${path} — ${(err as Error).message}`
       );
     }
 

@@ -1,13 +1,13 @@
 #!/usr/bin/env node
 /**
- * setup-check.js — verifica che l'ambiente abbia tutti i prerequisiti
- * della skill andrea-video-skill (§5 dello spec).
+ * setup-check.js — verify the environment has all prerequisites
+ * for the andrea-video-skill.
  *
- * Prerequisiti utente: Node ≥22, FFmpeg nel PATH, Python 3.9–3.12 (faster-whisper).
- * Automatizzato: HyperFrames via npm, faster-whisper via pip, Chrome headless
- * via `hyperframes doctor`, modello Whisper al primo uso.
+ * User prerequisites: Node ≥22, FFmpeg in PATH, Python 3.9+ (faster-whisper).
+ * Automated: HyperFrames via npm, faster-whisper via setup-whisper.js,
+ * headless Chrome via `hyperframes doctor`, Whisper model on first use.
  *
- * Exit 0 = tutto ok. Exit 1 = qualcosa manca (messaggio su stderr).
+ * Exit 0 = all good. Exit 1 = something missing (message on stderr).
  */
 import { execFileSync } from "node:child_process";
 
@@ -37,30 +37,30 @@ function runClean(cmd, args = []) {
 {
   const major = Number(process.versions.node.split(".")[0]);
   if (major >= 22) ok("Node.js", `v${process.versions.node}`);
-  else fail("Node.js ≥ 22", `trovato v${process.versions.node}, installa Node 22+`);
+  else fail("Node.js ≥ 22", `found v${process.versions.node}, install Node 22+`);
 }
 
-// 2. FFmpeg nel PATH
+// 2. FFmpeg in PATH
 {
   const v = runClean("ffmpeg", ["-version"]);
   if (v) ok("FFmpeg", v.split("\n")[0].replace("ffmpeg version ", "v"));
-  else fail("FFmpeg nel PATH", "installa FFmpeg (es. brew install ffmpeg)");
+  else fail("FFmpeg in PATH", "install FFmpeg (e.g. brew install ffmpeg)");
 }
 
-// 3. ffprobe (arriva con FFmpeg, serve a tools_ingest)
+// 3. ffprobe (ships with FFmpeg, used by tools_ingest)
 {
   if (runClean("ffprobe", ["-version"])) ok("ffprobe");
-  else fail("ffprobe nel PATH", "reinstalla FFmpeg completo");
+  else fail("ffprobe in PATH", "reinstall full FFmpeg");
 }
 
-// 4. Python con faster-whisper (qualsiasi 3.9+, env pulito)
+// 4. Python with faster-whisper (any 3.9+, clean env)
 {
   const v = runClean("python3", ["--version"]);
   if (v) ok("Python", v);
-  else fail("Python 3", "installa Python 3.9+ (serve a faster-whisper)");
+  else fail("Python 3", "install Python 3.9+ (needed by faster-whisper)");
 }
 
-// 5. faster-whisper — venv dedicato della skill o python raggiungibile
+// 5. faster-whisper — skill venv or reachable python
 {
   const home = process.env.HOME || "";
   const venvPy = home ? `${home}/.andrea-video-skill/.venv/bin/python` : null;
@@ -70,22 +70,22 @@ function runClean(cmd, args = []) {
   if (v) ok("faster-whisper", `v${v}`);
   else
     console.log(
-      "  ○ faster-whisper non installato → node scripts/setup-whisper.js"
+      "  ○ faster-whisper not installed → node scripts/setup-whisper.js"
     );
 }
 
-// 6. HyperFrames CLI installata localmente
+// 6. HyperFrames CLI installed locally
 {
   const v = runClean("npx", ["--no-install", "hyperframes", "--version"]);
   if (v) ok("HyperFrames CLI", `v${v}`);
   else
     console.log(
-      "  ○ HyperFrames non ancora installato → npm install (nella cartella della skill)"
+      "  ○ HyperFrames not installed yet → npm install (in the skill folder)"
     );
 }
 
 if (failed) {
-  console.error("\nsetup-check: AMBIENTE INCOMPLETO (vedi ✗ sopra)");
+  console.error("\nsetup-check: INCOMPLETE ENVIRONMENT (see ✗ above)");
   process.exit(1);
 }
-console.log("\nsetup-check: OK — ambiente pronto");
+console.log("\nsetup-check: OK — environment ready");

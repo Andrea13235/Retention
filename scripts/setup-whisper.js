@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 /**
- * setup-whisper.js — crea il venv dedicato della skill
- * (~/.andrea-video-skill/.venv) e installa faster-whisper.
- * Idempotente: se il venv esiste già con faster-whisper, non fa nulla.
- * Uso: node scripts/setup-whisper.js
+ * setup-whisper.js — create the skill's dedicated venv
+ * (~/.andrea-video-skill/.venv) and install faster-whisper.
+ * Idempotent: if the venv already exists with faster-whisper, does nothing.
+ * Usage: node scripts/setup-whisper.js
  */
 import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
@@ -15,8 +15,8 @@ const VENV = join(SKILL_DIR, ".venv");
 const VENV_PY = join(VENV, "bin", "python");
 
 function sh(cmd, args, opts = {}) {
-  // Env sterilizzato: un PYTHONPATH/PYTHONHOME ereditato (es. da un altro
-  // venv) farebbe installare i pacchetti nel posto sbagliato.
+  // Sterilized env: an inherited PYTHONPATH/PYTHONHOME (e.g. from another
+  // venv) would install packages in the wrong place.
   const env = { ...process.env };
   delete env.PYTHONPATH;
   delete env.PYTHONHOME;
@@ -37,16 +37,16 @@ function quiet(cmd, args) {
   }
 }
 
-// faster-whisper già pronto?
+// faster-whisper already ready?
 if (
   existsSync(VENV_PY) &&
   quiet(VENV_PY, ["-c", "import faster_whisper"])
 ) {
-  console.log("setup-whisper: venv già pronto →", VENV_PY);
+  console.log("setup-whisper: venv already ready →", VENV_PY);
   process.exit(0);
 }
 
-// Trova un python3 base per creare il venv
+// Find a base python3 to create the venv
 const bases = ["python3", "/opt/homebrew/bin/python3", "/usr/bin/python3"];
 let base = null;
 for (const b of bases) {
@@ -55,22 +55,22 @@ for (const b of bases) {
     base = b;
     break;
   } catch {
-    /* prossimo */
+    /* next */
   }
 }
 if (!base) {
-  console.error("setup-whisper: nessun Python 3 con venv trovato — installa Python 3.9+");
+  console.error("setup-whisper: no Python 3 with venv found — install Python 3.9+");
   process.exit(1);
 }
 
-console.log(`setup-whisper: creo venv con ${base} → ${VENV}`);
+console.log(`setup-whisper: creating venv with ${base} → ${VENV}`);
 sh(base, ["-m", "venv", VENV]);
-console.log("setup-whisper: installo faster-whisper (può richiedere qualche minuto)…");
+console.log("setup-whisper: installing faster-whisper (may take a few minutes)…");
 sh(VENV_PY, ["-m", "pip", "install", "--upgrade", "pip"]);
 sh(VENV_PY, ["-m", "pip", "install", "faster-whisper>=1.0.0"]);
 
 if (!quiet(VENV_PY, ["-c", "import faster_whisper; print('ok')"])) {
-  console.error("setup-whisper: installazione fallita");
+  console.error("setup-whisper: installation failed");
   process.exit(1);
 }
-console.log("setup-whisper: OK — faster-whisper pronto");
+console.log("setup-whisper: OK — faster-whisper ready");

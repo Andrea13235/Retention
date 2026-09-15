@@ -43,8 +43,10 @@ all with `duration_sec > 0`.
 
 Local Whisper transcription with word-level timecodes. The model is
 auto-selected (`large-v3` on NVIDIA GPU / Apple Silicon, `small` on CPU).
+Whisper auto-detects the spoken language (~100 languages: Italian, English,
+Spanish, French, German, …) — no language option needed.
 Completion: transcript JSON with `segments[]`, each with `start`/`end`
-in `HH:MM:SS.mmm` format.
+in `HH:MM:SS.mmm` format, plus the detected `language` code.
 
 ### 3. Analyze — `analyze_transcript(transcript)`
 
@@ -94,7 +96,7 @@ Completion: output MP4 exists, non-empty, duration matches the plan.
 3. **Rendering `high` on the first try.** Slow and wasteful when the plan
    is unreviewed. Fix: `draft` first, `high` after approval.
 4. **Missing faster-whisper.** `transcribe_media` fails with install
-   instructions. Fix: `pip install -r requirements.txt`.
+   instructions. Fix: `node scripts/setup-whisper.js`.
 5. **No RAW path in render.** Without `raw_video_path` the composition
    renders placeholder cards (fine for layout check, not for delivery).
 

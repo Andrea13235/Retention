@@ -1,6 +1,6 @@
 /**
- * tools_plan.ts — Step 4: generazione Action Plan (spec §4).
- * Trasforma la NarrativeStructure in EditPlan machine-actionable:
+ * tools_plan.ts — Step 4: Action Plan generation.
+ * Turns the NarrativeStructure into a machine-actionable EditPlan:
  * cuts, animations, broll, pattern_interrupts.
  */
 import {
@@ -17,9 +17,9 @@ export type StylePreset =
 
 export interface PlanOptions {
   style?: StylePreset;
-  /** Ogni quanti secondi un pattern interrupt (default per stile). */
+  /** Pattern-interrupt cadence in seconds (default per style). */
   interruptEverySec?: number;
-  /** Sorgenti b-roll disponibili (path). */
+  /** Available b-roll sources (paths). */
   brollSources?: string[];
 }
 
@@ -40,13 +40,13 @@ export function generateEditPlan(
       structure.hook.end
   );
 
-  // Cuts: tieni hook + sezioni, taglia filler e dips.
-  // Il piano elenca i segmenti da TENERE (start/end + motivo).
+  // Cuts: keep hook + sections, cut fillers and dips.
+  // The plan lists segments to KEEP (start/end + reason).
   const cuts: EditPlan["cuts"] = [
     {
       start: structure.hook.start,
       end: structure.hook.end,
-      reason: "hook iniziale",
+      reason: "opening hook",
     },
     ...structure.sections.map((s) => ({
       start: s.start,
@@ -55,15 +55,15 @@ export function generateEditPlan(
     })),
   ];
   for (const f of structure.fillers) {
-    cuts.push({ start: f.start, end: f.end, reason: `TAGLIARE — ${f.reason}` });
+    cuts.push({ start: f.start, end: f.end, reason: `CUT — ${f.reason}` });
   }
 
-  // Animations: caption sugli highlight + zoom sui dips (per risvegliare).
+  // Animations: captions on highlights + zoom-ins on dips (to re-engage).
   const animations: EditPlan["animations"] = [
     ...structure.highlights.slice(0, 10).map((h) => ({
       time: h.start,
       type: "caption" as const,
-      content: "IDEA CHIAVE",
+      content: "KEY INSIGHT",
       position: "bottom" as const,
     })),
     ...structure.attention_dips.slice(0, 10).map((d) => ({
@@ -73,7 +73,7 @@ export function generateEditPlan(
     })),
   ];
 
-  // B-roll: distribuisci le sorgenti sulle sezioni centrali.
+  // B-roll: spread sources across middle sections.
   const broll: EditPlan["broll"] = [];
   const sources = opts.brollSources ?? [];
   if (sources.length > 0 && structure.sections.length > 1) {
@@ -90,13 +90,13 @@ export function generateEditPlan(
     });
   }
 
-  // Pattern interrupts a cadenza regolare.
+  // Pattern interrupts on a regular cadence.
   const pattern_interrupts: EditPlan["pattern_interrupts"] = [];
   for (let t = every; t < endSec; t += every) {
     pattern_interrupts.push({
       time: secToTimecode(t),
       kind: style === "short_form" ? "caption_pop" : "zoom_punch",
-      detail: `interrupt ogni ~${every}s`,
+      detail: `interrupt every ~${every}s`,
     });
   }
 

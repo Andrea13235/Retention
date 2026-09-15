@@ -1,8 +1,8 @@
 /**
- * tools_render.ts — Step 5+6: traduzione in progetto HyperFrames + render (spec §4).
- * build_hyperframes_project(edit_plan) genera una composition standalone
- * (contratto hyperframes-core: root sized, una timeline paused, data-* timing).
- * render_video(project) esegue `hyperframes render` con preset draft/standard/high.
+ * tools_render.ts — Step 5+6: HyperFrames project build + render.
+ * build_hyperframes_project(edit_plan) generates a standalone composition
+ * (hyperframes-core contract: sized root, one paused timeline, data-* timing).
+ * render_video(project) runs `hyperframes render` with draft/standard/high presets.
  */
 import { execFile } from "node:child_process";
 import { mkdir, stat, writeFile } from "node:fs/promises";
@@ -18,7 +18,7 @@ import {
 const execFileAsync = promisify(execFile);
 
 export interface HyperframesProject {
-  /** Cartella del progetto generato (contiene index.html + hyperframes.json). */
+  /** Generated project folder (contains index.html + hyperframes.json). */
   dir: string;
   compositionId: string;
   durationSec: number;
@@ -34,9 +34,9 @@ function escHtml(s: string): string {
 
 export interface BuildOptions {
   /**
-   * Path del RAW originale. Viene COPIATO dentro outDir/assets/ e
-   * referenziato con path relativo — il renderer salta gli asset assenti
-   * (missing_local_asset), quindi mai path assoluti esterni.
+   * Path of the original RAW. It is COPIED into outDir/assets/ and
+   * referenced with a relative path — the renderer skips missing assets
+   * (missing_local_asset), so never use external absolute paths.
    */
   rawVideoPath?: string;
   width?: number;
@@ -52,8 +52,8 @@ export async function buildHyperframesProject(
   const height = opts.height ?? 1080;
   const compositionId = `andrea-edit-${plan.media_id.slice(0, 8)}`;
 
-  // Durata = fine dell'ultimo cut da tenere (escludi i TAGLIARE).
-  const keepCuts = plan.cuts.filter((c) => !c.reason.startsWith("TAGLIARE"));
+  // Duration = end of the last KEEP cut (exclude CUTs).
+  const keepCuts = plan.cuts.filter((c) => !c.reason.startsWith("CUT"));
   const durationSec = Math.max(
     1,
     ...keepCuts.map((c) => timecodeToSec(c.end)),
@@ -66,7 +66,7 @@ export async function buildHyperframesProject(
     const { copyFile, stat: statFile } = await import("node:fs/promises");
     const st = await statFile(opts.rawVideoPath).catch(() => null);
     if (!st || !st.isFile())
-      throw new Error(`build: RAW non trovato: ${opts.rawVideoPath}`);
+      throw new Error(`build: RAW not found: ${opts.rawVideoPath}`);
     await mkdir(join(outDir, "assets"), { recursive: true });
     const fileName = opts.rawVideoPath.split("/").pop() ?? "raw.mp4";
     await copyFile(opts.rawVideoPath, join(outDir, "assets", fileName));
@@ -123,7 +123,7 @@ export async function buildHyperframesProject(
     .join("\n");
 
   const html = `<!doctype html>
-<html lang="it">
+<html lang="en">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=${width}, height=${height}" />
@@ -179,9 +179,9 @@ export async function renderVideo(
   const preset = opts.preset ?? "standard";
   const output = opts.output ?? join(project.dir, "output.mp4");
 
-  // CLI reale (hyperframes 0.8.40): `render [DIR] -o OUTPUT -q QUALITY`.
-  // Quality valide: draft | looks | delivery | standard | high.
-  // Mappiamo i preset della skill (§2): draft→draft, standard→looks, high→delivery.
+  // Real CLI (hyperframes 0.8.40): `render [DIR] -o OUTPUT -q QUALITY`.
+  // Valid qualities: draft | looks | delivery | standard | high.
+  // Skill preset mapping: draft→draft, standard→looks, high→delivery.
   const quality = preset === "draft" ? "draft" : preset === "high" ? "delivery" : "looks";
 
   const { existsSync } = await import("node:fs");
@@ -212,7 +212,7 @@ export async function renderVideo(
     }
   } catch (err) {
     throw new Error(
-      `render_video: hyperframes render fallito — ${(err as Error).message}`
+      `render_video: hyperframes render failed — ${(err as Error).message}`
     );
   }
 

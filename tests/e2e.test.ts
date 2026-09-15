@@ -1,6 +1,6 @@
 /**
- * e2e.test.ts — pipeline completa su media reale (ffmpeg testsrc + sine):
- * import_raw_media → analyze(transcript finto ma realistico) →
+ * e2e.test.ts — full pipeline on real media (ffmpeg testsrc + sine):
+ * import_raw_media → analyze(realistic mock transcript) →
  * generate_edit_plan → build_hyperframes_project → hyperframes lint.
  */
 import { execFileSync } from "node:child_process";
@@ -14,17 +14,17 @@ import { generateEditPlan } from "../src/tools_plan.js";
 import { buildHyperframesProject } from "../src/tools_render.js";
 import type { Transcript } from "../src/types.js";
 
-/** Binario hyperframes locale (evita npx che scaricherebbe il pacchetto).
- *  Punta al file .mjs reale: .bin/hyperframes è un symlink che si rompe
- *  quando il test gira con cwd diversa. */
+/** Local hyperframes binary (avoids npx re-downloading the package).
+ *  Points at the real .mjs file: .bin/hyperframes is a symlink that breaks
+ *  when tests run with a different cwd. */
 const SKILL_ROOT = "/Users/andrea/Desktop/opensource skill videoediting";
 const HF_BIN = `${SKILL_ROOT}/node_modules/hyperframes/bin/hyperframes.mjs`;
 
 describe("e2e pipeline", () => {
-  it("RAW → EditPlan → HyperFrames project → lint pulito", async () => {
+  it("RAW → EditPlan → HyperFrames project → clean lint", async () => {
     const dir = mkdtempSync(join(tmpdir(), "avskill-e2e-"));
     try {
-      // 1. RAW sintetico 10s, 1280x720, 30fps, con audio
+      // 1. Synthetic 10s RAW, 1280x720, 30fps, with audio
       const raw = join(dir, "raw.mp4");
       execFileSync("ffmpeg", [
         "-hide_banner", "-loglevel", "error",
@@ -33,13 +33,13 @@ describe("e2e pipeline", () => {
         "-shortest", "-y", raw,
       ]);
 
-      // 2. ingest reale
+      // 2. real ingest
       const [asset] = await importRawMedia([raw]);
       expect(asset.duration_sec).toBeCloseTo(10, 0);
       expect(asset.width).toBe(1280);
 
-      // 3. transcript realistico su 10s (whisper vero richiede modello;
-      //    qui verifichiamo che la pipeline digerisca il formato §9)
+      // 3. realistic 10s transcript (real Whisper needs a model download;
+      //    here we verify the pipeline digests the format)
       const transcript: Transcript = {
         media_id: asset.media_id,
         model: "small",
@@ -57,16 +57,16 @@ describe("e2e pipeline", () => {
       const plan = generateEditPlan(structure, { style: "youtube_talking_head" });
       expect(plan.version).toBe("1.0");
 
-      // 5. build progetto con RAW montato (copiato in ./assets dal builder).
-      // NB: progetto dentro la skill — la CLI lint/render accetta DIR
-      // posizionale e non segue la cwd del chiamante.
+      // 5. build project with RAW mounted (copied to ./assets by the builder).
+      // NB: project inside the skill — the lint/render CLI takes a positional
+      // DIR and does not follow the caller's cwd.
       const projDir = join(SKILL_ROOT, ".tmp-e2e", `run-${Date.now()}`);
       const proj = await buildHyperframesProject(plan, projDir, { rawVideoPath: raw });
       const html = readFileSync(join(projDir, "index.html"), "utf8");
       expect(html).toContain("./assets/raw.mp4");
       expect(proj.durationSec).toBeCloseTo(10, 0);
 
-      // 6. hyperframes lint DIR --json (zero errori; i warning non bloccano)
+      // 6. hyperframes lint DIR --json (zero errors; warnings don't block)
       const lint = execFileSync(process.execPath, [HF_BIN, "lint", projDir, "--json"], {
         encoding: "utf8",
         timeout: 120_000,

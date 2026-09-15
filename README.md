@@ -4,20 +4,20 @@ AI video editing skill: turn RAW footage into publish-ready video — transcript
 
 ## Quickstart
 
-**Prerequisites:** Node.js ≥ 22, FFmpeg in PATH, Python 3.9–3.12 (for faster-whisper).
+**Prerequisites:** Node.js ≥ 22, FFmpeg in PATH, Python 3.9+ (for faster-whisper).
 
 ```bash
 npm install
-node scripts/setup-whisper.js  # venv dedicato + faster-whisper (una tantum)
+node scripts/setup-whisper.js  # dedicated venv + faster-whisper (one-time)
 npm run setup-check   # verify environment
 npm run build         # compile TypeScript
 npm test              # run test suite
 ```
 
-> Puoi saltare `setup-whisper.js` se hai già faster-whisper in un Python
-> raggiungibile (oppure punta `AVSKILL_PYTHON=/path/to/python` al tuo
-> interprete). Senza faster-whisper funzionante, `transcribe_media`
-> fallisce con istruzioni chiare.
+> You can skip `setup-whisper.js` if faster-whisper is already available in
+> a reachable Python (or point `AVSKILL_PYTHON=/path/to/python` at your
+> interpreter). Without working faster-whisper, `transcribe_media`
+> fails with clear instructions.
 
 ## MCP wiring
 

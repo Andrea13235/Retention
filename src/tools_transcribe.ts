@@ -1,7 +1,12 @@
 /**
- * tools_transcribe.ts — Step 2: trascrizione con Whisper (spec §4, §9).
- * Chiama faster-whisper (Python, via child_process) e ritorna transcript
- * JSON con timecode per segmento/parola.
+ * tools_transcribe.ts — Step 2: Whisper transcription.
+ * Calls faster-whisper (Python, via child_process) and returns a JSON
+ * transcript with per-segment/per-word timecodes.
+ *
+ * Multilingual: Whisper auto-detects the spoken language (~100 languages:
+ * Italian, English, Spanish, French, German, Portuguese, …) and transcribes
+ * in that language. The detected code is returned as `Transcript.language`
+ * (BCP-47, e.g. "it", "en"). No language option is needed — just speak.
  */
 import { execFile } from "node:child_process";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
@@ -13,10 +18,10 @@ import { secToTimecode, type Timecode, type Transcript } from "./types.js";
 const execFileAsync = promisify(execFile);
 
 /**
- * Trova un interprete Python con faster-whisper funzionante.
- * Ordine: AVSKILL_PYTHON → venv dedicato della skill (~/.andrea-video-skill/.venv)
- * → venv attivo/convenzionali → python di sistema.
- * Override manuale: AVSKILL_PYTHON=/path/to/python.
+ * Find a Python interpreter with working faster-whisper.
+ * Order: AVSKILL_PYTHON → skill venv (~/.andrea-video-skill/.venv)
+ * → active/conventional venvs → system pythons.
+ * Manual override: AVSKILL_PYTHON=/path/to/python.
  */
 export async function findWhisperPython(): Promise<string> {
   const home = process.env.HOME ?? "";
@@ -26,7 +31,7 @@ export async function findWhisperPython(): Promise<string> {
   const candidates = [
     process.env.AVSKILL_PYTHON,
     skillVenv,
-    // venv attivo o convenzionali (faster-whisper vive spesso qui)
+    // Active or conventional venvs (faster-whisper often lives here)
     process.env.VIRTUAL_ENV ? `${process.env.VIRTUAL_ENV}/bin/python` : undefined,
     home ? `${home}/.venv/bin/python` : undefined,
     `${process.cwd()}/.venv/bin/python`,
@@ -43,17 +48,17 @@ export async function findWhisperPython(): Promise<string> {
       });
       return bin;
     } catch {
-      /* prossimo candidato */
+      /* next candidate */
     }
   }
   throw new Error(
-    "transcribe_media: faster-whisper non trovato in nessun Python → " +
-      "pip install -r requirements.txt (vedi README)"
+    "transcribe_media: faster-whisper not found in any Python → " +
+      "run: node scripts/setup-whisper.js (see README)"
   );
 }
 
-/** Env pulito per i subprocess Python (toglie PYTHONPATH/PYTHONHOME
- *  ereditati che possono rompere gli import). */
+/** Clean env for Python subprocesses (drops inherited PYTHONPATH/PYTHONHOME
+ *  that can break imports). */
 export function cleanPythonEnv(): NodeJS.ProcessEnv {
   const env = { ...process.env };
   delete env.PYTHONPATH;
@@ -61,7 +66,7 @@ export function cleanPythonEnv(): NodeJS.ProcessEnv {
   return env;
 }
 
-/** hardware → modello (§9: selezione automatica). */
+/** hardware → model (automatic selection). */
 export type HardwareKind = "gpu_nvidia" | "apple_silicon" | "cpu_only";
 
 export async function detectHardware(): Promise<HardwareKind> {
@@ -69,7 +74,7 @@ export async function detectHardware(): Promise<HardwareKind> {
     await execFileAsync("nvidia-smi", []);
     return "gpu_nvidia";
   } catch {
-    /* nessuna GPU NVIDIA */
+    /* no NVIDIA GPU */
   }
   if (process.platform === "darwin" && process.arch === "arm64")
     return "apple_silicon";
@@ -77,7 +82,7 @@ export async function detectHardware(): Promise<HardwareKind> {
 }
 
 export function selectModel(hardware: HardwareKind): string {
-  // §9: large-v3 su GPU/Apple Silicon, small su CPU (7-8x più rapido)
+  // large-v3 on GPU/Apple Silicon, small on CPU (7-8x faster)
   if (hardware === "gpu_nvidia" || hardware === "apple_silicon")
     return "large-v3";
   return "small";
@@ -111,9 +116,9 @@ with open(out_path, "w") as f:
 `;
 
 export interface TranscribeOptions {
-  /** Override manuale del modello (default: selezione automatica §9). */
+  /** Manual model override (default: automatic selection). */
   model?: string;
-  /** Timeout ms (default 30 min: large-v3 su CPU è lento). */
+  /** Timeout in ms (default 30 min: large-v3 on CPU is slow). */
   timeoutMs?: number;
 }
 
@@ -124,7 +129,7 @@ export async function transcribeMedia(
 ): Promise<Transcript> {
   const hardware = await detectHardware();
   const model = opts.model ?? selectModel(hardware);
-  // Python con faster-whisper funzionante (env pulito, vedi findWhisperPython).
+  // Python with working faster-whisper (clean env, see findWhisperPython).
   const pythonBin = await findWhisperPython();
 
   const dir = await mkdtemp(join(tmpdir(), "avskill-"));
@@ -143,19 +148,21 @@ export async function transcribeMedia(
       const msg = (err as Error).message;
       if (msg.includes("faster_whisper") || msg.includes("No module"))
         throw new Error(
-          "transcribe_media: faster-whisper non installato → pip install -r requirements.txt"
+          "transcribe_media: faster-whisper not installed → run: node scripts/setup-whisper.js"
         );
-      throw new Error(`transcribe_media: Whisper fallito — ${msg}`);
+      throw new Error(`transcribe_media: Whisper failed — ${msg}`);
     }
 
     const { readFileSync } = await import("node:fs");
     const raw = JSON.parse(readFileSync(out, "utf8")) as {
       segments: WhisperSegment[];
+      language?: string;
     };
     const toTc = (s: number): Timecode => secToTimecode(s);
     return {
       media_id: mediaId,
       model,
+      language: raw.language,
       segments: (raw.segments as WhisperSegment[]).map((s) => ({
         start: toTc(s.start),
         end: toTc(s.end),
