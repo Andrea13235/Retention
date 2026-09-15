@@ -40,7 +40,7 @@ describe("whisper model selection", () => {
 
 describe("ingest (real ffprobe)", () => {
   it("extracts metadata from an ffmpeg-generated mp4", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "avskill-ingest-"));
+    const dir = mkdtempSync(join(tmpdir(), "cutcraft-ingest-"));
     try {
       const mp4 = join(dir, "raw.mp4");
       execFileSync("ffmpeg", [
@@ -141,7 +141,7 @@ describe("plan", () => {
 
 describe("render: HyperFrames project build", () => {
   it("generates a valid standalone index.html", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "avskill-hf-"));
+    const dir = mkdtempSync(join(tmpdir(), "cutcraft-hf-"));
     try {
       const s = analyzeTranscript(SAMPLE_TRANSCRIPT);
       const plan = generateEditPlan(s);
@@ -163,7 +163,7 @@ describe("render: HyperFrames project build", () => {
     }
   });
   it("renders slow_zoom, lower_third and custom caption duration — no silent drops", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "avskill-hf2-"));
+    const dir = mkdtempSync(join(tmpdir(), "cutcraft-hf2-"));
     try {
       const plan = {
         version: "1.0" as const,

@@ -1,11 +1,11 @@
 {
-  "name": "andrea-video-skill",
+  "name": "cutcraft",
   "version": "0.1.0",
   "description": "AI video editing skill: RAW footage to publish-ready video via Whisper + HyperFrames (MCP server)",
   "license": "SEE LICENSE IN LICENSE.md",
   "type": "module",
   "bin": {
-    "andrea-video-skill": "./dist/server.js"
+    "cutcraft": "./dist/server.js"
   },
   "scripts": {
     "build": "tsc",

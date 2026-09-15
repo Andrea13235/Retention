@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * server.ts — MCP server for the andrea-video-skill.
+ * server.ts — MCP server for the cutcraft.
  * Exposes 5 tools: import_raw_media, transcribe_media, analyze_transcript,
  * generate_edit_plan, render_video.
  * Transport: stdio (standard for Codex / Claude Code / MCP clients).
@@ -22,7 +22,7 @@ import {
 import { RENDER_PRESETS } from "./types.js";
 
 const server = new McpServer({
-  name: "andrea-video-skill",
+  name: "cutcraft",
   version: "0.1.0",
 });
 
@@ -140,4 +140,4 @@ server.tool(
 
 const transport = new StdioServerTransport();
 await server.connect(transport);
-console.error("andrea-video-skill MCP server running (stdio)");
+console.error("cutcraft MCP server running (stdio)");

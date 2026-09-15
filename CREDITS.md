@@ -1,6 +1,6 @@
 # Credits
 
-**Andrea Video Skill** is created and maintained solely by
+**CutCraft** is created and maintained solely by
 **Andrea Barretta** — sole author of all the code in this repository.
 
 ## Third-party dependencies
@@ -21,4 +21,4 @@ own licenses:
 Whisper model weights are downloaded automatically on first transcription
 and never leave your machine — transcription is fully offline.
 
-See [LICENSE.md](LICENSE.md) for the license of Andrea Video Skill itself.
+See [LICENSE.md](LICENSE.md) for the license of CutCraft itself.

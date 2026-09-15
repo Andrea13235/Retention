@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * setup-whisper.js — create the skill's dedicated venv
- * (~/.andrea-video-skill/.venv) and install faster-whisper.
+ * (~/.cutcraft/.venv) and install faster-whisper.
  * Idempotent: if the venv already exists with faster-whisper, does nothing.
  * Usage: node scripts/setup-whisper.js
  */
@@ -10,7 +10,7 @@ import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-const SKILL_DIR = join(homedir(), ".andrea-video-skill");
+const SKILL_DIR = join(homedir(), ".cutcraft");
 const VENV = join(SKILL_DIR, ".venv");
 const VENV_PY = join(VENV, "bin", "python");
 

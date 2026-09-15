@@ -1,5 +1,5 @@
 /**
- * Shared types for the andrea-video-skill MCP tools.
+ * Shared types for the cutcraft MCP tools.
  * Pipeline: ingest → transcribe → analyze → plan → render.
  */
 

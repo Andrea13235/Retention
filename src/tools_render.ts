@@ -50,7 +50,7 @@ export async function buildHyperframesProject(
 ): Promise<HyperframesProject> {
   const width = opts.width ?? 1920;
   const height = opts.height ?? 1080;
-  const compositionId = `andrea-edit-${plan.media_id.slice(0, 8)}`;
+  const compositionId = `cutcraft-edit-${plan.media_id.slice(0, 8)}`;
 
   // Duration = end of the last KEEP cut (exclude CUTs).
   const keepCuts = plan.cuts.filter((c) => !c.reason.startsWith("CUT"));
@@ -215,7 +215,7 @@ ${beats}
   await writeFile(join(outDir, "index.html"), html);
   await writeFile(
     join(outDir, "hyperframes.json"),
-    JSON.stringify({ compositionId, generatedBy: "andrea-video-skill" }, null, 2)
+    JSON.stringify({ compositionId, generatedBy: "cutcraft" }, null, 2)
   );
   return { dir: outDir, compositionId, durationSec };
 }

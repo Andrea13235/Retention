@@ -1,5 +1,5 @@
 ---
-name: andrea-video-skill
+name: cutcraft
 description: Use when the user wants to auto-edit RAW footage into a publish-ready video. Transcribe, narrative analysis, edit plan, HyperFrames render pipeline.
 version: 0.1.0
 author: Andrea Barretta
@@ -10,7 +10,7 @@ metadata:
     related_skills: []
 ---
 
-# Andrea Video Skill — RAW to Publish-Ready Video
+# CutCraft — RAW to Publish-Ready Video
 
 ## Overview
 

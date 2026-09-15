@@ -19,17 +19,17 @@ const execFileAsync = promisify(execFile);
 
 /**
  * Find a Python interpreter with working faster-whisper.
- * Order: AVSKILL_PYTHON → skill venv (~/.andrea-video-skill/.venv)
+ * Order: CUTCRAFT_PYTHON → skill venv (~/.cutcraft/.venv)
  * → active/conventional venvs → system pythons.
- * Manual override: AVSKILL_PYTHON=/path/to/python.
+ * Manual override: CUTCRAFT_PYTHON=/path/to/python.
  */
 export async function findWhisperPython(): Promise<string> {
   const home = process.env.HOME ?? "";
   const skillVenv = home
-    ? `${home}/.andrea-video-skill/.venv/bin/python`
+    ? `${home}/.cutcraft/.venv/bin/python`
     : undefined;
   const candidates = [
-    process.env.AVSKILL_PYTHON,
+    process.env.CUTCRAFT_PYTHON,
     skillVenv,
     // Active or conventional venvs (faster-whisper often lives here)
     process.env.VIRTUAL_ENV ? `${process.env.VIRTUAL_ENV}/bin/python` : undefined,
@@ -132,7 +132,7 @@ export async function transcribeMedia(
   // Python with working faster-whisper (clean env, see findWhisperPython).
   const pythonBin = await findWhisperPython();
 
-  const dir = await mkdtemp(join(tmpdir(), "avskill-"));
+  const dir = await mkdtemp(join(tmpdir(), "cutcraft-"));
   try {
     const bridge = join(dir, "bridge.py");
     const out = join(dir, "transcript.json");

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * setup-check.js — verify the environment has all prerequisites
- * for the andrea-video-skill.
+ * for the cutcraft.
  *
  * User prerequisites: Node ≥22, FFmpeg in PATH, Python 3.9+ (faster-whisper).
  * Automated: HyperFrames via npm, faster-whisper via setup-whisper.js,
@@ -63,7 +63,7 @@ function runClean(cmd, args = []) {
 // 5. faster-whisper — skill venv or reachable python
 {
   const home = process.env.HOME || "";
-  const venvPy = home ? `${home}/.andrea-video-skill/.venv/bin/python` : null;
+  const venvPy = home ? `${home}/.cutcraft/.venv/bin/python` : null;
   const v =
     (venvPy && runClean(venvPy, ["-c", "import faster_whisper; print(faster_whisper.__version__)"])) ||
     runClean("python3", ["-c", "import faster_whisper; print(faster_whisper.__version__)"]);
