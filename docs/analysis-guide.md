@@ -22,11 +22,22 @@ Turn a timecoded transcript (produced by Whisper) into a structured
 
 ## 2. Available analysis inputs
 
-- **Timecoded transcript** (Whisper): text split into segments/words with `start`/`end`.
+- **Target format (Step 0 — decided BEFORE ingest):** short (9:16,
+  `short_form`) or long (16:9, `youtube_talking_head` / `podcast`).
+  Explicit user request wins ("creami il mio short" → short, no
+  questions); otherwise the agent asked short-vs-long first and got a
+  confirmed answer. Every rule below reads differently per format —
+  never plan without it.
+- **Timecoded transcript** (Whisper): text split into segments/words with start/end timing.
   `Transcript.language` holds the auto-detected BCP-47 code (e.g. `"it"`, `"en"`) —
   filler detection covers Italian + English out of the box; timing-based
   signals (pauses, density, hook position) work in any language.
-- **Video metadata**: total duration, resolution, fps, audio stream count.
+- **Video metadata**: total duration, resolution, fps, audio stream count,
+  plus orientation (is_portrait / display dimensions post-rotation).
+  If the footage orientation contradicts the Step-0 format (portrait
+  RAW + long request, or landscape RAW + short request), STOP and
+  confirm with the user (crop/reframe vs switching format) — never
+  silently render the wrong canvas.
 - **Style preferences** (optional, from the user): tone (professional/casual),
   desired pace, target format — one of `youtube_talking_head`, `podcast`, `short_form`.
 

@@ -33,6 +33,31 @@ Don't use for:
 
 ## Pipeline (in order, no skipping)
 
+### 0. Format — decide FIRST, before touching any footage
+
+The very first thing: figure out whether the user wants a **short**
+or a **long** video. Everything downstream (canvas, style, cadence,
+captions) depends on this decision.
+
+1. **Explicit request wins.** If the user already says it ("creami il
+   mio short", "un reel verticale", "un video lungo per YouTube",
+   "podcast"), route directly — no questions asked:
+   - short signals → `style: "short_form"`, `format: "short"` (9:16)
+   - long signals → `style: "youtube_talking_head"` (default) or
+     `"podcast"`, `format: "long"` (16:9)
+2. **Otherwise ASK first.** Before ingest, ask one question — short
+   or long? (horizontal 16:9 vs vertical 9:16). Never assume, never
+   start the pipeline on an unconfirmed format.
+3. **Confirm against the footage.** After `import_raw_media`, check
+   `is_portrait` / `display_width` × `display_height`: a portrait RAW
+   with a "long" request (or landscape RAW with a "short" request)
+   is a mismatch — flag it to the user and confirm how to proceed
+   (crop/reframe vs switching format) instead of silently rendering
+   the wrong canvas.
+
+Completion: `style` + `format` decided and (if asked) confirmed by
+the user before Step 1 runs.
+
 ### 1. Ingest — `import_raw_media(paths)`
 
 Register each RAW file. Returns `media_id` + metadata (duration,
