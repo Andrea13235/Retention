@@ -58,7 +58,7 @@ const RiskPoint = z.object({
 
 server.tool(
   "analyze_transcript",
-  "Step 3 — Narrative analysis: hook, sections, fillers, attention dips, highlights, cut candidates (dead air, stutters, filler runs, trims). Reading guide: docs/analysis-guide.md.",
+  "Step 3 — Narrative analysis: hook, sections, fillers, attention dips, highlights, cut candidates with confidence (dead air, stutters, filler runs, trims). ALWAYS inspect `needs_review`: every flagged word is a likely-mangled brand/proper noun — confirm each with the user (or from context) and pass the fixes as `corrections`, otherwise the raw ASR text burns into the captions. Reading guide: docs/analysis-guide.md.",
   {
     transcript: z.string().describe("Transcript JSON (transcribe_media output)"),
     longPauseSec: z.number().optional(),
@@ -67,7 +67,7 @@ server.tool(
     corrections: z
       .array(z.object({ misheard: z.string(), correct: z.string() }))
       .optional()
-      .describe("Fix ASR-mangled words before analysis (e.g. 'raw cut' -> 'CutCraft')"),
+      .describe("Fix ASR-mangled words before analysis (e.g. 'rawcat' -> 'CutCraft'). Get these from the previous run's `needs_review`."),
   },
   async ({ transcript, longPauseSec, sectionCount, deadAirSec, corrections }) => ({
     content: [
@@ -91,7 +91,7 @@ const STYLE: [StylePreset, ...StylePreset[]] = [
 
 server.tool(
   "generate_edit_plan",
-  "Step 4 — Generate the Action Plan JSON v1.2: a real KEEP splice (complement of cut_candidates), kept-words-only karaoke captions, act-based motion. Reading guide: docs/analysis-guide.md. Every attention_risk_point gets interrupt coverage.",
+  "Step 4 — Generate the Action Plan JSON v1.2: a real KEEP splice (confidence-gated cuts), kept-words-only karaoke captions, act-based motion. ALWAYS inspect `review_cuts` in the output before rendering: SKIPPED entries need an explicit promote-or-keep decision, APPLIED entries need a rhetoric check. Reading guide: docs/analysis-guide.md. Every attention_risk_point gets interrupt coverage.",
   {
     structure: z.string().describe("NarrativeStructure JSON (analyze_transcript output)"),
     transcript: z
@@ -155,7 +155,7 @@ server.tool(
 
 server.tool(
   "render_video",
-  "Step 5+6 — Build the HyperFrames project from the Action Plan and render it to MP4.",
+  "Step 5+6 — Build the HyperFrames project from the Action Plan and render it to MP4. The builder VALIDATES the plan and throws on overlapping karaoke captions or zooms inside a cut mask (with the exact fix) — never renders garbage. Only call after clearing `needs_review` and `review_cuts`.",
   {
     edit_plan: z.string().describe("EditPlan JSON (generate_edit_plan output)"),
     project_dir: z.string().describe("HyperFrames project output folder"),

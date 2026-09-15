@@ -368,7 +368,58 @@ export function analyzeTranscript(
       mediaStart: 0,
       mediaEnd: timecodeToSec(endAll),
     }),
+    needs_review: buildNeedsReview(words, segs),
   };
+}
+
+/**
+ * Words Whisper likely mangled — the first-take safety net.
+ * A token is suspicious when it is RARE (seen once in the whole
+ * transcript) AND (emphasized (spoken slowly) OR long (≥7 chars) OR
+ * adjacent to a long pause (uncertain delivery)). Those are exactly
+ * the brand names / proper nouns / neologisms small models invent
+ * ("rawcat" for CutCraft, "cloud" for Claude): frequent words are
+ * never flagged (the model gets common speech right), stopwords and
+ * fillers are excluded by construction.
+ * Each flag carries sentence context so the agent can correct it
+ * without re-listening. Cap 10: beyond that the transcript is noise
+ * and the agent should re-transcribe with a bigger model.
+ */
+function buildNeedsReview(
+  words: Array<{ word: string; start: number; end: number }>,
+  segs: Transcript["segments"]
+): NonNullable<NarrativeStructure["needs_review"]> {
+  const freq = new Map<string, number>();
+  for (const w of words) freq.set(w.word, (freq.get(w.word) ?? 0) + 1);
+  const avgDur =
+    words.reduce((a, w) => a + Math.max(0, w.end - w.start), 0) /
+    Math.max(1, words.length);
+  const out: NonNullable<NarrativeStructure["needs_review"]> = [];
+  const seen = new Set<string>();
+  words.forEach((w, i) => {
+    if (seen.has(w.word)) return;
+    seen.add(w.word);
+    if (STOPWORDS.has(w.word) || FILLER_WORDS.has(w.word)) return;
+    if ((freq.get(w.word) ?? 0) > 1) return; // model is consistent → trust it
+    const dur = Math.max(0, w.end - w.start);
+    const emphasized = dur > avgDur * 1.8;
+    const longToken = w.word.length >= 7;
+    const prevGap = i > 0 ? w.start - words[i - 1].end : 0;
+    const nextGap =
+      i + 1 < words.length ? words[i + 1].start - w.end : 0;
+    const hesitant = prevGap >= 0.5 || nextGap >= 0.5;
+    if (!(emphasized || longToken || hesitant)) return;
+    const seg = segs.find(
+      (s) => w.start >= timecodeToSec(s.start) && w.start < timecodeToSec(s.end)
+    );
+    const tokens = (seg?.text ?? w.word).split(/\s+/);
+    const idx = tokens.findIndex((t) =>
+      cleanWord(t).startsWith(w.word.slice(0, Math.min(4, w.word.length)))
+    );
+    const context = tokens.slice(Math.max(0, idx - 4), idx + 5).join(" ");
+    out.push({ word: w.word, start: secToTimecode(w.start), context });
+  });
+  return out.slice(0, 10);
 }
 
 /**
@@ -402,41 +453,47 @@ function buildCutCandidates(args: {
   // the sacred zone over real content.
   const hookSafeUntil = mediaStart + 3;
 
-  const push = (start: number, end: number, kind: NonNullable<NarrativeStructure["cut_candidates"]>[number]["kind"], reason: string) => {
+  const push = (start: number, end: number, kind: NonNullable<NarrativeStructure["cut_candidates"]>[number]["kind"], reason: string, confidence: number) => {
     if (!(end > start)) return;
     if (start < hookSafeUntil && kind !== "trim_head") return;
-    out.push({ start: secToTimecode(start), end: secToTimecode(end), kind, reason });
+    out.push({ start: secToTimecode(start), end: secToTimecode(end), kind, reason, confidence });
   };
 
-  // trim_head / trim_tail (dead air at the edges — always cut)
+  // trim_head / trim_tail (dead air at the edges — always cut, max trust)
   const firstStart = words[0].start;
   const lastEnd = words[words.length - 1].end;
   if (firstStart - mediaStart >= 0.3)
-    push(mediaStart, firstStart, "trim_head", `leading silence ${(firstStart - mediaStart).toFixed(1)}s`);
+    push(mediaStart, firstStart, "trim_head", `leading silence ${(firstStart - mediaStart).toFixed(1)}s`, 0.99);
   if (mediaEnd - lastEnd >= 0.5)
-    push(lastEnd, mediaEnd, "trim_tail", `trailing silence ${(mediaEnd - lastEnd).toFixed(1)}s`);
+    push(lastEnd, mediaEnd, "trim_tail", `trailing silence ${(mediaEnd - lastEnd).toFixed(1)}s`, 0.99);
 
-  // dead_air between words
+  // dead_air between words. Confidence scales with length: a 4s void is
+  // certainly a blank mind (0.95); a 0.8s gap may be a rhetorical pause
+  // the speaker wanted (0.6) — the planner applies it but flags review.
   const floor = Math.max(0.3, deadAirSec);
   for (let i = 1; i < words.length; i++) {
     const gap = words[i].start - words[i - 1].end;
-    if (gap >= floor)
-      push(words[i - 1].end, words[i].start, "dead_air", `silence of ${gap.toFixed(1)}s mid-speech`);
+    if (gap >= floor) {
+      const confidence = gap >= 2 ? 0.95 : gap >= 1.2 ? 0.8 : 0.6;
+      push(words[i - 1].end, words[i].start, "dead_air", `silence of ${gap.toFixed(1)}s mid-speech`, confidence);
+    }
   }
 
-  // stutter: "sul sul", "di di" — cut the FIRST occurrence + its gap
+  // stutter: "sul sul", "di di" — cut the FIRST occurrence + its gap.
+  // Near-certain (0.9): nobody repeats a word on purpose twice in a row.
   for (let i = 1; i < words.length; i++) {
     if (words[i].word && words[i].word === words[i - 1].word)
-      push(words[i - 1].start, words[i].start, "stutter", `repeated word "${words[i].word}" — keep final take`);
+      push(words[i - 1].start, words[i].start, "stutter", `repeated word "${words[i].word}" — keep final take`, 0.9);
   }
 
-  // filler runs: ≥2 consecutive filler words ("ehm allora", "cioè ecco")
+  // filler runs: ≥2 consecutive filler words ("ehm allora", "cioè ecco").
+  // High trust (0.85): consecutive fillers carry no meaning by definition.
   {
     let runStart = -1;
     let runEnd = -1;
     let count = 0;
     const flush = () => {
-      if (count >= 2) push(runStart, runEnd, "filler", `filler run: ${count} consecutive filler words`);
+      if (count >= 2) push(runStart, runEnd, "filler", `filler run: ${count} consecutive filler words`, 0.85);
       runStart = runEnd = -1;
       count = 0;
     };
@@ -451,8 +508,8 @@ function buildCutCandidates(args: {
   }
 
   // false starts: burst of ≤3 words starting a sentence, then a pause and
-  // a restart — the speaker aborted. Cut burst + pause, keep restart.
-  // Heuristic: gap ≥0.5s after ≤3 words since the previous gap ≥0.5s.
+  // a restart — the speaker aborted. Medium trust (0.7): the heuristic
+  // can't tell an aborted take from deliberate anaphora ("io… io dico").
   {
     let sentenceStart = 0;
     let wordsSinceGap = 0;
@@ -464,7 +521,8 @@ function buildCutCandidates(args: {
             words[sentenceStart].start,
             words[i].start,
             "false_start",
-            `aborted burst of ${wordsSinceGap} words before restart`
+            `aborted burst of ${wordsSinceGap} words before restart`,
+            0.7
           );
         }
         sentenceStart = i;

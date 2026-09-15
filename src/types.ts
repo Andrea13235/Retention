@@ -61,6 +61,12 @@ export interface CutCandidate {
     | "trim_tail"
     | "manual";
   reason: string;
+  /**
+   * Planner trust 0..1. ≥0.85 auto-applied; 0.5–0.85 applied but listed
+   * in the plan's `review_cuts` so the agent double-checks rhetorical
+   * moments; <0.5 NOT applied (stays a proposal for the agent).
+   */
+  confidence: number;
 }
 
 /** Narrative structure from analysis (Step 3). */
@@ -111,6 +117,24 @@ export interface NarrativeStructure {
    * and rhetoric the heuristics can't judge).
    */
   cut_candidates?: CutCandidate[];
+  /**
+   * Words Whisper likely mangled — rare tokens the agent MUST confirm
+   * before rendering (brand names, proper nouns, neologisms like
+   * "rawcat" for CutCraft). Each entry carries the sentence context so
+   * the agent can fix it without re-listening to the audio. If ignored,
+   * the raw ASR text reaches the captions verbatim.
+   */
+  needs_review?: Array<{ word: string; start: Timecode; context: string }>;
+  /**
+   * Cut proposals below the auto-apply threshold that the planner
+   * SKIPPED (kept in the video). The agent reviews these: promote to
+   * extraCuts or leave kept. Never silent — every skipped cut is listed.
+   */
+  review_cuts?: Array<{
+    start: Timecode;
+    end: Timecode;
+    reason: string;
+  }>;
 }
 
 /** Animation types supported by the HyperFrames renderer. */
@@ -175,6 +199,16 @@ export interface EditPlan {
   pattern_interrupts: Array<{ time: Timecode; kind: string; detail?: string }>;
   /** Free-form agent notes (hook missing, cold-open proposal, …). */
   structure_notes?: Array<{ time: Timecode; note: string }>;
+  /**
+   * Cuts the planner did NOT silently apply: skipped low-confidence
+   * proposals + applied-but-verify medium ones. The agent MUST review
+   * these before rendering — rhetoric the heuristics can't judge.
+   */
+  review_cuts?: Array<{
+    start: Timecode;
+    end: Timecode;
+    reason: string;
+  }>;
 }
 
 /** Convert "HH:MM:SS.mmm" to seconds. */

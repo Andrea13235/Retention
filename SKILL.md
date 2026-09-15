@@ -52,13 +52,14 @@ in `HH:MM:SS.mmm` format, plus the detected `language` code.
 
 Deterministic narrative analysis: hook (first 30s), thematic sections,
 filler segments (≥40% filler words), attention dips (pauses ≥2.5s),
-highlights (densest 20%), keywords + hook moment + slow spots — and
-`cut_candidates`: the real "taglia qui" list (dead air, stutters,
-filler runs, false starts, head/tail trims). Pass `corrections`
-(`misheard` → `correct`) to fix ASR-mangled brand names before analysis.
-Completion: structure with `hook`, `sections`, `fillers`,
-`attention_dips`, `highlights`, `cut_candidates` — all timecodes within
-media bounds.
+highlights (densest 20%), keywords + hook moment + slow spots —
+`cut_candidates` with confidence (dead air, stutters, filler runs,
+false starts, head/tail trims), and `needs_review`: likely-mangled
+brand/proper nouns the agent MUST confirm. Workflow: run once WITHOUT
+corrections, confirm EVERY `needs_review` word, re-run WITH corrections,
+only then plan. Completion: structure with `hook`, `sections`,
+`fillers`, `attention_dips`, `highlights`, `cut_candidates`,
+`needs_review` — all timecodes within media bounds.
 
 > Agent reading guide for this step and the next: [`docs/analysis-guide.md`](docs/analysis-guide.md)
 > (cut rules, attention curve, technique catalog, EditPlan reference).
@@ -66,16 +67,18 @@ media bounds.
 ### 4. Plan — `generate_edit_plan(structure, transcript?, style?, sourcePortrait?, extraCuts?, corrections?)`
 
 Build the machine-actionable Edit Plan v1.2: `cuts` as a real KEEP
-splice (complement of `cut_candidates` + `extraCuts` — sorted,
-non-overlapping, edge-to-edge; CUT entries stay in the record),
+splice (confidence-gated: ≥0.85 auto, 0.5–0.85 applied+flagged in
+`review_cuts`, <0.5 skipped as proposal; manual extraCuts always apply),
 `format` (`short` → 9:16 canvas when `sourcePortrait` or short-form),
-`animations` (karaoke captions with only kept, corrected words +
-keyword emphasis, zoom-ins on dips, slow-zoom motion, lower-thirds),
+`animations` (non-overlapping karaoke with only kept, corrected words +
+keyword emphasis, masking zoom on every splice resume, veto on any zoom
+in CUTs/pre-cut masks, slow-zoom motion, lower-thirds),
 `broll` (when sources provided), `pattern_interrupts` on cadence
 (talking-head ~25s, podcast ~60s, short-form ~4s) plus one dedicated
-interrupt per `attention_risk_point`. Pass the transcript JSON so words
-feed captions. Completion: valid EditPlan, KEEP cuts ordered with no
-gaps, no zero-length segments.
+interrupt per `attention_risk_point`. MANDATORY: read `review_cuts`
+before rendering. Pass the transcript JSON so words feed captions.
+Completion: valid EditPlan, KEEP cuts ordered with no gaps, no
+zero-length segments.
 
 ### 5. Render — `render_video(edit_plan, project_dir, raw_video_path?, preset?)`
 

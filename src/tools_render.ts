@@ -11,6 +11,7 @@ import { promisify } from "node:util";
 import {
   CANVAS,
   RENDER_PRESETS,
+  secToTimecode,
   timecodeToSec,
   type EditPlan,
   type RenderPreset,
@@ -85,6 +86,45 @@ export async function buildHyperframesProject(
     }
     return null; // inside a CUT range — dropped
   };
+
+  // ——— Plan validation (fail loud, never render garbage) ———
+  // A hand-written or third-party plan can still violate the two
+  // invisibility guarantees. The planner enforces them by construction,
+  // but the renderer is the last gate: any violation throws with the
+  // exact fix, instead of producing overlapping captions / visible seams.
+  {
+    const karaoke = plan.animations.filter((a) => a.type === "karaoke_caption");
+    const spans = karaoke
+      .map((a) => {
+        const t = srcToTl(timecodeToSec(a.time));
+        if (t === null) return null; // inside a CUT — dropped, harmless
+        return { t, e: t + (a.duration ?? 3), at: a.time };
+      })
+      .filter((s): s is NonNullable<typeof s> => s !== null)
+      .sort((x, y) => x.t - y.t);
+    for (let i = 0; i + 1 < spans.length; i++) {
+      if (spans[i].e > spans[i + 1].t + 0.05) {
+        throw new Error(
+          `build: karaoke captions overlap (${spans[i].at} runs ${(spans[i].e - spans[i].t).toFixed(2)}s into ${karaoke[i + 1]?.time}) — ` +
+            `shorten duration so each card ends ≤0.08s before the next starts`
+        );
+      }
+    }
+    const cutStarts = plan.cuts
+      .filter((c) => c.reason.startsWith("CUT"))
+      .map((c) => ({ s: timecodeToSec(c.start), e: timecodeToSec(c.end) }));
+    for (const a of plan.animations) {
+      if (a.type !== "zoom_in" && a.type !== "zoom_out" && a.type !== "slow_zoom") continue;
+      const src = timecodeToSec(a.time);
+      const hit = cutStarts.find((c) => src >= c.s - 0.8 && src < c.s);
+      if (hit) {
+        throw new Error(
+          `build: ${a.type} at ${a.time} fires inside the 0.8s pre-cut mask of CUT ${secToTimecode(hit.s)} — ` +
+            `move it ≥0.8s earlier or onto the resume at ${secToTimecode(hit.e)}`
+        );
+      }
+    }
+  }
   const durationSec = Math.max(
     1,
     tlCursor,

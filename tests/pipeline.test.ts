@@ -161,12 +161,80 @@ describe("analyze", () => {
     expect(kinds).toContain("dead_air");
     expect(kinds).toContain("filler");
     expect(kinds).toContain("trim_tail");
+    // every candidate carries a confidence in [0,1]
+    for (const c of s.cut_candidates ?? []) {
+      expect(c.confidence).toBeGreaterThanOrEqual(0);
+      expect(c.confidence).toBeLessThanOrEqual(1);
+    }
+    // trims are max-trust, short dead-air is flagged for review
+    const trim = (s.cut_candidates ?? []).find((c) => c.kind === "trim_head");
+    expect(trim!.confidence).toBeGreaterThanOrEqual(0.9);
     // never zero-length, sorted
     for (const c of s.cut_candidates ?? []) {
       expect(timecodeToSec(c.end)).toBeGreaterThan(timecodeToSec(c.start));
     }
     const starts = (s.cut_candidates ?? []).map((c) => c.start);
     expect([...starts].sort()).toEqual(starts);
+  });
+  it("needs_review flags likely-mangled brand words with context", () => {
+    // "rawcat" appears ONCE, long token, emphasized (slow) → suspicious.
+    // "video" appears twice → trusted. stopwords never flagged.
+    const mk = (word: string, start: number, dur = 0.3) => ({
+      start: secToTimecode(start),
+      end: secToTimecode(start + dur),
+      word,
+    });
+    const tr: Transcript = {
+      media_id: "review-test",
+      model: "small",
+      segments: [{
+        start: "00:00:00.000",
+        end: "00:00:10.000",
+        text: "hai mai sentito parlare di rawcat oggi parliamo di video e di video",
+        words: [
+          mk("hai", 0), mk("mai", 0.35), mk("sentito", 0.7), mk("parlare", 1.1),
+          mk("di", 1.5), mk("rawcat", 1.8, 0.9), mk("oggi", 3.0),
+          mk("parliamo", 3.4), mk("di", 3.8), mk("video", 4.1),
+          mk("e", 4.5), mk("di", 4.7), mk("video", 5.0),
+        ],
+      }],
+    };
+    const s = analyzeTranscript(tr);
+    const flagged = (s.needs_review ?? []).map((r) => r.word);
+    expect(flagged).toContain("rawcat");
+    expect(flagged).not.toContain("video");
+    expect(flagged).not.toContain("hai");
+    const entry = (s.needs_review ?? []).find((r) => r.word === "rawcat");
+    expect(entry!.context).toContain("rawcat");
+    expect(entry!.start).toBe("00:00:01.800");
+  });
+  it("confidence gate: low cuts skipped, medium cuts flagged for review", () => {
+    const words: Array<{ start: string; word: string }> = [];
+    for (let i = 0; i < 40; i++) {
+      words.push({ start: secToTimecode(i * 0.5), word: `w${i}` });
+    }
+    const s = analyzeTranscript({
+      media_id: "gate-test",
+      model: "small",
+      segments: [{ start: "00:00:00.000", end: "00:00:25.000", text: words.map((w) => w.word).join(" ") }],
+    });
+    // craft candidates: high (trim), medium (short dead-air 0.6), low (0.3)
+    const withCuts = {
+      ...s,
+      cut_candidates: [
+        ...(s.cut_candidates ?? []).filter((c) => c.kind === "trim_head" || c.kind === "trim_tail"),
+        { start: "00:00:05.000", end: "00:00:05.600", kind: "dead_air" as const, reason: "short gap", confidence: 0.6 },
+        { start: "00:00:10.000", end: "00:00:10.400", kind: "filler" as const, reason: "dubious", confidence: 0.3 },
+      ],
+    };
+    const plan = generateEditPlan(withCuts, { style: "short_form" }, words);
+    const cutStarts = plan.cuts.filter((c) => c.reason.startsWith("CUT")).map((c) => c.start);
+    // medium applied (present as CUT) AND flagged
+    expect(cutStarts).toContain("00:00:05.000");
+    // low NOT applied (absent from CUTs) but listed for the agent
+    expect(cutStarts).not.toContain("00:00:10.000");
+    expect((plan.review_cuts ?? []).some((r) => r.start === "00:00:10.000" && r.reason.includes("SKIPPED"))).toBe(true);
+    expect((plan.review_cuts ?? []).some((r) => r.start === "00:00:05.000" && r.reason.includes("APPLIED"))).toBe(true);
   });
   it("corrections fix ASR-mangled words before analysis", () => {
     const tr: Transcript = {
@@ -383,6 +451,59 @@ describe("render: HyperFrames project build", () => {
       expect(html).toContain("hello");
       // animation inside the CUT range is dropped entirely
       expect(html).not.toContain("INSIDE CUT");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+  it("renderer rejects overlapping karaoke captions with a fix hint", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "cutcraft-reject-"));
+    try {
+      const plan = {
+        version: "1.2" as const,
+        style: "short_form",
+        format: "short" as const,
+        media_id: "reject-media",
+        cuts: [{ start: "00:00:00.000", end: "00:00:10.000", reason: "keep" }],
+        animations: [
+          {
+            time: "00:00:01.000", type: "karaoke_caption" as const, position: "bottom" as const,
+            duration: 5,
+            words: [{ start: "00:00:01.000", word: "hello" }],
+          },
+          {
+            time: "00:00:02.000", type: "karaoke_caption" as const, position: "bottom" as const,
+            duration: 2,
+            words: [{ start: "00:00:02.000", word: "world" }],
+          },
+        ],
+        broll: [],
+        pattern_interrupts: [],
+      };
+      await expect(buildHyperframesProject(plan, dir)).rejects.toThrow(/overlap/);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+  it("renderer rejects zooms inside the pre-cut mask with a fix hint", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "cutcraft-reject2-"));
+    try {
+      const plan = {
+        version: "1.2" as const,
+        style: "short_form",
+        format: "short" as const,
+        media_id: "reject-media-2",
+        cuts: [
+          { start: "00:00:00.000", end: "00:00:05.000", reason: "keep" },
+          { start: "00:00:08.000", end: "00:00:12.000", reason: "keep" },
+          { start: "00:00:05.000", end: "00:00:08.000", reason: "CUT — dead_air: x" },
+        ],
+        animations: [
+          { time: "00:00:04.500", type: "zoom_in" as const, target: "face" },
+        ],
+        broll: [],
+        pattern_interrupts: [],
+      };
+      await expect(buildHyperframesProject(plan, dir)).rejects.toThrow(/pre-cut mask/);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

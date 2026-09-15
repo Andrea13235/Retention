@@ -48,15 +48,46 @@ the viewer ("in this video we'll see…"), calls to action, twists or reveals.
 ## 3b. Cut candidates (deterministic, word-level)
 
 `analyze_transcript` emits `cut_candidates` — the actual "taglia qui"
-decisions — from Whisper word timestamps:
+decisions — from Whisper word timestamps. Every candidate carries a
+`confidence` (0..1 = planner trust):
 
-| Kind | Signal | Example |
-|---|---|---|
-| `trim_head` / `trim_tail` | silence ≥0.3s / ≥0.5s before the first / after the last word | cold mic, lingering outro — always cut |
-| `dead_air` | inter-word gap ≥ `deadAirSec` (default 0.8; short-form 0.4–0.5) | mind gone blank mid-sentence |
-| `stutter` | immediate same-word repeat | "sul sul tuo" → keep the final take |
-| `filler` | run of ≥2 consecutive filler words | "ehm allora", "cioè ecco" |
-| `false_start` | aborted burst (≤3 words) + pause + restart | keep only the final take |
+| Kind | Signal | Confidence | Example |
+|---|---|---|---|
+| `trim_head` / `trim_tail` | silence ≥0.3s / ≥0.5s at the edges | 0.99 (always cut) | cold mic, lingering outro |
+| `dead_air` ≥2s | long void mid-speech | 0.95 (blank mind) | lost train of thought |
+| `dead_air` 1.2–2s | medium gap | 0.8 (applied, verify) | dramatic pause? |
+| `dead_air` <1.2s | short gap | 0.6 (applied, verify) | rhetorical breath? |
+| `stutter` | immediate same-word repeat | 0.9 | "sul sul tuo" → keep last |
+| `filler` | run of ≥2 consecutive fillers | 0.85 | "ehm allora", "cioè ecco" |
+| `false_start` | aborted burst (≤3 words) + restart | 0.7 (anaphora?) | "io… io dico" may be deliberate |
+
+The planner's confidence gate: ≥0.85 auto-applied; 0.5–0.85 applied
+but listed in `review_cuts` for a rhetoric check; <0.5 skipped and
+listed as a proposal. **Never render before reading `review_cuts`** —
+a short pause may be deliberate drama, a "false start" may be
+anaphora. Promote skipped cuts via `extraCuts` or leave them kept.
+
+## 3c. `needs_review`: the first-take safety net (READ THIS)
+
+Whisper-small mangles exactly the words that matter most on screen:
+brand names, proper nouns, neologisms ("rawcat" for CutCraft, "cloud"
+for Claude). `analyze_transcript` flags them in `needs_review` —
+rare tokens (seen once) that are long, emphasized, or hesitantly
+delivered — each with sentence context.
+
+**Mandatory workflow (first take right):**
+
+1. Run `analyze_transcript` WITHOUT corrections.
+2. Read `needs_review`. Confirm EVERY flagged word — with the user,
+   or from obvious context (the project name, the speaker's product).
+3. Re-run `analyze_transcript` WITH `corrections: [{misheard, correct}]`.
+4. Only then `generate_edit_plan`.
+
+If you skip this, the raw ASR text burns into the karaoke captions
+verbatim and the video ships with "rawcat" on screen. Frequent words
+are never flagged (the model gets common speech right); if
+`needs_review` has >10 entries the transcript is noise — re-transcribe
+with a bigger model instead of correcting one by one.
 
 Guardrails: the first 3s of media are never cut (cold open is sacred);
 ASR-artifact words (>2s on a single word — small-model jitter, not real
@@ -75,10 +106,8 @@ Two invisibility guarantees (enforced by construction, not by taste):
   the 0.8s before a CUT or inside one — a punch on the seam would
   spotlight it.
 The agent reviews `cut_candidates` and adds `extraCuts` for false starts
-and rhetoric the heuristics can't judge; pass `corrections`
-(`misheard` → `correct`) so brand names Whisper mangles
-("raw cut" → "CutCraft", "cloud" → "Claude") render correctly
-in captions.
+and rhetoric the heuristics can't judge (see `review_cuts` in the plan —
+mandatory pre-render read).
 
 ## 4. Mapping the attention curve
 

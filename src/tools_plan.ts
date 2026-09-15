@@ -96,11 +96,35 @@ export function generateEditPlan(
   const mediaEnd = structure.duration_sec ?? endSec;
 
   // ——— Cuts: complement of cut_candidates over [0, mediaEnd] ———
-  // Merge structure candidates + agent extraCuts, then invert: what is
-  // not CUT is KEEP. The result is sorted, non-overlapping, edge-to-edge.
+  // Confidence gate (first-take safety):
+  // - confidence ≥ 0.85 → auto-applied, no questions.
+  // - 0.5 ≤ confidence < 0.85 → applied BUT listed in review_cuts:
+  //   the agent double-checks rhetorical moments (a 0.8s pause may be
+  //   deliberate drama, not a blank mind).
+  // - confidence < 0.5 → NOT applied: stays a proposal, agent decides.
+  // - manual extraCuts always apply (the agent already judged them).
+  const reviewCuts: NonNullable<EditPlan["review_cuts"]> = [];
   const rawCuts: CutCandidate[] = [
-    ...(structure.cut_candidates ?? []),
-    ...(opts.extraCuts ?? []).map((c) => ({ ...c, kind: "manual" as const })),
+    ...(structure.cut_candidates ?? []).flatMap((c) => {
+      const conf = c.confidence ?? 0.7;
+      if (conf < 0.5) {
+        reviewCuts.push({
+          start: c.start,
+          end: c.end,
+          reason: `SKIPPED (confidence ${conf}): ${c.kind}: ${c.reason} — promote via extraCuts or leave kept`,
+        });
+        return [];
+      }
+      if (conf < 0.85) {
+        reviewCuts.push({
+          start: c.start,
+          end: c.end,
+          reason: `APPLIED, verify rhetoric (${conf}): ${c.kind}: ${c.reason}`,
+        });
+      }
+      return [c];
+    }),
+    ...(opts.extraCuts ?? []).map((c) => ({ ...c, kind: "manual" as const, confidence: 1 })),
   ];
   const cutRanges = rawCuts
     .map((c) => ({
@@ -337,5 +361,6 @@ export function generateEditPlan(
     animations,
     broll,
     pattern_interrupts,
+    review_cuts: reviewCuts.length > 0 ? reviewCuts : undefined,
   };
 }
