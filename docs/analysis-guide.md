@@ -62,6 +62,18 @@ Guardrails: the first 3s of media are never cut (cold open is sacred);
 ASR-artifact words (>2s on a single word — small-model jitter, not real
 hesitation) never become cuts; overlaps merge. `generate_edit_plan`
 inverts the candidates into a KEEP splice — what is not CUT is content.
+
+Two invisibility guarantees (enforced by construction, not by taste):
+
+- **One caption at a time.** Karaoke card durations are computed from
+  the next card's start (minus a 0.08s breath gap), clamped to 1–4s
+  short-form / 1–8s long-form. Cards can never overlap even across
+  splice points — whichever clock the render uses.
+- **Invisible splices.** Every CUT resume gets a masking `zoom_in` that
+  lands on the first kept frame (the viewer reads the scale change as
+  intent, not as a jump). No zoom, slow-zoom or interrupt may fire in
+  the 0.8s before a CUT or inside one — a punch on the seam would
+  spotlight it.
 The agent reviews `cut_candidates` and adds `extraCuts` for false starts
 and rhetoric the heuristics can't judge; pass `corrections`
 (`misheard` → `correct`) so brand names Whisper mangles

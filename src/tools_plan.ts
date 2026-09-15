@@ -163,34 +163,43 @@ export function generateEditPlan(
     const kept = transcriptWords
       .map((w) => ({ ...w, word: fixWord(w.word) }))
       .filter((w) => isKept(timecodeToSec(w.start)));
-    let card: { start: number; words: typeof kept } | null = null;
-    const flush = () => {
-      if (card && card.words.length > 0) {
-        const lastStart = timecodeToSec(
-          card.words[card.words.length - 1].start
-        );
-        animations.push({
-          time: secToTimecode(card.start),
-          type: "karaoke_caption",
-          position: isShort ? "bottom" : "bottom",
-          duration: Math.min(15, Math.max(1, lastStart - card.start + 0.8)),
-          words: card.words.map((w) => ({
-            start: w.start,
-            word: w.word.trim(),
-            emphasis: kwSet.has(w.word.trim().toLowerCase().replace(/[.,!?;:]+$/, "")),
-          })),
-        });
-      }
-      card = null;
-    };
+    // Build raw cards first (maxWords each), then assign durations so
+    // cards NEVER overlap: each card ends when the next begins (minus a
+    // breath gap). One caption alive at a time — guaranteed by
+    // construction, whatever the splice did to the clock.
+    const rawCards: Array<{ start: number; words: typeof kept }> = [];
+    let cur: (typeof rawCards)[number] | null = null;
     for (const w of kept) {
-      if (!card || card.words.length >= maxWords) {
-        flush();
-        card = { start: timecodeToSec(w.start), words: [] };
+      if (!cur || cur.words.length >= maxWords) {
+        cur = { start: timecodeToSec(w.start), words: [] };
+        rawCards.push(cur);
       }
-      card.words.push(w);
+      cur.words.push(w);
     }
-    flush();
+    const GAP = 0.08;
+    rawCards.forEach((card, i) => {
+      if (card.words.length === 0) return;
+      const lastStart = timecodeToSec(card.words[card.words.length - 1].start);
+      const natural = lastStart - card.start + 0.8;
+      const nextStart = rawCards[i + 1]?.start;
+      const capped =
+        nextStart !== undefined ? Math.max(0.5, nextStart - card.start - GAP) : natural;
+      // Short-form: snappy cards (1–4s). Long-form: room to breathe (1–8s).
+      const dur = isShort
+        ? Math.min(4, Math.max(1, Math.min(natural, capped)))
+        : Math.min(8, Math.max(1, Math.min(natural, capped)));
+      animations.push({
+        time: secToTimecode(card.start),
+        type: "karaoke_caption",
+        position: "bottom",
+        duration: dur,
+        words: card.words.map((w) => ({
+          start: w.start,
+          word: w.word.trim(),
+          emphasis: kwSet.has(w.word.trim().toLowerCase().replace(/[.,!?;:]+$/, "")),
+        })),
+      });
+    });
   } else {
     // Fallback (no word timestamps): captions on highlights as before.
     for (const h of structure.highlights.slice(0, 10)) {
@@ -207,12 +216,30 @@ export function generateEditPlan(
   // hook_moment emphasis is rendered by the karaoke cards themselves
   // (no separate top caption: double captions + black boxes are banned —
   // the Apple restraint rule).
+  // INVISIBLE-CUT rule: every splice point is masked by a zoom that
+  // LANDS on the first frame after the cut (viewer reads scale change
+  // as intent, not as a jump). Conversely, no zoom may fire in the 0.8s
+  // BEFORE a cut — a punch on the last pre-cut frame spotlights the seam.
+  const CUT_MASK_S = 0.8;
+  const cutEnds = mergedCuts.map((c) => c.e); // timeline resumes here…
+  const cutStarts = mergedCuts.map((c) => c.s); // …after cutting here
+  const nearCutStart = (t: number): boolean =>
+    cutStarts.some((cs) => t >= cs - CUT_MASK_S && t < cs);
+  // Masking punch at every splice resume (source clock = cut end).
+  for (const ce of cutEnds) {
+    animations.push({
+      time: secToTimecode(ce),
+      type: "zoom_in",
+      target: "face",
+    });
+  }
   // One slow_zoom per section (alternating in/out), punch-ins on slow spots.
+  // Veto: nothing fires inside the pre-cut mask (it would spotlight seams).
   structure.sections.forEach((s, i) => {
     const sStart = timecodeToSec(s.start);
     const sEnd = timecodeToSec(s.end);
     const dur = Math.min(12, Math.max(3, sEnd - sStart - 1));
-    if (dur >= 3) {
+    if (dur >= 3 && isKept(sStart + 0.5) && !nearCutStart(sStart + 0.5)) {
       animations.push({
         time: secToTimecode(sStart + 0.5),
         type: "slow_zoom",
@@ -224,18 +251,24 @@ export function generateEditPlan(
     }
   });
   for (const spot of structure.slow_spots ?? []) {
-    animations.push({
-      time: spot.start,
-      type: "zoom_in",
-      target: "face",
-    });
+    const t = timecodeToSec(spot.start);
+    if (isKept(t) && !nearCutStart(t)) {
+      animations.push({
+        time: spot.start,
+        type: "zoom_in",
+        target: "face",
+      });
+    }
   }
   for (const d of structure.attention_dips.slice(0, 10)) {
-    animations.push({
-      time: d.start,
-      type: "zoom_in",
-      target: "face",
-    });
+    const t = timecodeToSec(d.start);
+    if (isKept(t) && !nearCutStart(t)) {
+      animations.push({
+        time: d.start,
+        type: "zoom_in",
+        target: "face",
+      });
+    }
   }
   animations.sort((a, b) => timecodeToSec(a.time) - timecodeToSec(b.time));
 
@@ -258,8 +291,10 @@ export function generateEditPlan(
   }
 
   // Pattern interrupts on cadence (short-form keeps every ~4s)…
+  // …skipped inside CUT ranges and inside the pre-cut mask (same rule).
   const pattern_interrupts: EditPlan["pattern_interrupts"] = [];
   for (let t = every; t < endSec; t += every) {
+    if (!isKept(t) || nearCutStart(t)) continue;
     pattern_interrupts.push({
       time: secToTimecode(t),
       kind: style === "short_form" ? "caption_pop" : "zoom_punch",
@@ -278,6 +313,7 @@ export function generateEditPlan(
     const e = timecodeToSec(r.end);
     if (!Number.isFinite(s) || !Number.isFinite(e) || e <= s) continue;
     const mid = (s + e) / 2;
+    if (!isKept(mid) || nearCutStart(mid)) continue;
     const covered = pattern_interrupts.some(
       (p) => Math.abs(timecodeToSec(p.time) - mid) < every / 2
     );

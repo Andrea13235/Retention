@@ -229,7 +229,17 @@ describe("plan", () => {
     // at least one keyword gets emphasis pop
     const emphasized = karaoke.flatMap((k) => k.words ?? []).some((w) => w.emphasis);
     expect(emphasized).toBe(true);
-    expect(plan.pattern_interrupts.length).toBeGreaterThanOrEqual(5);
+    // interrupts survive only in KEEP zones outside the pre-cut mask
+    // (cadence ticks inside CUTs/masks are skipped by design)
+    expect(plan.pattern_interrupts.length).toBeGreaterThanOrEqual(1);
+    const cutSpans = (s.cut_candidates ?? []).map((c) => ({
+      s: timecodeToSec(c.start),
+      e: timecodeToSec(c.end),
+    }));
+    for (const p of plan.pattern_interrupts) {
+      const t = timecodeToSec(p.time);
+      expect(cutSpans.every((c) => t < c.s - 0.8 || t >= c.e)).toBe(true);
+    }
   });
   it("sourcePortrait forces short canvas", () => {
     const s = analyzeTranscript(SAMPLE_TRANSCRIPT);
@@ -375,6 +385,68 @@ describe("render: HyperFrames project build", () => {
       expect(html).not.toContain("INSIDE CUT");
     } finally {
       rmSync(dir, { recursive: true, force: true });
+    }
+  });
+  it("karaoke cards never overlap: each ends before the next begins", () => {
+    // dense word flow: 12 words at 0.3s cadence, 4 words/card → 3 cards
+    const words: Array<{ start: string; word: string }> = [];
+    for (let i = 0; i < 12; i++) {
+      words.push({ start: secToTimecode(1 + i * 0.3), word: `w${i}` });
+    }
+    const s = analyzeTranscript({
+      media_id: "overlap-test",
+      model: "small",
+      segments: [{ start: "00:00:00.000", end: "00:00:10.000", text: words.map((w) => w.word).join(" ") }],
+    });
+    const plan = generateEditPlan(s, { style: "short_form" }, words);
+    const cards = plan.animations.filter((a) => a.type === "karaoke_caption");
+    expect(cards.length).toBe(3);
+    const spans = cards.map((c) => ({
+      s: timecodeToSec(c.time),
+      e: timecodeToSec(c.time) + (c.duration ?? 3),
+    }));
+    for (let i = 0; i + 1 < spans.length; i++) {
+      expect(spans[i].e).toBeLessThanOrEqual(spans[i + 1].s + 0.001);
+    }
+    // short-form clamp: no card longer than 4s
+    for (const sp of spans) {
+      expect(sp.e - sp.s).toBeLessThanOrEqual(4.001);
+    }
+  });
+  it("invisible cuts: masking zoom at every resume, veto before every cut", () => {
+    const words: Array<{ start: string; word: string }> = [];
+    for (let i = 0; i < 40; i++) {
+      words.push({ start: secToTimecode(i * 0.5), word: `w${i}` });
+    }
+    const s = analyzeTranscript({
+      media_id: "mask-test",
+      model: "small",
+      segments: [{ start: "00:00:00.000", end: "00:00:25.000", text: words.map((w) => w.word).join(" ") }],
+    });
+    const plan = generateEditPlan(
+      s,
+      {
+        style: "short_form",
+        interruptEverySec: 4,
+        extraCuts: [{ start: "00:00:05.000", end: "00:00:08.000", reason: "test cut" }],
+      },
+      words
+    );
+    const zooms = plan.animations.filter(
+      (a) => a.type === "zoom_in" || a.type === "slow_zoom"
+    );
+    // masking punch lands exactly on the resume (cut end 8.0)
+    expect(zooms.some((z) => Math.abs(timecodeToSec(z.time) - 8) < 0.01)).toBe(true);
+    // veto: no zoom in [4.2, 5.0) before the cut at 5.0
+    expect(zooms.some((z) => {
+      const t = timecodeToSec(z.time);
+      return t >= 4.2 && t < 5.0;
+    })).toBe(false);
+    // interrupts respect the same rules (none inside CUT or mask)
+    for (const p of plan.pattern_interrupts) {
+      const t = timecodeToSec(p.time);
+      expect(t < 5 || t >= 8).toBe(true);
+      expect(t < 4.2 || t >= 5).toBe(true);
     }
   });
 });
