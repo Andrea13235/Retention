@@ -60,7 +60,7 @@ export async function buildHyperframesProject(
     ...plan.pattern_interrupts.map((p) => timecodeToSec(p.time))
   );
 
-  // Asset: copia il RAW dentro il progetto (mai path esterni).
+  // Asset: copy the RAW into the project (never external paths).
   let videoSrc: string | null = null;
   if (opts.rawVideoPath) {
     const { copyFile, stat: statFile } = await import("node:fs/promises");
@@ -73,48 +73,100 @@ export async function buildHyperframesProject(
     videoSrc = `./assets/${fileName}`;
   }
 
-  // Contratto media HyperFrames (verificato su CLI 0.8.40):
-  // - il TIMING sta sul <video> stesso (data-start + data-duration);
-  // - MAI un antenato timed attorno al <video> (video_nested_in_timed_element);
-  // - <video> con src richiede data-start (media_missing_data_start).
+  // HyperFrames media contract (verified on CLI 0.8.40):
+  // - TIMING lives on the <video> itself (data-start + data-duration);
+  // - NEVER a timed ancestor around <video> (video_nested_in_timed_element);
+  // - <video> with src requires data-start (media_missing_data_start).
   const clips = keepCuts
     .map((c, i) => {
       const start = timecodeToSec(c.start);
       const dur = timecodeToSec(c.end) - start;
       if (dur <= 0) return "";
-      // id univoco + data-has-audio: il renderer scopre i media via id
-      // (media_missing_id) e il RAW parlato deve contribuire l'audio.
+      // Unique id + data-has-audio: the renderer discovers media via id
+      // (media_missing_id) and spoken RAW must contribute audio.
       const media = videoSrc
         ? `<video id="clip-video-${i}" src="${escHtml(videoSrc)}" data-start="${start}" data-duration="${dur}" data-has-audio="true" style="width:100%;height:100%;object-fit:cover"></video>`
         : `<div class="clip placeholder" data-start="${start}" data-duration="${dur}"><div>CLIP ${i + 1}<br/><span>${escHtml(c.reason)}</span></div></div>`;
-      // Wrapper div SENZA timing: contiene solo il styling full-bleed.
+      // Wrapper div WITHOUT timing: only full-bleed styling.
+      // Its id (#clip-i) is the GSAP target for slow_zoom / zoom punch tweens.
       return `      <div id="clip-${i}" class="fullbleed">\n        ${media}\n      </div>`;
     })
     .join("\n");
 
-  const overlays = plan.animations
-    .map((a, i) => {
-      const t = timecodeToSec(a.time);
-      if (a.type === "text_overlay" || a.type === "caption") {
-        const pos =
-          a.position === "top"
-            ? "top:8%"
-            : a.position === "center"
-              ? "top:42%"
-              : "bottom:10%";
-        return `      <div id="ov-${i}" class="clip overlay" data-start="${t}" data-duration="3" style="${pos}">\n        <span>${escHtml(a.content ?? "")}</span>\n      </div>`;
-      }
-      return "";
-    })
-    .filter(Boolean)
-    .join("\n");
+  // Overlay animations: captions/text/lower-thirds (timed divs) and
+  // zoom tweens (GSAP on the clip wrapper — no silent drops: zoom_in,
+  // zoom_out and slow_zoom all render as visible motion).
+  //
+  // Time → clip mapping: a zoom at time t targets the wrapper of the
+  // KEEP cut active at t; if none is active, it targets #root.
+  const cutAt = (t: number): number => {
+    for (let i = 0; i < keepCuts.length; i++) {
+      const s = timecodeToSec(keepCuts[i].start);
+      const e = timecodeToSec(keepCuts[i].end);
+      if (t >= s && t < e) return i;
+    }
+    return -1;
+  };
 
-  const beats = plan.pattern_interrupts
-    .map((p, i) => {
+  const overlayDivs: string[] = [];
+  const zoomTweens: string[] = [];
+  plan.animations.forEach((a, i) => {
+    const t = timecodeToSec(a.time);
+    if (
+      a.type === "text_overlay" ||
+      a.type === "caption" ||
+      a.type === "lower_third"
+    ) {
+      const dur = Math.max(0.5, Math.min(a.duration ?? 3, 15));
+      const cls =
+        a.type === "lower_third" ? "clip overlay lower3rd" : "clip overlay";
+      const pos =
+        a.position === "top"
+          ? "top:8%"
+          : a.position === "center"
+            ? "top:42%"
+            : "bottom:10%";
+      overlayDivs.push(
+        `      <div id="ov-${i}" class="${cls}" data-start="${t}" data-duration="${dur}" style="${pos}">\n        <span>${escHtml(a.content ?? "")}</span>\n      </div>`
+      );
+    } else if (
+      a.type === "zoom_in" ||
+      a.type === "zoom_out" ||
+      a.type === "slow_zoom"
+    ) {
+      const idx = cutAt(t);
+      const target = idx >= 0 ? `#clip-${idx}` : "#root";
+      if (a.type === "slow_zoom") {
+        // Progressive scale over the whole visible duration (default 8s):
+        // subtle continuous motion, 2–5 %/s as the analysis guide suggests.
+        const dir = a.direction ?? "in";
+        const rate = Math.max(0.5, Math.min(a.intensity ?? 3, 10)) / 100;
+        const dur = Math.max(1, Math.min(a.duration ?? 8, 30));
+        const from = dir === "out" ? 1 + rate * dur : 1;
+        const to = dir === "out" ? 1 : 1 + rate * dur;
+        zoomTweens.push(
+          `      tl.fromTo("${target}", { scale: ${from.toFixed(3)} }, { scale: ${to.toFixed(3)}, duration: ${dur}, ease: "none" }, ${t});`
+        );
+      } else {
+        // Punch zoom: quick in-and-back (re-engage on attention dips).
+        const peak = a.type === "zoom_in" ? 1.08 : 0.94;
+        zoomTweens.push(
+          `      tl.fromTo("${target}", { scale: 1 }, { scale: ${peak}, duration: 0.25, yoyo: true, repeat: 1, ease: "power2.inOut" }, ${t});`
+        );
+      }
+    }
+    // "transition" is a cut-level concern (jump cut between clips) and is
+    // already expressed by the cuts list — nothing extra to render.
+  });
+  const overlays = overlayDivs.join("\n");
+
+  const beats = [
+    ...zoomTweens,
+    ...plan.pattern_interrupts.map((p, i) => {
       const t = timecodeToSec(p.time);
       return `      tl.fromTo("#punch-${i}", { scale: 1 }, { scale: 1.06, duration: 0.25, yoyo: true, repeat: 1, ease: "power2.inOut" }, ${t});`;
-    })
-    .join("\n");
+    }),
+  ].join("\n");
   const punchDivs = plan.pattern_interrupts
     .map((p, i) => {
       const t = timecodeToSec(p.time);
@@ -139,6 +191,8 @@ export async function buildHyperframesProject(
       .placeholder span { font-size: 28px; font-weight: 400; opacity: 0.7; }
       .overlay { position: absolute; left: 0; right: 0; text-align: center; z-index: 10; }
       .overlay span { display: inline-block; background: rgba(0,0,0,0.65); padding: 12px 28px; border-radius: 12px; font-size: 56px; font-weight: 800; }
+      .overlay.lower3rd { text-align: left; }
+      .overlay.lower3rd span { font-size: 34px; font-weight: 600; border-left: 8px solid #4da3ff; border-radius: 0 12px 12px 0; }
       .punch { position: absolute; inset: 0; z-index: 5; pointer-events: none; }
     </style>
   </head>
@@ -218,6 +272,6 @@ export async function renderVideo(
 
   const st = await stat(output).catch(() => null);
   if (!st || st.size === 0)
-    throw new Error(`render_video: output mancante o vuoto: ${output}`);
+    throw new Error(`render_video: missing or empty output: ${output}`);
   return output;
 }

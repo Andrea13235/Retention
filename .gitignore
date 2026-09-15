@@ -12,3 +12,6 @@ andrea-video-skill.md
 # test artifacts
 .tmp-e2e/
 tmp-dbg/
+
+# Local agent workspace (attachments, internal notes) — never publish
+.hermes/

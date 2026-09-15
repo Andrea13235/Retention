@@ -118,6 +118,25 @@ describe("plan", () => {
     const plan = generateEditPlan(s, { style: "short_form" });
     expect(plan.pattern_interrupts.length).toBeGreaterThanOrEqual(5);
   });
+  it("risk points get dedicated interrupt coverage", () => {
+    const s = analyzeTranscript(SAMPLE_TRANSCRIPT);
+    const plan = generateEditPlan(
+      { ...s, attention_risk_points: [{ start: "00:00:20.000", end: "00:00:28.000", reason: "static block" }] },
+      { style: "podcast" } // 60s cadence → midpoint 24s would otherwise be uncovered
+    );
+    const covered = plan.pattern_interrupts.some(
+      (p) => p.detail?.includes("risk-point coverage")
+    );
+    expect(covered).toBe(true);
+    // interrupts stay time-ordered
+    const times = plan.pattern_interrupts.map((p) => p.time);
+    expect([...times].sort()).toEqual(times);
+  });
+  it("broll entries carry a reason", () => {
+    const s = analyzeTranscript(SAMPLE_TRANSCRIPT);
+    const plan = generateEditPlan(s, { brollSources: ["./broll/a.mp4"] });
+    for (const b of plan.broll) expect(b.reason).toBeTruthy();
+  });
 });
 
 describe("render: HyperFrames project build", () => {
@@ -139,6 +158,41 @@ describe("render: HyperFrames project build", () => {
       expect(html).not.toContain("<template>");
       const meta = JSON.parse(readFileSync(join(dir, "hyperframes.json"), "utf8"));
       expect(meta.compositionId).toBe(proj.compositionId);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+  it("renders slow_zoom, lower_third and custom caption duration — no silent drops", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "avskill-hf2-"));
+    try {
+      const plan = {
+        version: "1.0" as const,
+        style: "youtube_talking_head",
+        media_id: "test-media",
+        cuts: [{ start: "00:00:00.000", end: "00:00:20.000", reason: "opening hook" }],
+        animations: [
+          { time: "00:00:02.000", type: "slow_zoom" as const, target: "face", direction: "in" as const, intensity: 3, duration: 8 },
+          { time: "00:00:05.000", type: "zoom_in" as const, target: "face" },
+          { time: "00:00:10.000", type: "lower_third" as const, content: "Dr. Rossi", position: "bottom" as const, duration: 5 },
+          { time: "00:00:15.000", type: "caption" as const, content: "KEY INSIGHT", position: "bottom" as const, duration: 4 },
+        ],
+        broll: [],
+        pattern_interrupts: [],
+      };
+      await buildHyperframesProject(plan, dir);
+      const { readFileSync } = await import("node:fs");
+      const html = readFileSync(join(dir, "index.html"), "utf8");
+      // slow_zoom → progressive GSAP tween on the active clip
+      expect(html).toContain('tl.fromTo("#clip-0"');
+      expect(html).toContain('scale: 1.240');
+      // zoom_in punch → yoyo tween
+      expect(html).toContain("yoyo: true");
+      // lower_third → dedicated class
+      expect(html).toContain("lower3rd");
+      expect(html).toContain("Dr. Rossi");
+      // custom caption duration honored (not hardcoded 3)
+      expect(html).toContain('data-duration="4"');
+      expect(html).toContain('data-duration="5"');
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

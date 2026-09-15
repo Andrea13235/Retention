@@ -47,7 +47,27 @@ export interface NarrativeStructure {
   fillers: Array<{ start: Timecode; end: Timecode; reason: string }>;
   attention_dips: Array<{ start: Timecode; end: Timecode; reason: string }>;
   highlights: Array<{ start: Timecode; end: Timecode; reason: string }>;
+  /**
+   * Static blocks at risk of attention drop (no visual/narrative change).
+   * Agents mark them during analysis; the planner turns each into a
+   * pattern interrupt so every risk point gets coverage.
+   */
+  attention_risk_points?: Array<{
+    start: Timecode;
+    end: Timecode;
+    reason: string;
+  }>;
 }
+
+/** Animation types supported by the HyperFrames renderer. */
+export type AnimationType =
+  | "text_overlay"
+  | "caption"
+  | "lower_third"
+  | "zoom_in"
+  | "zoom_out"
+  | "slow_zoom"
+  | "transition";
 
 /** Machine-actionable Action Plan (Step 4). */
 export interface EditPlan {
@@ -57,13 +77,26 @@ export interface EditPlan {
   cuts: Array<{ start: Timecode; end: Timecode; reason: string }>;
   animations: Array<{
     time: Timecode;
-    type: "text_overlay" | "zoom_in" | "zoom_out" | "transition" | "caption";
+    type: AnimationType;
     content?: string;
     position?: "top" | "bottom" | "center";
     target?: string;
+    /** Visible duration in seconds (captions/overlays, default 3). */
+    duration?: number;
+    /** slow_zoom direction (default "in"). */
+    direction?: "in" | "out";
+    /** slow_zoom speed as scale %/s (default 3). */
+    intensity?: number;
   }>;
-  broll: Array<{ start: Timecode; end: Timecode; source: string }>;
+  broll: Array<{
+    start: Timecode;
+    end: Timecode;
+    source: string;
+    reason?: string;
+  }>;
   pattern_interrupts: Array<{ time: Timecode; kind: string; detail?: string }>;
+  /** Free-form agent notes (hook missing, cold-open proposal, …). */
+  structure_notes?: Array<{ time: Timecode; note: string }>;
 }
 
 /** Convert "HH:MM:SS.mmm" to seconds. */

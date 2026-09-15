@@ -55,12 +55,17 @@ filler segments (≥40% filler words), attention dips (pauses ≥2.5s),
 highlights (densest 20%). Completion: structure with `hook`, `sections`,
 `fillers`, `attention_dips`, `highlights` — all timecodes within media bounds.
 
+> Agent reading guide for this step and the next: [`docs/analysis-guide.md`](docs/analysis-guide.md)
+> (cut rules, attention curve, technique catalog, EditPlan reference).
+
 ### 4. Plan — `generate_edit_plan(structure, style?)`
 
 Build the machine-actionable Edit Plan v1.0: `cuts` (keep hook + sections,
-mark fillers `TAGLIARE`), `animations` (captions on highlights, zoom-in
-on dips), `broll` (when sources provided), `pattern_interrupts` on cadence
-(talking-head ~25s, podcast ~60s, short-form ~4s). Completion: valid
+mark fillers `CUT`), `animations` (captions on highlights, zoom-ins
+on dips, slow-zoom motion, lower-thirds), `broll` (when sources provided),
+`pattern_interrupts` on cadence
+(talking-head ~25s, podcast ~60s, short-form ~4s) plus one dedicated
+interrupt per `attention_risk_point`. Completion: valid
 EditPlan, cuts ordered, no zero-length segments.
 
 ### 5. Render — `render_video(edit_plan, project_dir, raw_video_path?, preset?)`

@@ -21,6 +21,16 @@ export interface PlanOptions {
   interruptEverySec?: number;
   /** Available b-roll sources (paths). */
   brollSources?: string[];
+  /**
+   * Static blocks at risk of attention drop. Every risk point gets a
+   * dedicated pattern interrupt at its midpoint (in addition to cadence).
+   * Agents mark them during transcript analysis (see docs/analysis-guide.md).
+   */
+  attentionRiskPoints?: Array<{
+    start: string;
+    end: string;
+    reason: string;
+  }>;
 }
 
 const DEFAULT_INTERRUPT: Record<StylePreset, number> = {
@@ -85,12 +95,13 @@ export function generateEditPlan(
           start: secToTimecode(sStart + 2),
           end: secToTimecode(Math.min(sStart + 12, sEnd)),
           source: sources[i % sources.length],
+          reason: `b-roll over section: ${s.title}`,
         });
       }
     });
   }
 
-  // Pattern interrupts on a regular cadence.
+  // Pattern interrupts on a regular cadence…
   const pattern_interrupts: EditPlan["pattern_interrupts"] = [];
   for (let t = every; t < endSec; t += every) {
     pattern_interrupts.push({
@@ -99,6 +110,33 @@ export function generateEditPlan(
       detail: `interrupt every ~${every}s`,
     });
   }
+
+  // …plus one dedicated interrupt per risk point (midpoint), so every
+  // attention_risk_point from analysis gets coverage (see checklist).
+  // Risk points may also come via NarrativeStructure.attention_risk_points
+  // (agent-written analysis) — merge both sources, dedupe near-duplicates.
+  const riskPoints = [
+    ...(structure.attention_risk_points ?? []),
+    ...(opts.attentionRiskPoints ?? []),
+  ];
+  for (const r of riskPoints) {
+    const s = timecodeToSec(r.start);
+    const e = timecodeToSec(r.end);
+    if (!Number.isFinite(s) || !Number.isFinite(e) || e <= s) continue;
+    const mid = (s + e) / 2;
+    const covered = pattern_interrupts.some(
+      (p) => Math.abs(timecodeToSec(p.time) - mid) < every / 2
+    );
+    if (covered) continue;
+    pattern_interrupts.push({
+      time: secToTimecode(mid),
+      kind: style === "short_form" ? "caption_pop" : "zoom_punch",
+      detail: `risk-point coverage: ${r.reason}`,
+    });
+  }
+  pattern_interrupts.sort(
+    (a, b) => timecodeToSec(a.time) - timecodeToSec(b.time)
+  );
 
   return {
     version: "1.0",
