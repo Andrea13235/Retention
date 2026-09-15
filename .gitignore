@@ -5,3 +5,10 @@ node_modules/
 .DS_Store
 dist/
 build/
+
+# Spec interno di lavorazione — NON pubblicare (resta solo in locale)
+andrea-video-skill.md
+
+# test artifacts
+.tmp-e2e/
+tmp-dbg/

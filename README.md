@@ -41,7 +41,7 @@ Or after build, use the compiled entrypoint: `node /absolute/path/to/andrea-vide
 | 4 | `generate_edit_plan` | Machine-actionable Edit Plan v1.0 (cuts, animations, b-roll, interrupts) |
 | 5 | `render_video` | HyperFrames composition → MP4 (draft/standard/high) |
 
-See [`andrea-video-skill/SKILL.md`](andrea-video-skill/SKILL.md) for the full agent instructions, and [`examples/`](examples/) for ready-made style presets.
+See [`SKILL.md`](SKILL.md) for the full agent instructions, and [`examples/`](examples/) for ready-made style presets.
 
 ## Status
 

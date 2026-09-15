@@ -17,7 +17,7 @@ import type { Transcript } from "../src/types.js";
 /** Binario hyperframes locale (evita npx che scaricherebbe il pacchetto).
  *  Punta al file .mjs reale: .bin/hyperframes è un symlink che si rompe
  *  quando il test gira con cwd diversa. */
-const SKILL_ROOT = "/Users/andrea/Desktop/opensource skill videoediting/andrea-video-skill";
+const SKILL_ROOT = "/Users/andrea/Desktop/opensource skill videoediting";
 const HF_BIN = `${SKILL_ROOT}/node_modules/hyperframes/bin/hyperframes.mjs`;
 
 describe("e2e pipeline", () => {
