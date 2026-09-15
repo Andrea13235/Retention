@@ -374,3 +374,10 @@ does with each entry — no more, no less:
 - [ ] Timecodes are `HH:MM:SS.mmm` everywhere, within media bounds, no zero-length segments.
 - [ ] The plan is valid JSON with `version: "1.3"`, `format`,
   `resolvedRegister`, `takesCount`, and `media_id`, ready for `render_video`.
+- [ ] After rendering: review frames before delivering — hook (first
+  3s), one mid-KEEP section, every banner timestamp. Face free,
+  captions legible on the real background, banners TOP + verbatim,
+  cuts invisible, duration ≈ sum of KEEP ranges. Fix the plan and
+  re-render on any defect (`draft` until it passes, `high` only for
+  the approved final). Deliver the reviewed render with a short
+  summary — never an unseen first render.

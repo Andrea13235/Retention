@@ -15,9 +15,10 @@ metadata:
 ## Overview
 
 Turn RAW creator footage into a publish-ready MP4 without an NLE.
-The pipeline is fixed and sequential — transcription, narrative analysis,
-edit plan, HyperFrames render. Every stage's output feeds the next;
-never skip a stage or invent timestamps by hand.
+The pipeline is fixed and sequential — format, ingest, transcription,
+narrative analysis, edit plan, HyperFrames render, review, delivery.
+Every stage's output feeds the next; never skip a stage or invent
+timestamps by hand.
 
 ## When to Use
 
@@ -64,10 +65,14 @@ Register each RAW file. Returns `media_id` + metadata (duration,
 resolution, fps, audio streams). Completion: one asset per input file,
 all with `duration_sec > 0`.
 
-### 2. Transcribe — `transcribe_media(media_path, media_id)`
+### 2. Transcribe — `transcribe_media(media_path, media_id, model?)`
 
-Local Whisper transcription with word-level timecodes. The model is
-auto-selected (`large-v3` on NVIDIA GPU / Apple Silicon, `small` on CPU).
+Local Whisper transcription with word-level timecodes (the agent runs
+it — the user only provides the footage). The model is auto-selected
+(`large-v3` on NVIDIA GPU / Apple Silicon, `small` on CPU).
+Speed tip: `small` is 7–8x faster and word timings are equally good —
+pass `model: "small"` for drafts, long podcasts, or timing-only passes;
+keep auto/large-v3 when every word must be exact for final captions.
 Whisper auto-detects the spoken language (~100 languages: Italian, English,
 Spanish, French, German, …) — no language option needed.
 Completion: transcript JSON with `segments[]`, each with `start`/`end`
@@ -141,12 +146,25 @@ for a delivery spec. `crf`: omit it (preset curves already sit at
 transparency).
 Completion: output MP4 exists, non-empty, duration matches the plan.
 
-### 2b. Transcribe speed tip
+### 6. Review — check the render BEFORE delivering
 
-`small` is 7–8x faster than `large-v3` and word timings are equally
-good — pass `model: "small"` for drafts, long podcasts, or timing-only
-passes; keep auto/large-v3 when every word must be exact for final
-captions.
+Never hand the user the first render unseen. Extract frames
+(`ffmpeg -ss <t> -i output.mp4 -frames:v 1 check-<t>.png`) at: the
+hook (first 3s), one mid-video KEEP section, and every graphic banner
+timestamp. Verify: (a) face free — captions at the bottom never cover
+eyes/mouth; (b) captions legible — white text readable on the actual
+background; (c) banners TOP separated from captions, transcript-verbatim
+text; (d) cuts invisible — no frozen faces, no half-words at seams;
+(e) duration ≈ sum of KEEP ranges. If anything fails, fix the plan
+(corrections, caption timing, graphic position) and re-render — `draft`
+until it passes, `high` only for the approved final.
+Completion: frames inspected, zero defects, plan matches output.
+
+### 7. Deliver — hand over the approved video only
+
+Only after Step 6 passes: deliver the final MP4 (the `high` render)
+with a short summary — source → output duration, what was cut, which
+register/graphics were applied. Never deliver an unreviewed render.
 
 ## Style Presets (rhythm registers — measured, not vibes)
 
@@ -203,3 +221,7 @@ is `REGISTER_CADENCE` in `src/types.ts` — this table mirrors it.
   at a time, TOP position — never over the bottom captions
 - [ ] `index.html` contains `data-composition-id`, `__timelines`, no `<template>` wrapper
 - [ ] Output MP4 exists, non-empty, duration matches plan
+- [ ] Review frames inspected (hook, mid-KEEP, every banner): face
+  free, captions legible, banners TOP + verbatim, cuts invisible
+- [ ] Only the reviewed `high` render delivered, with a short summary
+  (source → output duration, cuts, register, graphics)
