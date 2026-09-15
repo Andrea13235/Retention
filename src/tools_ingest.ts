@@ -15,11 +15,42 @@ interface FfprobeStream {
   width?: number;
   height?: number;
   avg_frame_rate?: string;
+  /** Rotation tag (some containers), degrees. */
+  rotation?: number | string;
+  /** iPhone display-matrix side data (preferred source). */
+  side_data_list?: Array<{
+    side_data_type?: string;
+    rotation?: number;
+  }>;
 }
 
 interface FfprobeOutput {
   streams: FfprobeStream[];
   format: { duration?: string };
+}
+
+/** Normalize any reported rotation to one of 0 | 90 | -90 | 180. */
+function normalizeRotation(raw: unknown): number {
+  const deg = Number(raw);
+  if (!Number.isFinite(deg)) return 0;
+  const norm = ((deg % 360) + 360) % 360; // 0..359
+  if (norm === 90) return 90;
+  if (norm === 270) return -90;
+  if (norm === 180) return 180;
+  return 0;
+}
+
+/** Extract rotation: display-matrix side data first, then rotation tag. */
+function detectRotation(video: FfprobeStream | undefined): number {
+  if (!video) return 0;
+  const matrix = (video.side_data_list ?? []).find((s) => {
+    const t = (s.side_data_type ?? "").toLowerCase().replace(/[\s_-]/g, "");
+    return t.includes("displaymatrix");
+  });
+  if (matrix?.rotation !== undefined)
+    return normalizeRotation(matrix.rotation);
+  if (video.rotation !== undefined) return normalizeRotation(video.rotation);
+  return 0;
 }
 
 function parseFps(avg: string | undefined): number {
@@ -62,14 +93,27 @@ export async function importRawMedia(paths: string[]): Promise<MediaAsset[]> {
       (s) => s.codec_type === "audio"
     ).length;
 
+    // Display dimensions: a ±90° rotation swaps width/height (portrait
+    // phones store a landscape frame + rotation flag).
+    const rotation = detectRotation(video);
+    const rawW = video?.width ?? 0;
+    const rawH = video?.height ?? 0;
+    const swapped = Math.abs(rotation) === 90;
+    const displayW = swapped ? rawH : rawW;
+    const displayH = swapped ? rawW : rawH;
+
     assets.push({
       media_id: randomUUID(),
       path,
       duration_sec: Number(probe.format.duration ?? 0),
-      width: video?.width ?? 0,
-      height: video?.height ?? 0,
+      width: rawW,
+      height: rawH,
       fps: parseFps(video?.avg_frame_rate),
       audio_streams: audioCount,
+      rotation,
+      display_width: displayW,
+      display_height: displayH,
+      is_portrait: displayH > displayW,
     });
   }
   return assets;

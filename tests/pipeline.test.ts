@@ -65,7 +65,15 @@ describe("ingest (real ffprobe)", () => {
       expect(asset.height).toBe(480);
       expect(asset.fps).toBeCloseTo(30, 0);
       expect(asset.audio_streams).toBe(1);
+      expect(asset.rotation).toBe(0);
+      expect(asset.is_portrait).toBe(false);
+      expect(asset.display_width).toBe(640);
+      expect(asset.display_height).toBe(480);
       expect(asset.media_id).toMatch(/^[0-9a-f-]{36}$/);
+      // no rotation metadata → landscape, display == stored
+      expect(asset.display_width).toBe(640);
+      expect(asset.display_height).toBe(480);
+      expect(asset.is_portrait).toBe(false);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -98,25 +106,135 @@ describe("analyze", () => {
     expect(s.attention_dips).toHaveLength(1);
     expect(s.highlights.length).toBeGreaterThanOrEqual(1);
   });
+  it("extracts keywords, hook moment and slow spots from word timestamps", () => {
+    const t: Transcript = {
+      ...SAMPLE_TRANSCRIPT,
+      segments: SAMPLE_TRANSCRIPT.segments.map((s, i) => ({
+        ...s,
+        words: s.text.split(/\s+/).map((w, j) => ({
+          start: secToTimecode(timecodeToSec(s.start) + j * 0.3),
+          end: secToTimecode(timecodeToSec(s.start) + (j + 1) * 0.3),
+          word: w,
+        })),
+      })),
+    };
+    const s = analyzeTranscript(t);
+    expect(s.keywords && s.keywords.length).toBeGreaterThan(0);
+    // stopwords never keywords
+    const kw = (s.keywords ?? []).map((k) => k.word);
+    expect(kw).not.toContain("il");
+    expect(kw).not.toContain("e");
+    // content words surface
+    expect(kw.some((w) => w.includes("montaggio") || w.includes("ritmo") || w.includes("caption"))).toBe(true);
+    // hook moment inside the hook
+    expect(s.hook_moment).toBeDefined();
+    expect(timecodeToSec(s.hook_moment!.start)).toBeLessThan(30);
+  });
+  it("detects real cut candidates: dead air, stutter, filler runs, trims", () => {
+    // synthetic word flow (starts at 5s to stay clear of the hook guard):
+    // "sul sul" stutter, 1.2s dead air mid-speech, "ehm allora" filler
+    // run, head/tail silence around the flow
+    const words: Array<{ start: string; end: string; word: string }> = [];
+    let t = 5.0;
+    const push = (w: string, dur = 0.3) => {
+      const s = Math.round(t * 20) / 20;
+      const e = Math.round((t + dur) * 20) / 20;
+      words.push({ start: secToTimecode(s), end: secToTimecode(e), word: w });
+      t = Math.round((e + 0.05) * 20) / 20;
+    };
+    ["ciao", "a", "tutti"].forEach((w) => push(w));
+    push("sul"); push("sul"); push("tuo"); // stutter
+    t += 1.2; // dead air
+    ["parliamo", "di"].forEach((w) => push(w));
+    push("ehm"); push("allora"); // filler run
+    ["montaggio", "video"].forEach((w) => push(w));
+    const tr: Transcript = {
+      media_id: "cuts-test",
+      model: "small",
+      segments: [{ start: "00:00:00.000", end: "00:00:20.000", text: words.map((w) => w.word).join(" "), words }],
+    };
+    // head silence: flow starts at 5s; tail: segment ends at 20s
+    const s = analyzeTranscript(tr, { deadAirSec: 0.8 });
+    const kinds = (s.cut_candidates ?? []).map((c) => c.kind);
+    expect(kinds).toContain("trim_head");
+    expect(kinds).toContain("stutter");
+    expect(kinds).toContain("dead_air");
+    expect(kinds).toContain("filler");
+    expect(kinds).toContain("trim_tail");
+    // never zero-length, sorted
+    for (const c of s.cut_candidates ?? []) {
+      expect(timecodeToSec(c.end)).toBeGreaterThan(timecodeToSec(c.start));
+    }
+    const starts = (s.cut_candidates ?? []).map((c) => c.start);
+    expect([...starts].sort()).toEqual(starts);
+  });
+  it("corrections fix ASR-mangled words before analysis", () => {
+    const tr: Transcript = {
+      media_id: "fix-test",
+      model: "small",
+      segments: [{ start: "00:00:00.000", end: "00:00:05.000", text: "parliamo di raw cut oggi" }],
+    };
+    const s = analyzeTranscript(tr, {
+      corrections: [{ misheard: "raw cut", correct: "CutCraft" }],
+    });
+    expect(s.hook.summary).toContain("CutCraft");
+    expect(s.hook.summary).not.toMatch(/raw cut/i);
+  });
 });
 
 describe("plan", () => {
-  it("generates a coherent EditPlan 1.0", () => {
+  it("generates a coherent EditPlan 1.2 with a real splice", () => {
     const s = analyzeTranscript(SAMPLE_TRANSCRIPT);
     const plan = generateEditPlan(s, { style: "youtube_talking_head" });
-    expect(plan.version).toBe("1.0");
+    expect(plan.version).toBe("1.2");
     expect(plan.style).toBe("youtube_talking_head");
-    expect(plan.cuts.length).toBeGreaterThan(0);
-    expect(plan.cuts[0].reason).toBe("opening hook");
+    expect(plan.format).toBe("long");
+    // KEEP cuts first (sorted, non-overlapping), CUT record appended
+    const keeps = plan.cuts.filter((c) => !c.reason.startsWith("CUT"));
+    expect(keeps.length).toBeGreaterThan(0);
+    for (let i = 1; i < keeps.length; i++) {
+      expect(timecodeToSec(keeps[i].start)).toBeGreaterThanOrEqual(timecodeToSec(keeps[i - 1].end));
+    }
+    // sample has a filler segment → at least one CUT recorded
     expect(plan.cuts.some((c) => c.reason.startsWith("CUT"))).toBe(true);
     expect(plan.animations.length).toBeGreaterThan(0);
+    // motion follows acts: one slow_zoom per section (3 default sections)
+    const zooms = plan.animations.filter((a) => a.type === "slow_zoom");
+    expect(zooms.length).toBeGreaterThanOrEqual(2);
     // interrupts every ~25s over 28s of video → 1
     expect(plan.pattern_interrupts).toHaveLength(1);
   });
-  it("short_form → interrupt every 4s", () => {
-    const s = analyzeTranscript(SAMPLE_TRANSCRIPT);
-    const plan = generateEditPlan(s, { style: "short_form" });
+  it("short_form → 9:16 format, tiny cards, keyword emphasis", () => {
+    const t: Transcript = {
+      ...SAMPLE_TRANSCRIPT,
+      segments: SAMPLE_TRANSCRIPT.segments.map((s) => ({
+        ...s,
+        words: s.text.split(/\s+/).map((w, j) => ({
+          start: secToTimecode(timecodeToSec(s.start) + j * 0.3),
+          end: secToTimecode(timecodeToSec(s.start) + (j + 1) * 0.3),
+          word: w,
+        })),
+      })),
+    };
+    const s = analyzeTranscript(t);
+    const flat = t.segments.flatMap((sg) =>
+      (sg.words ?? []).map((w) => ({ start: w.start, word: w.word }))
+    );
+    const plan = generateEditPlan(s, { style: "short_form" }, flat);
+    expect(plan.format).toBe("short");
+    const karaoke = plan.animations.filter((a) => a.type === "karaoke_caption");
+    expect(karaoke.length).toBeGreaterThan(0);
+    // cards are tiny (≤5 words)
+    for (const k of karaoke) expect((k.words ?? []).length).toBeLessThanOrEqual(5);
+    // at least one keyword gets emphasis pop
+    const emphasized = karaoke.flatMap((k) => k.words ?? []).some((w) => w.emphasis);
+    expect(emphasized).toBe(true);
     expect(plan.pattern_interrupts.length).toBeGreaterThanOrEqual(5);
+  });
+  it("sourcePortrait forces short canvas", () => {
+    const s = analyzeTranscript(SAMPLE_TRANSCRIPT);
+    const plan = generateEditPlan(s, { sourcePortrait: true });
+    expect(plan.format).toBe("short");
   });
   it("risk points get dedicated interrupt coverage", () => {
     const s = analyzeTranscript(SAMPLE_TRANSCRIPT);
@@ -166,14 +284,22 @@ describe("render: HyperFrames project build", () => {
     const dir = mkdtempSync(join(tmpdir(), "cutcraft-hf2-"));
     try {
       const plan = {
-        version: "1.0" as const,
+        version: "1.2" as const,
         style: "youtube_talking_head",
+        format: "long" as const,
         media_id: "test-media",
         cuts: [{ start: "00:00:00.000", end: "00:00:20.000", reason: "opening hook" }],
         animations: [
           { time: "00:00:02.000", type: "slow_zoom" as const, target: "face", direction: "in" as const, intensity: 3, duration: 8 },
           { time: "00:00:05.000", type: "zoom_in" as const, target: "face" },
-          { time: "00:00:10.000", type: "lower_third" as const, content: "Dr. Rossi", position: "bottom" as const, duration: 5 },
+          {
+            time: "00:00:10.000", type: "karaoke_caption" as const, position: "bottom" as const,
+            words: [
+              { start: "00:00:10.000", word: "Premium" },
+              { start: "00:00:10.400", word: "quality" },
+              { start: "00:00:10.800", word: "matters" },
+            ],
+          },
           { time: "00:00:15.000", type: "caption" as const, content: "KEY INSIGHT", position: "bottom" as const, duration: 4 },
         ],
         broll: [],
@@ -185,14 +311,68 @@ describe("render: HyperFrames project build", () => {
       // slow_zoom → progressive GSAP tween on the active clip
       expect(html).toContain('tl.fromTo("#clip-0"');
       expect(html).toContain('scale: 1.240');
-      // zoom_in punch → yoyo tween
-      expect(html).toContain("yoyo: true");
-      // lower_third → dedicated class
-      expect(html).toContain("lower3rd");
-      expect(html).toContain("Dr. Rossi");
+      // zoom_in punch-cut → fast push + settle (no yoyo breathing)
+      expect(html).toContain('duration: 0.18');
+      // karaoke caption → clean Apple style (no pill, per-word spans)
+      expect(html).toContain('class="clip overlay karaoke"');
+      expect(html).toContain('id="ov-2-w0"');
+      expect(html).toContain("Premium");
+      expect(html).not.toContain("backdrop-filter");
       // custom caption duration honored (not hardcoded 3)
       expect(html).toContain('data-duration="4"');
-      expect(html).toContain('data-duration="5"');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+  it("splice: CUT middle range → two clips with data-media-start, remapped timeline", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "cutcraft-splice-"));
+    try {
+      // real 12s RAW so the splice path (data-media-start) is exercised
+      const raw = join(dir, "raw.mp4");
+      execFileSync("ffmpeg", [
+        "-hide_banner", "-loglevel", "error",
+        "-f", "lavfi", "-i", "testsrc=duration=12:size=640x480:rate=30",
+        "-f", "lavfi", "-i", "sine=frequency=440:duration=12",
+        "-shortest", "-y", raw,
+      ]);
+      // KEEP [0,5] + CUT (5,8) + KEEP [8,12] → output 9s, no gaps
+      const plan = {
+        version: "1.2" as const,
+        style: "short_form",
+        format: "short" as const,
+        media_id: "splice-media",
+        cuts: [
+          { start: "00:00:00.000", end: "00:00:05.000", reason: "keep" },
+          { start: "00:00:08.000", end: "00:00:12.000", reason: "keep" },
+          { start: "00:00:05.000", end: "00:00:08.000", reason: "CUT — dead_air: silence of 3.0s mid-speech" },
+        ],
+        animations: [
+          {
+            time: "00:00:09.000", type: "karaoke_caption" as const, position: "bottom" as const,
+            words: [{ start: "00:00:09.000", word: "hello" }],
+          },
+          {
+            time: "00:00:06.000", type: "caption" as const, content: "INSIDE CUT", position: "bottom" as const,
+          },
+        ],
+        broll: [],
+        pattern_interrupts: [],
+      };
+      const proj = await buildHyperframesProject(plan, dir, { rawVideoPath: raw });
+      // true spliced duration: 5 + 4 = 9s (not 12s)
+      expect(proj.durationSec).toBeCloseTo(9, 3);
+      const { readFileSync } = await import("node:fs");
+      const html = readFileSync(join(dir, "index.html"), "utf8");
+      // short canvas
+      expect(html).toContain("width=1080, height=1920");
+      // second clip resumes at source 8s, laid at timeline 5s
+      expect(html).toContain('data-media-start="8"');
+      expect(html).toContain('data-start="5"');
+      // caption at source 9s remapped to timeline 6s
+      expect(html).toContain('data-start="6"');
+      expect(html).toContain("hello");
+      // animation inside the CUT range is dropped entirely
+      expect(html).not.toContain("INSIDE CUT");
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

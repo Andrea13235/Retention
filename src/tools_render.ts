@@ -9,6 +9,7 @@ import { mkdir, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import {
+  CANVAS,
   RENDER_PRESETS,
   timecodeToSec,
   type EditPlan,
@@ -39,6 +40,10 @@ export interface BuildOptions {
    * (missing_local_asset), so never use external absolute paths.
    */
   rawVideoPath?: string;
+  /**
+   * Canvas override. Default: from plan.format (short → 1080×1920,
+   * long → 1920×1080). Explicit width/height still win when both set.
+   */
   width?: number;
   height?: number;
 }
@@ -48,16 +53,44 @@ export async function buildHyperframesProject(
   outDir: string,
   opts: BuildOptions = {}
 ): Promise<HyperframesProject> {
-  const width = opts.width ?? 1920;
-  const height = opts.height ?? 1080;
+  // Canvas follows the plan format (v1.2): shorts render 1080×1920,
+  // long-form 1920×1080. Explicit opts override (back-compat).
+  // NOTE: plan.version "1.0"/"1.1" have no format → default long.
+  const canvas = CANVAS[(plan as EditPlan).format ?? "long"] ?? CANVAS.long;
+  const width = opts.width ?? canvas.width;
+  const height = opts.height ?? canvas.height;
+  const portrait = height > width;
   const compositionId = `cutcraft-edit-${plan.media_id.slice(0, 8)}`;
 
-  // Duration = end of the last KEEP cut (exclude CUTs).
-  const keepCuts = plan.cuts.filter((c) => !c.reason.startsWith("CUT"));
+  // Duration + source→timeline map: KEEP cuts (exclude CUTs) are sorted
+  // and laid edge-to-edge on the output timeline. For each KEEP range we
+  // record { srcStart, tlStart } so animations authored in SOURCE time
+  // remap onto the OUTPUT timeline (post-splice clock).
+  const keepCuts = plan.cuts
+    .filter((c) => !c.reason.startsWith("CUT"))
+    .map((c) => ({ start: timecodeToSec(c.start), end: timecodeToSec(c.end) }))
+    .filter((c) => c.end > c.start)
+    .sort((a, b) => a.start - b.start);
+  const tlSpans: Array<{ srcStart: number; tlStart: number; dur: number }> = [];
+  let tlCursor = 0;
+  for (const c of keepCuts) {
+    const dur = c.end - c.start;
+    tlSpans.push({ srcStart: c.start, tlStart: tlCursor, dur });
+    tlCursor += dur;
+  }
+  const srcToTl = (src: number): number | null => {
+    for (const s of tlSpans) {
+      if (src >= s.srcStart && src < s.srcStart + s.dur)
+        return s.tlStart + (src - s.srcStart);
+    }
+    return null; // inside a CUT range — dropped
+  };
   const durationSec = Math.max(
     1,
-    ...keepCuts.map((c) => timecodeToSec(c.end)),
-    ...plan.pattern_interrupts.map((p) => timecodeToSec(p.time))
+    tlCursor,
+    ...plan.pattern_interrupts
+      .map((p) => srcToTl(timecodeToSec(p.time)) ?? -1)
+      .filter((t) => t >= 0)
   );
 
   // Asset: copy the RAW into the project (never external paths).
@@ -73,46 +106,111 @@ export async function buildHyperframesProject(
     videoSrc = `./assets/${fileName}`;
   }
 
-  // HyperFrames media contract (verified on CLI 0.8.40):
+  // HyperFrames media contract (verified on CLI 0.8.40 + editing recipes):
   // - TIMING lives on the <video> itself (data-start + data-duration);
   // - NEVER a timed ancestor around <video> (video_nested_in_timed_element);
-  // - <video> with src requires data-start (media_missing_data_start).
-  const clips = keepCuts
-    .map((c, i) => {
-      const start = timecodeToSec(c.start);
-      const dur = timecodeToSec(c.end) - start;
-      if (dur <= 0) return "";
-      // Unique id + data-has-audio: the renderer discovers media via id
-      // (media_missing_id) and spoken RAW must contribute audio.
+  // - <video> with src requires data-start (media_missing_data_start);
+  // - SPLICE: each KEEP clip plays its source window via data-media-start
+  //   and is laid at its tlStart — the output timeline skips CUT ranges.
+  const clips = tlSpans
+    .map((span, i) => {
       const media = videoSrc
-        ? `<video id="clip-video-${i}" src="${escHtml(videoSrc)}" data-start="${start}" data-duration="${dur}" data-has-audio="true" style="width:100%;height:100%;object-fit:cover"></video>`
-        : `<div class="clip placeholder" data-start="${start}" data-duration="${dur}"><div>CLIP ${i + 1}<br/><span>${escHtml(c.reason)}</span></div></div>`;
+        ? `<video id="clip-video-${i}" src="${escHtml(videoSrc)}" data-start="${span.tlStart}" data-duration="${span.dur}" data-media-start="${span.srcStart}" data-has-audio="true" style="width:100%;height:100%;object-fit:cover"></video>`
+        : `<div class="clip placeholder" data-start="${span.tlStart}" data-duration="${span.dur}"><div>CLIP ${i + 1}<br/><span>KEEP ${span.srcStart.toFixed(1)}s → ${(span.srcStart + span.dur).toFixed(1)}s</span></div></div>`;
       // Wrapper div WITHOUT timing: only full-bleed styling.
       // Its id (#clip-i) is the GSAP target for slow_zoom / zoom punch tweens.
       return `      <div id="clip-${i}" class="fullbleed">\n        ${media}\n      </div>`;
     })
     .join("\n");
 
-  // Overlay animations: captions/text/lower-thirds (timed divs) and
+  // Overlay animations: captions/text/lower-thirds (timed divs),
+  // karaoke captions (word-by-word highlight, Apple-style) and
   // zoom tweens (GSAP on the clip wrapper — no silent drops: zoom_in,
   // zoom_out and slow_zoom all render as visible motion).
   //
-  // Time → clip mapping: a zoom at time t targets the wrapper of the
-  // KEEP cut active at t; if none is active, it targets #root.
-  const cutAt = (t: number): number => {
-    for (let i = 0; i < keepCuts.length; i++) {
-      const s = timecodeToSec(keepCuts[i].start);
-      const e = timecodeToSec(keepCuts[i].end);
-      if (t >= s && t < e) return i;
+  // All animation times arrive in SOURCE clock → remapped to TIMELINE
+  // clock via srcToTl. Anything inside a CUT range returns null and is
+  // dropped (its words are gone from the video too).
+  // Time → clip mapping: a zoom at timeline time t targets the wrapper
+  // of the KEEP clip active at t; if none is active, it targets #root.
+  const cutAt = (tl: number): number => {
+    for (let i = 0; i < tlSpans.length; i++) {
+      if (tl >= tlSpans[i].tlStart && tl < tlSpans[i].tlStart + tlSpans[i].dur) return i;
     }
     return -1;
   };
 
   const overlayDivs: string[] = [];
+  const overlayTimelines: string[] = [];
   const zoomTweens: string[] = [];
   plan.animations.forEach((a, i) => {
-    const t = timecodeToSec(a.time);
-    if (
+    const srcT = timecodeToSec(a.time);
+    const t = srcToTl(srcT);
+    // Animation authored inside a CUT range → its moment is gone: drop it.
+    if (t === null) return;
+    if (a.type === "karaoke_caption") {
+      // Caption design system (v1.1):
+      // - clean white type, no boxes; spoken word full white, upcoming 40%.
+      // - emphasis words (planner keywords) get .hl: accent color + pop.
+      // - safe-area: on portrait canvas captions sit at bottom 12–18%
+      //   (below the chin, above platform UI); never center-face.
+      // Words carry SOURCE timecodes → remap each onto the timeline;
+      // words inside CUT ranges are dropped (planner usually pre-filters).
+      const remapped = (a.words ?? [])
+        .map((w) => ({ ...w, tl: srcToTl(timecodeToSec(w.start)) }))
+        .filter((w): w is typeof w & { tl: number } => w.tl !== null);
+      const words = remapped.map((w) => ({ ...w, rel: w.tl - (t as number) }));
+      if (words.length === 0) return; // whole card was cut away
+      const dur = Math.max(
+        0.5,
+        Math.min(
+          a.duration ??
+            (words.length > 0 ? words[words.length - 1].rel + 0.6 : 3),
+          15
+        )
+      );
+      const pos =
+        a.position === "top"
+          ? portrait
+            ? "top:6%"
+            : "top:8%"
+          : a.position === "center"
+            ? "top:42%"
+            : portrait
+              ? "bottom:14%"
+              : "bottom:10%";
+      const spans = words
+        .map(
+          (w, wi) =>
+            `<span class="kw${w.emphasis ? " hl" : ""}" id="ov-${i}-w${wi}">${escHtml(w.word)}</span>`
+        )
+        .join(" ");
+      overlayDivs.push(
+        `      <div id="ov-${i}" class="clip overlay karaoke" data-start="${t}" data-duration="${dur}" style="${pos}">\n        <span class="clean">${spans}</span>\n      </div>`
+      );
+      // Entrance: gentle fade with a soft rise (no spring — restraint).
+      overlayTimelines.push(
+        `      tl.fromTo("#ov-${i} .clean", { y: 18, opacity: 0 }, { y: 0, opacity: 1, duration: 0.5, ease: "power2.out" }, ${t});`
+      );
+      // Per-word highlight: 40% → 100% opacity with a whisper of scale;
+      // keyword pops get accent color + springy overshoot.
+      // Offsets are timeline-relative (rel), base is the remapped card start.
+      words.forEach((w, wi) => {
+        const wt = Math.max(0, w.rel);
+        if (w.emphasis) {
+          overlayTimelines.push(
+            `      tl.fromTo("#ov-${i}-w${wi}", { opacity: 0.4, scale: 0.85, color: "#ffffff" }, { opacity: 1, scale: 1.12, color: "#ffd60a", duration: 0.22, ease: "back.out(2.5)" }, ${t}+${Math.max(0, wt).toFixed(3)});`
+          );
+          overlayTimelines.push(
+            `      tl.to("#ov-${i}-w${wi}", { scale: 1, duration: 0.3, ease: "power2.out" }, ${t}+${(Math.max(0, wt) + 0.22).toFixed(3)});`
+          );
+        } else {
+          overlayTimelines.push(
+            `      tl.fromTo("#ov-${i}-w${wi}", { opacity: 0.4, scale: 0.97 }, { opacity: 1, scale: 1, duration: 0.3, ease: "power2.out" }, ${t}+${Math.max(0, wt).toFixed(3)});`
+          );
+        }
+      });
+    } else if (
       a.type === "text_overlay" ||
       a.type === "caption" ||
       a.type === "lower_third"
@@ -148,10 +246,16 @@ export async function buildHyperframesProject(
           `      tl.fromTo("${target}", { scale: ${from.toFixed(3)} }, { scale: ${to.toFixed(3)}, duration: ${dur}, ease: "none" }, ${t});`
         );
       } else {
-        // Punch zoom: quick in-and-back (re-engage on attention dips).
-        const peak = a.type === "zoom_in" ? 1.08 : 0.94;
+        // Punch-cut zoom: hard cut feel — fast push with a settle frame,
+        // no yoyo "breathing" (that reads as cheap). Alternating direction
+        // per index keeps consecutive punches from looking identical.
+        const dir = i % 2 === 0 ? 1 : -1;
+        const peak = a.type === "zoom_in" ? 1 + 0.09 * dir : 1 - 0.07 * dir;
         zoomTweens.push(
-          `      tl.fromTo("${target}", { scale: 1 }, { scale: ${peak}, duration: 0.25, yoyo: true, repeat: 1, ease: "power2.inOut" }, ${t});`
+          `      tl.fromTo("${target}", { scale: 1 }, { scale: ${peak.toFixed(3)}, duration: 0.18, ease: "power3.out" }, ${t});`
+        );
+        zoomTweens.push(
+          `      tl.to("${target}", { scale: 1, duration: 0.5, ease: "power2.inOut" }, ${t}+0.18);`
         );
       }
     }
@@ -161,16 +265,23 @@ export async function buildHyperframesProject(
   const overlays = overlayDivs.join("\n");
 
   const beats = [
+    ...overlayTimelines,
     ...zoomTweens,
-    ...plan.pattern_interrupts.map((p, i) => {
-      const t = timecodeToSec(p.time);
-      return `      tl.fromTo("#punch-${i}", { scale: 1 }, { scale: 1.06, duration: 0.25, yoyo: true, repeat: 1, ease: "power2.inOut" }, ${t});`;
+    ...plan.pattern_interrupts.flatMap((p, i) => {
+      const t = srcToTl(timecodeToSec(p.time));
+      if (t === null) return []; // interrupt inside a CUT range — gone
+      return [
+        `      tl.fromTo("#punch-${i}", { scale: 1 }, { scale: 1.06, duration: 0.25, yoyo: true, repeat: 1, ease: "power2.inOut" }, ${t});`,
+      ];
     }),
   ].join("\n");
   const punchDivs = plan.pattern_interrupts
-    .map((p, i) => {
-      const t = timecodeToSec(p.time);
-      return `      <div id="punch-${i}" class="clip punch" data-start="${t}" data-duration="0.6"></div>`;
+    .flatMap((p, i) => {
+      const t = srcToTl(timecodeToSec(p.time));
+      if (t === null) return [];
+      return [
+        `      <div id="punch-${i}" class="clip punch" data-start="${t}" data-duration="0.6"></div>`,
+      ];
     })
     .join("\n");
 
@@ -193,6 +304,32 @@ export async function buildHyperframesProject(
       .overlay span { display: inline-block; background: rgba(0,0,0,0.65); padding: 12px 28px; border-radius: 12px; font-size: 56px; font-weight: 800; }
       .overlay.lower3rd { text-align: left; }
       .overlay.lower3rd span { font-size: 34px; font-weight: 600; border-left: 8px solid #4da3ff; border-radius: 0 12px 12px 0; }
+      /* karaoke caption: true Apple style — no boxes, no pills.
+         Clean white SF type with soft shadow; the spoken word is full
+         white, upcoming words sit at 40% opacity. Restraint = premium. */
+      .overlay.karaoke { background: none; }
+      .overlay.karaoke .clean {
+        background: none;
+        padding: 0;
+        border-radius: 0;
+        font-size: 46px;
+        font-weight: 600;
+        letter-spacing: 0.005em;
+        color: #fff;
+        text-shadow: 0 2px 18px rgba(0,0,0,0.55), 0 1px 3px rgba(0,0,0,0.6);
+      }
+      .overlay.karaoke .kw {
+        display: inline-block;
+        opacity: 0.4;
+        margin: 0 7px;
+        /* neutralize the generic .overlay span box: words float free */
+        background: none;
+        padding: 0;
+        border-radius: 0;
+        will-change: transform, opacity;
+      }
+      /* keyword pop: accent color set by GSAP at speech onset */
+      .overlay.karaoke .kw.hl { font-weight: 800; }
       .punch { position: absolute; inset: 0; z-index: 5; pointer-events: none; }
     </style>
   </head>

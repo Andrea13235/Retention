@@ -48,25 +48,34 @@ Spanish, French, German, …) — no language option needed.
 Completion: transcript JSON with `segments[]`, each with `start`/`end`
 in `HH:MM:SS.mmm` format, plus the detected `language` code.
 
-### 3. Analyze — `analyze_transcript(transcript)`
+### 3. Analyze — `analyze_transcript(transcript, deadAirSec?, corrections?)`
 
 Deterministic narrative analysis: hook (first 30s), thematic sections,
 filler segments (≥40% filler words), attention dips (pauses ≥2.5s),
-highlights (densest 20%). Completion: structure with `hook`, `sections`,
-`fillers`, `attention_dips`, `highlights` — all timecodes within media bounds.
+highlights (densest 20%), keywords + hook moment + slow spots — and
+`cut_candidates`: the real "taglia qui" list (dead air, stutters,
+filler runs, false starts, head/tail trims). Pass `corrections`
+(`misheard` → `correct`) to fix ASR-mangled brand names before analysis.
+Completion: structure with `hook`, `sections`, `fillers`,
+`attention_dips`, `highlights`, `cut_candidates` — all timecodes within
+media bounds.
 
 > Agent reading guide for this step and the next: [`docs/analysis-guide.md`](docs/analysis-guide.md)
 > (cut rules, attention curve, technique catalog, EditPlan reference).
 
-### 4. Plan — `generate_edit_plan(structure, style?)`
+### 4. Plan — `generate_edit_plan(structure, transcript?, style?, sourcePortrait?, extraCuts?, corrections?)`
 
-Build the machine-actionable Edit Plan v1.0: `cuts` (keep hook + sections,
-mark fillers `CUT`), `animations` (captions on highlights, zoom-ins
-on dips, slow-zoom motion, lower-thirds), `broll` (when sources provided),
-`pattern_interrupts` on cadence
+Build the machine-actionable Edit Plan v1.2: `cuts` as a real KEEP
+splice (complement of `cut_candidates` + `extraCuts` — sorted,
+non-overlapping, edge-to-edge; CUT entries stay in the record),
+`format` (`short` → 9:16 canvas when `sourcePortrait` or short-form),
+`animations` (karaoke captions with only kept, corrected words +
+keyword emphasis, zoom-ins on dips, slow-zoom motion, lower-thirds),
+`broll` (when sources provided), `pattern_interrupts` on cadence
 (talking-head ~25s, podcast ~60s, short-form ~4s) plus one dedicated
-interrupt per `attention_risk_point`. Completion: valid
-EditPlan, cuts ordered, no zero-length segments.
+interrupt per `attention_risk_point`. Pass the transcript JSON so words
+feed captions. Completion: valid EditPlan, KEEP cuts ordered with no
+gaps, no zero-length segments.
 
 ### 5. Render — `render_video(edit_plan, project_dir, raw_video_path?, preset?)`
 
@@ -110,6 +119,6 @@ Completion: output MP4 exists, non-empty, duration matches the plan.
 - [ ] `node scripts/setup-check.js` exits 0
 - [ ] `import_raw_media` returns one asset per file with real metadata
 - [ ] Transcript covers the full media duration
-- [ ] Edit Plan `version` is `"1.0"`, cuts ordered, no zero-length cuts
+- [ ] Edit Plan `version` is `"1.2"` with `format`, KEEP cuts ordered with no gaps, no zero-length cuts
 - [ ] `index.html` contains `data-composition-id`, `__timelines`, no `<template>` wrapper
 - [ ] Output MP4 exists, non-empty, duration matches plan

@@ -1,11 +1,26 @@
 /**
- * tools_plan.ts — Step 4: Action Plan generation.
+ * tools_plan.ts — Step 4: Action Plan generation (v1.2).
  * Turns the NarrativeStructure into a machine-actionable EditPlan:
- * cuts, animations, broll, pattern_interrupts.
+ * a real KEEP splice (complement of cut_candidates), kept-words-only
+ * karaoke captions, act-based motion.
+ *
+ * Rules:
+ * - format "short" (explicit or portrait source): 9:16 canvas, tight,
+ *   hook-first, punch every ~4s, captions always on.
+ * - format "long": 16:9 canvas, breathing room, punch every ~25s.
+ * - cuts = complement of cut_candidates over [0, mediaEnd]: sorted,
+ *   non-overlapping, edge-to-edge. CUT entries are ALSO listed
+ *   (reason "CUT — …") for the human-readable record.
+ * - Karaoke captions contain ONLY kept words; corrected text
+ *   (structure.corrections_applied) replaces ASR-mangled words.
+ * - Motion follows narrative acts (one slow_zoom per section), not a
+ *   metronome; slow_spots get punch-ins.
  */
 import {
   secToTimecode,
   timecodeToSec,
+  type CanvasFormat,
+  type CutCandidate,
   type EditPlan,
   type NarrativeStructure,
 } from "./types.js";
@@ -17,6 +32,13 @@ export type StylePreset =
 
 export interface PlanOptions {
   style?: StylePreset;
+  /**
+   * Target canvas. Default: "short" for short_form style or portrait
+   * sources, "long" otherwise. Pass explicitly to override.
+   */
+  format?: CanvasFormat;
+  /** True when the source footage is portrait (vertical video). */
+  sourcePortrait?: boolean;
   /** Pattern-interrupt cadence in seconds (default per style). */
   interruptEverySec?: number;
   /** Available b-roll sources (paths). */
@@ -31,6 +53,22 @@ export interface PlanOptions {
     end: string;
     reason: string;
   }>;
+  /**
+   * Extra CUT ranges from the agent (false starts / rhetoric the
+   * heuristics can't judge). Merged with structure.cut_candidates.
+   */
+  extraCuts?: Array<{ start: string; end: string; reason: string }>;
+  /**
+   * Transcript corrections { misheard, correct }. Applied by analyze
+   * already, but accepted here too so a plan can be built from a
+   * hand-written structure: corrected words reach captions.
+   */
+  corrections?: Array<{ misheard: string; correct: string }>;
+  /**
+   * Max words per karaoke caption card (default 5 short / 8 long).
+   * Short-form keeps cards tiny for pace; long-form allows full phrases.
+   */
+  maxWordsPerCard?: number;
 }
 
 const DEFAULT_INTERRUPT: Record<StylePreset, number> = {
@@ -41,47 +79,165 @@ const DEFAULT_INTERRUPT: Record<StylePreset, number> = {
 
 export function generateEditPlan(
   structure: NarrativeStructure,
-  opts: PlanOptions = {}
+  opts: PlanOptions = {},
+  transcriptWords?: Array<{ start: string; word: string }>
 ): EditPlan {
   const style = opts.style ?? "youtube_talking_head";
+  const format: CanvasFormat =
+    opts.format ?? (style === "short_form" || opts.sourcePortrait ? "short" : "long");
+  const isShort = format === "short";
   const every = opts.interruptEverySec ?? DEFAULT_INTERRUPT[style];
+  const maxWords = opts.maxWordsPerCard ?? (isShort ? 5 : 8);
+
   const endSec = timecodeToSec(
     structure.sections[structure.sections.length - 1]?.end ??
       structure.hook.end
   );
+  const mediaEnd = structure.duration_sec ?? endSec;
 
-  // Cuts: keep hook + sections, cut fillers and dips.
-  // The plan lists segments to KEEP (start/end + reason).
-  const cuts: EditPlan["cuts"] = [
-    {
-      start: structure.hook.start,
-      end: structure.hook.end,
-      reason: "opening hook",
-    },
-    ...structure.sections.map((s) => ({
-      start: s.start,
-      end: s.end,
-      reason: s.title,
-    })),
+  // ——— Cuts: complement of cut_candidates over [0, mediaEnd] ———
+  // Merge structure candidates + agent extraCuts, then invert: what is
+  // not CUT is KEEP. The result is sorted, non-overlapping, edge-to-edge.
+  const rawCuts: CutCandidate[] = [
+    ...(structure.cut_candidates ?? []),
+    ...(opts.extraCuts ?? []).map((c) => ({ ...c, kind: "manual" as const })),
   ];
-  for (const f of structure.fillers) {
-    cuts.push({ start: f.start, end: f.end, reason: `CUT — ${f.reason}` });
+  const cutRanges = rawCuts
+    .map((c) => ({
+      s: Math.max(0, timecodeToSec(c.start)),
+      e: Math.min(mediaEnd, timecodeToSec(c.end)),
+      kind: c.kind,
+      reason: c.reason,
+    }))
+    .filter((c) => c.e > c.s)
+    .sort((a, b) => a.s - b.s);
+  // merge overlaps
+  const mergedCuts: typeof cutRanges = [];
+  for (const c of cutRanges) {
+    const last = mergedCuts[mergedCuts.length - 1];
+    if (last && c.s < last.e) {
+      last.e = Math.max(last.e, c.e);
+      last.reason += ` + ${c.reason}`;
+    } else mergedCuts.push({ ...c });
+  }
+  // complement → KEEP ranges
+  const cuts: EditPlan["cuts"] = [];
+  let cursor = 0;
+  const keepLabel = (s: number, e: number): string => {
+    if (cursor === 0 && mergedCuts.length > 0 && s === 0) return "opening hook (trimmed)";
+    for (const sec of structure.sections) {
+      if (s >= timecodeToSec(sec.start) - 0.01 && e <= timecodeToSec(sec.end) + 0.01)
+        return sec.title;
+    }
+    return "keep";
+  };
+  for (const c of mergedCuts) {
+    if (c.s > cursor) cuts.push({ start: secToTimecode(cursor), end: secToTimecode(c.s), reason: keepLabel(cursor, c.s) });
+    cursor = c.e;
+  }
+  if (cursor < mediaEnd) cuts.push({ start: secToTimecode(cursor), end: secToTimecode(mediaEnd), reason: keepLabel(cursor, mediaEnd) });
+  // CUT entries appended for the human-readable record (renderer skips them)
+  for (const c of mergedCuts) {
+    cuts.push({ start: secToTimecode(c.s), end: secToTimecode(c.e), reason: `CUT — ${c.kind}: ${c.reason}` });
+  }
+  const isKept = (t: number): boolean =>
+    mergedCuts.every((c) => t < c.s || t >= c.e);
+
+  // ——— Karaoke captions: ONLY kept words, corrected text ———
+  const fixWord = (w: string): string => {
+    let out = w;
+    for (const c of opts.corrections ?? []) {
+      const esc = c.misheard.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      out = out.replace(new RegExp(`(^|\\s)${esc}(?=\\s|$|[.,!?;:])`, "gi"), (_, pre) => `${pre}${c.correct}`);
+    }
+    return out;
+  };
+
+  // ——— Karaoke captions with keyword emphasis ———
+  const kwSet = new Set(
+    (structure.keywords ?? []).slice(0, 15).map((k) => k.word)
+  );
+  const animations: EditPlan["animations"] = [];
+  if (transcriptWords && transcriptWords.length > 0) {
+    // Drop CUT words first: only kept words reach captions.
+    const kept = transcriptWords
+      .map((w) => ({ ...w, word: fixWord(w.word) }))
+      .filter((w) => isKept(timecodeToSec(w.start)));
+    let card: { start: number; words: typeof kept } | null = null;
+    const flush = () => {
+      if (card && card.words.length > 0) {
+        const lastStart = timecodeToSec(
+          card.words[card.words.length - 1].start
+        );
+        animations.push({
+          time: secToTimecode(card.start),
+          type: "karaoke_caption",
+          position: isShort ? "bottom" : "bottom",
+          duration: Math.min(15, Math.max(1, lastStart - card.start + 0.8)),
+          words: card.words.map((w) => ({
+            start: w.start,
+            word: w.word.trim(),
+            emphasis: kwSet.has(w.word.trim().toLowerCase().replace(/[.,!?;:]+$/, "")),
+          })),
+        });
+      }
+      card = null;
+    };
+    for (const w of kept) {
+      if (!card || card.words.length >= maxWords) {
+        flush();
+        card = { start: timecodeToSec(w.start), words: [] };
+      }
+      card.words.push(w);
+    }
+    flush();
+  } else {
+    // Fallback (no word timestamps): captions on highlights as before.
+    for (const h of structure.highlights.slice(0, 10)) {
+      animations.push({
+        time: h.start,
+        type: "caption",
+        content: "KEY INSIGHT",
+        position: "bottom",
+      });
+    }
   }
 
-  // Animations: captions on highlights + zoom-ins on dips (to re-engage).
-  const animations: EditPlan["animations"] = [
-    ...structure.highlights.slice(0, 10).map((h) => ({
-      time: h.start,
-      type: "caption" as const,
-      content: "KEY INSIGHT",
-      position: "bottom" as const,
-    })),
-    ...structure.attention_dips.slice(0, 10).map((d) => ({
-      time: d.start,
-      type: "zoom_in" as const,
+  // ——— Motion follows acts, not a metronome ———
+  // hook_moment emphasis is rendered by the karaoke cards themselves
+  // (no separate top caption: double captions + black boxes are banned —
+  // the Apple restraint rule).
+  // One slow_zoom per section (alternating in/out), punch-ins on slow spots.
+  structure.sections.forEach((s, i) => {
+    const sStart = timecodeToSec(s.start);
+    const sEnd = timecodeToSec(s.end);
+    const dur = Math.min(12, Math.max(3, sEnd - sStart - 1));
+    if (dur >= 3) {
+      animations.push({
+        time: secToTimecode(sStart + 0.5),
+        type: "slow_zoom",
+        target: "face",
+        direction: i % 2 === 0 ? "in" : "out",
+        intensity: isShort ? 2 : 3,
+        duration: dur,
+      });
+    }
+  });
+  for (const spot of structure.slow_spots ?? []) {
+    animations.push({
+      time: spot.start,
+      type: "zoom_in",
       target: "face",
-    })),
-  ];
+    });
+  }
+  for (const d of structure.attention_dips.slice(0, 10)) {
+    animations.push({
+      time: d.start,
+      type: "zoom_in",
+      target: "face",
+    });
+  }
+  animations.sort((a, b) => timecodeToSec(a.time) - timecodeToSec(b.time));
 
   // B-roll: spread sources across middle sections.
   const broll: EditPlan["broll"] = [];
@@ -101,7 +257,7 @@ export function generateEditPlan(
     });
   }
 
-  // Pattern interrupts on a regular cadence…
+  // Pattern interrupts on cadence (short-form keeps every ~4s)…
   const pattern_interrupts: EditPlan["pattern_interrupts"] = [];
   for (let t = every; t < endSec; t += every) {
     pattern_interrupts.push({
@@ -113,8 +269,6 @@ export function generateEditPlan(
 
   // …plus one dedicated interrupt per risk point (midpoint), so every
   // attention_risk_point from analysis gets coverage (see checklist).
-  // Risk points may also come via NarrativeStructure.attention_risk_points
-  // (agent-written analysis) — merge both sources, dedupe near-duplicates.
   const riskPoints = [
     ...(structure.attention_risk_points ?? []),
     ...(opts.attentionRiskPoints ?? []),
@@ -139,8 +293,9 @@ export function generateEditPlan(
   );
 
   return {
-    version: "1.0",
+    version: "1.2",
     style,
+    format,
     media_id: structure.media_id,
     cuts,
     animations,

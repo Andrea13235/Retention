@@ -45,6 +45,29 @@ Apply these rules in order, marking every cut with a `reason` in the final JSON:
 **Never cut** moments containing: cited numbers/statistics, promises made to
 the viewer ("in this video we'll see…"), calls to action, twists or reveals.
 
+## 3b. Cut candidates (deterministic, word-level)
+
+`analyze_transcript` emits `cut_candidates` — the actual "taglia qui"
+decisions — from Whisper word timestamps:
+
+| Kind | Signal | Example |
+|---|---|---|
+| `trim_head` / `trim_tail` | silence ≥0.3s / ≥0.5s before the first / after the last word | cold mic, lingering outro — always cut |
+| `dead_air` | inter-word gap ≥ `deadAirSec` (default 0.8; short-form 0.4–0.5) | mind gone blank mid-sentence |
+| `stutter` | immediate same-word repeat | "sul sul tuo" → keep the final take |
+| `filler` | run of ≥2 consecutive filler words | "ehm allora", "cioè ecco" |
+| `false_start` | aborted burst (≤3 words) + pause + restart | keep only the final take |
+
+Guardrails: the first 3s of media are never cut (cold open is sacred);
+ASR-artifact words (>2s on a single word — small-model jitter, not real
+hesitation) never become cuts; overlaps merge. `generate_edit_plan`
+inverts the candidates into a KEEP splice — what is not CUT is content.
+The agent reviews `cut_candidates` and adds `extraCuts` for false starts
+and rhetoric the heuristics can't judge; pass `corrections`
+(`misheard` → `correct`) so brand names Whisper mangles
+("raw cut" → "CutCraft", "cloud" → "Claude") render correctly
+in captions.
+
 ## 4. Mapping the attention curve
 
 Before writing the plan, estimate the attention curve along the video:
@@ -97,7 +120,7 @@ attention curve demands them.
 | YouTube talking-head (vlog, commentary) | Medium-high (every 8–10 s) | On keywords and emotions | Every 60–90 s |
 | Shorts/Reels/TikTok | Very high (every 2–4 s) | Constant | If available, near every cut |
 
-## 7. Output format: Action Plan JSON (EditPlan v1.0)
+## 7. Output format: Action Plan JSON (EditPlan v1.2)
 
 Every intervention must be written in this format — field for field what
 `buildHyperframesProject` consumes. Unknown fields are ignored by the
@@ -105,12 +128,14 @@ renderer, so stick to this contract.
 
 ```json
 {
-  "version": "1.0",
+  "version": "1.2",
   "style": "youtube_talking_head",
+  "format": "long",
   "media_id": "<media_id from import_raw_media>",
   "cuts": [
-    {"start": "00:00:15.500", "end": "00:00:22.000", "reason": "filler: 3/5 filler words"},
-    {"start": "00:01:05.000", "end": "00:01:07.200", "reason": "CUT — pause of 3.2s"}
+    {"start": "00:00:00.000", "end": "00:00:15.500", "reason": "opening hook (trimmed)"},
+    {"start": "00:00:15.500", "end": "00:00:22.000", "reason": "Section 1"},
+    {"start": "00:01:05.000", "end": "00:01:07.200", "reason": "CUT — dead_air: silence of 2.2s mid-speech"}
   ],
   "animations": [
     {
@@ -156,8 +181,18 @@ renderer, so stick to this contract.
 
 Field notes:
 
-- `cuts` lists segments to **KEEP**; entries prefixed `CUT —` are excluded from the render.
-- `animations[].type` must be one of: `text_overlay` | `caption` | `lower_third` | `zoom_in` | `zoom_out` | `slow_zoom` | `transition`. Anything else renders nothing.
+- `cuts` is a real splice: KEEP ranges (sorted, non-overlapping,
+  edge-to-edge) form the output timeline; entries prefixed `CUT —` are
+  excluded from the render but kept in the record. The renderer plays
+  each KEEP via `data-media-start` and remaps every animation from
+  source clock to timeline clock — animations inside CUT ranges are
+  dropped, and the output duration is the KEEP sum (shorter than source).
+- `format` selects the canvas: `short` → 1080×1920 (9:16),
+  `long` → 1920×1080 (16:9). Never render a portrait source as landscape.
+- `animations[].type` must be one of: `text_overlay` | `caption` | `karaoke_caption` | `lower_third` | `zoom_in` | `zoom_out` | `slow_zoom` | `transition`. Anything else renders nothing.
+- `karaoke_caption.words[]` carry SOURCE timecodes; only kept words
+  reach the screen (CUT words are dropped and the rest remapped).
+  `emphasis: true` words render as keyword pops.
 - `duration` applies to `text_overlay`/`caption`/`lower_third` (0.5–15 s, default 3) and to `slow_zoom` (1–30 s, default 8).
 - `broll[].source` is a path to an existing media file; `reason` is advisory.
 - `pattern_interrupts[].kind` is advisory (`zoom_punch` / `caption_pop`); placement is what matters.
@@ -170,8 +205,8 @@ does with each entry — no more, no less:
 
 | Plan entry | What renders |
 |---|---|
-| KEEP `cuts` | `<video>` window (`data-start` + `data-duration`) of the RAW, or a `CLIP n` placeholder card when no RAW is mounted |
-| `CUT —` cuts | Excluded from the composition (and from duration computation) |
+| KEEP `cuts` | One `<video>` per KEEP range (`data-start` + `data-duration` on the timeline clock, `data-media-start` on the source clock) — true splice, no gaps; or `CLIP n` placeholder cards when no RAW is mounted |
+| `CUT —` cuts | Excluded from the composition AND from duration; every animation inside a CUT range is dropped; the output is shorter than the source |
 | `text_overlay` / `caption` | Timed overlay div (fade via timeline), `duration` seconds, top/center/bottom |
 | `lower_third` | Left-aligned overlay with accent bar, bottom position |
 | `slow_zoom` | Progressive GSAP scale on the active clip (`intensity` %/s for `duration` s) |
@@ -193,4 +228,4 @@ does with each entry — no more, no less:
 - [ ] Every `attention_risk_point` has an associated interrupt (the planner adds midpoint coverage automatically — verify it is present in `pattern_interrupts`).
 - [ ] Technique frequency matches the target format (see Section 6).
 - [ ] Timecodes are `HH:MM:SS.mmm` everywhere, within media bounds, no zero-length segments.
-- [ ] The plan is valid JSON with `version: "1.0"` and `media_id`, ready for `render_video`.
+- [ ] The plan is valid JSON with `version: "1.2"`, `format`, and `media_id`, ready for `render_video`.

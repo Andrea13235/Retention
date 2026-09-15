@@ -56,7 +56,7 @@ describe("e2e pipeline", () => {
       const structure = analyzeTranscript(transcript, { sectionCount: 2 });
       expect(structure.fillers.length).toBeGreaterThanOrEqual(1);
       const plan = generateEditPlan(structure, { style: "youtube_talking_head" });
-      expect(plan.version).toBe("1.0");
+      expect(plan.version).toBe("1.2");
 
       // 5. build project with RAW mounted (copied to ./assets by the builder).
       // NB: project inside the skill — the lint/render CLI takes a positional
@@ -65,7 +65,9 @@ describe("e2e pipeline", () => {
       const proj = await buildHyperframesProject(plan, projDir, { rawVideoPath: raw });
       const html = readFileSync(join(projDir, "index.html"), "utf8");
       expect(html).toContain("./assets/raw.mp4");
-      expect(proj.durationSec).toBeCloseTo(10, 0);
+      // filler "ehm allora" spliced out → 10s source becomes ~9s output
+      expect(proj.durationSec).toBeCloseTo(9, 0);
+      expect(plan.cuts.some((c) => c.reason.startsWith("CUT"))).toBe(true);
 
       // 6. hyperframes lint DIR --json (zero errors; warnings don't block)
       const lint = execFileSync(process.execPath, [HF_BIN, "lint", projDir, "--json"], {

@@ -58,18 +58,23 @@ const RiskPoint = z.object({
 
 server.tool(
   "analyze_transcript",
-  "Step 3 — Narrative analysis: hook, sections, fillers, attention dips, highlights. Reading guide: docs/analysis-guide.md.",
+  "Step 3 — Narrative analysis: hook, sections, fillers, attention dips, highlights, cut candidates (dead air, stutters, filler runs, trims). Reading guide: docs/analysis-guide.md.",
   {
     transcript: z.string().describe("Transcript JSON (transcribe_media output)"),
     longPauseSec: z.number().optional(),
     sectionCount: z.number().optional(),
+    deadAirSec: z.number().optional().describe("Word-gap threshold for dead-air cuts (default 0.8, short-form 0.4-0.5)"),
+    corrections: z
+      .array(z.object({ misheard: z.string(), correct: z.string() }))
+      .optional()
+      .describe("Fix ASR-mangled words before analysis (e.g. 'raw cut' -> 'CutCraft')"),
   },
-  async ({ transcript, longPauseSec, sectionCount }) => ({
+  async ({ transcript, longPauseSec, sectionCount, deadAirSec, corrections }) => ({
     content: [
       {
         type: "text",
         text: JSON.stringify(
-          analyzeTranscript(JSON.parse(transcript), { longPauseSec, sectionCount }),
+          analyzeTranscript(JSON.parse(transcript), { longPauseSec, sectionCount, deadAirSec, corrections }),
           null,
           2
         ),
@@ -86,34 +91,66 @@ const STYLE: [StylePreset, ...StylePreset[]] = [
 
 server.tool(
   "generate_edit_plan",
-  "Step 4 — Generate the Action Plan JSON (cuts, animations, broll, pattern_interrupts). Reading guide: docs/analysis-guide.md. Every attention_risk_point gets interrupt coverage.",
+  "Step 4 — Generate the Action Plan JSON v1.2: a real KEEP splice (complement of cut_candidates), kept-words-only karaoke captions, act-based motion. Reading guide: docs/analysis-guide.md. Every attention_risk_point gets interrupt coverage.",
   {
     structure: z.string().describe("NarrativeStructure JSON (analyze_transcript output)"),
+    transcript: z
+      .string()
+      .optional()
+      .describe("Transcript JSON (transcribe_media output) — word timestamps feed karaoke captions (only kept words render)"),
     style: z.enum(STYLE).optional(),
+    sourcePortrait: z.boolean().optional().describe("Set when the source footage is portrait (forces 9:16 short canvas)"),
     interruptEverySec: z.number().optional(),
     brollSources: z.array(z.string()).optional(),
     attentionRiskPoints: z
       .array(RiskPoint)
       .optional()
       .describe("Static blocks at risk of attention drop (each gets a dedicated interrupt)"),
+    extraCuts: z
+      .array(RiskPoint)
+      .optional()
+      .describe("Agent-chosen CUT ranges (false starts / rhetoric heuristics can't judge)"),
+    corrections: z
+      .array(z.object({ misheard: z.string(), correct: z.string() }))
+      .optional()
+      .describe("Fix ASR-mangled words in captions (also accepted by analyze_transcript)"),
   },
-  async ({ structure, style, interruptEverySec, brollSources, attentionRiskPoints }) => ({
-    content: [
-      {
-        type: "text",
-        text: JSON.stringify(
-          generateEditPlan(JSON.parse(structure), {
-            style,
-            interruptEverySec,
-            brollSources,
-            attentionRiskPoints,
-          }),
-          null,
-          2
-        ),
-      },
-    ],
-  })
+  async ({ structure, transcript, style, sourcePortrait, interruptEverySec, brollSources, attentionRiskPoints, extraCuts, corrections }) => {
+    let words: Array<{ start: string; word: string }> | undefined;
+    if (transcript) {
+      try {
+        const t = JSON.parse(transcript) as {
+          segments?: Array<{ words?: Array<{ start: string; word: string }> }>;
+        };
+        words = (t.segments ?? []).flatMap((s) =>
+          (s.words ?? []).map((w) => ({ start: w.start, word: w.word }))
+        );
+        if (words.length === 0) words = undefined;
+      } catch {
+        words = undefined;
+      }
+    }
+    return {
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify(
+            generateEditPlan(JSON.parse(structure), {
+              style,
+              sourcePortrait,
+              interruptEverySec,
+              brollSources,
+              attentionRiskPoints,
+              extraCuts,
+              corrections,
+            }, words),
+            null,
+            2
+          ),
+        },
+      ],
+    };
+  }
 );
 
 server.tool(
