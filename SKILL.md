@@ -2,8 +2,8 @@
 name: andrea-video-skill
 description: Use when the user wants to auto-edit RAW footage into a publish-ready video. Transcribe, narrative analysis, edit plan, HyperFrames render pipeline.
 version: 0.1.0
-author: Andrea
-license: MIT
+author: Andrea Barretta
+license: SEE LICENSE IN LICENSE.md
 metadata:
   hermes:
     tags: [video-editing, hyperframes, whisper, mcp, automation]

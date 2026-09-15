@@ -63,4 +63,6 @@ See [`SKILL.md`](SKILL.md) for the full agent instructions, and [`examples/`](ex
 
 ## License
 
-MIT — see LICENSE (coming with final release).
+Free for individuals and teams up to 3 people (even commercial) — paid Team
+License for larger for-profit teams. See [LICENSE.md](LICENSE.md).
+Third-party attributions in [CREDITS.md](CREDITS.md).
