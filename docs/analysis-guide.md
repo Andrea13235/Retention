@@ -160,6 +160,7 @@ attention curve demands them.
 - **Hook in the first 3–8 s**: if the video opens weakly, propose a cold open (move a highlight moment to the front) via `structure_notes`.
 - **Section cliffhanger**: before a topic change, keep a hanging question when possible ("in a minute I'll show you why this changes everything").
 - **Visual recap**: for long videos (>8 min), add a mid-point text summary to re-engage drifted viewers (`text_overlay` chain).
+- **Breathe rule (beingmayy MG-013)**: NO graphic/banner/card hold over 3s may sit static — every long hold gets a breathe loop (scale, glow, or shadow pulse ≤8% amplitude, ease in-out). The reference holds an icon ~9s and survives ONLY because it pulses. The planner covers each >3s hold with a `pattern_interrupts` pulse at its midpoint; the renderer implements it as a subtle scale loop. Static holds >3s with zero motion read as frozen frames, not minimalism.
 
 ### 5.5 Short-form pace (Shorts/Reels, <60 s)
 - A cut every 2–4 s max.
@@ -180,7 +181,7 @@ content energy AND by `structure.speech.wpm`, not by gut feeling:
 | Podcast / long interviews | `podcast` | ~60s | conversational | Only on key quotes/numbers | If available, every 2–3 min |
 | Shorts/Reels/TikTok | `short_form` | ~4s | dense | Near-constant captions, caption pops | If available, near every cut |
 
-Reference measurements (4 videos, frame-by-frame):
+Reference measurements (5 videos, frame-by-frame):
 MrBeast "100 Days in a Circle" 16:51 — 479 cuts (28/min, median shot
 1.4s), 182 wpm, zero push-ins, zero karaoke, graphics = cartoon
 context labels (DAY 4, MIDDLE OF NOWHERE, countdown) lasting ~5–8s.
@@ -192,16 +193,34 @@ base that never leaves + full-screen typo cards (2–3s, cream +
 pastel, payoff in black) + product PiP top-left. Nate Herk tutorial
 29:57 — ~38 scene changes (locked-off PiP face, the IDE carries it),
 257 wpm, longest pause in 30min = 2.0s, zero push-ins, captions only
-on product A-rolls.
+on product A-rolls. beingmayy Apple-style motion 0:50 (1024×576
+16:9, 30fps) — 11 hard cuts (~13/min, median hold ~2.4s), 206 wpm,
+zero gaps >0.4s, FULLY SYNTHETIC (no camera): fast typo cards
+0–11.7s (bold grotesque lowercase, coral #E94E5A on off-white,
+center-anchored, one phrase per card) → one 17.2s continuous
+animated 3D grid world (orthographic grid, 2–3 props, hammer +
+drawn bridge; NO hard cut, props swap inside the world) →
+fast cards 28.9–46s (mock YouTube player, mock IG profile,
+real Apple-YouTube UI ≤3s as evidence, photo card flash ~1.5s,
+icon isolate ~9s) → glitch brand outro 46–50.5s (RGB-split reserved
+for this ONE beat).
 
-Two lessons that became rules:
-1. **The slow push-in appears in NONE of the four.** It is OUR tool
+Three lessons that became rules:
+1. **The slow push-in appears in NONE of the five.** It is OUR tool
    for static talking-heads the references never needed — use with
    restraint (act opens), never as default motion.
 2. **Graphics are always functional**: context (where/when),
    proof (numbers), structure (act titles) — never decoration of
    the spoken word. Every `GraphicBeat` title is transcript-verbatim
    for exactly this reason.
+3. **Cadence is not energy (beingmayy lesson).** The Apple-style
+   piece runs at show-grade speed (~2.4s median) with zero show
+   energy. What keeps it clean: ONE accent color per scene (coral
+   OR pink, never both), ONE idea per frame (70–95% negative
+   space), mocked-not-screenshotted platform UI (redraw in flat
+   vector; real screen footage only for ≤3s evidence beats), and
+   206 wpm narration with zero dead air carrying the cuts —
+   visuals change UNDER continuous speech, never the reverse.
 
 ## 6b. Footage gate: adapt to what you hold (READ THIS)
 

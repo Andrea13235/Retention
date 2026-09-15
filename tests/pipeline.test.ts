@@ -405,6 +405,8 @@ describe("render: HyperFrames project build", () => {
       expect(html).toContain('duration: 0.18');
       // karaoke caption → clean Apple style (no pill, per-word spans)
       expect(html).toContain('class="clip overlay karaoke"');
+      expect(html).toContain('bottom:18%');
+      expect(html).toContain("-webkit-text-stroke: 1px rgba(0,0,0,0.35)");
       expect(html).toContain('id="ov-2-w0"');
       expect(html).toContain("Premium");
       expect(html).not.toContain("backdrop-filter");
@@ -493,6 +495,8 @@ describe("render: HyperFrames project build", () => {
       expect(html).toContain("TRE SEGRETI");
       expect(html).toContain("3000 AL MESE");
       expect(html).toContain("Section 2");
+      // legibility system: layered shadow + hairline stroke on banners
+      expect(html).toContain("-webkit-text-stroke: 1px rgba(0,0,0,0.35)");
       // overlapping banners fail loud with the fix
       const bad = {
         ...plan,

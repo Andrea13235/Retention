@@ -144,7 +144,14 @@ export interface NarrativeStructure {
   }>;
 }
 
-/** Animation types supported by the HyperFrames renderer. */
+/** Animation types supported by the HyperFrames renderer.
+ * RENDERED today: text_overlay | caption | karaoke_caption | lower_third
+ * (caption family) and zoom_in | zoom_out | slow_zoom (motion family).
+ * LEGACY (parse, do not author): "transition" (a cut-level concern —
+ * already expressed by the cuts list, the renderer skips it) and
+ * "graphic_card" (v1.0 idea, superseded by the v1.3 `graphics[]`
+ * GraphicBeat banners — never hand-write this type).
+ */
 export type AnimationType =
   | "text_overlay"
   | "caption"
@@ -178,10 +185,14 @@ export type RegisterName = "show" | "educational" | "tutorial" | "podcast" | "sh
 
 /**
  * Measured interruption cadence per register (seconds between beats).
- * Source: 4 reference videos analyzed frame-by-frame 2026-09-15 —
+ * Source: 5 reference videos analyzed frame-by-frame 2026-09-15 —
  * MrBeast "100 Days" (28 cuts/min → ~2s), Higgsfield edu (13/min → ~5s),
  * Higgsfield graphics (9/min → ~7s, rounded into educational),
- * Nate Herk tutorial (locked-off 30min, screen carries it → ~20s).
+ * Nate Herk tutorial (locked-off 30min, screen carries it → ~20s),
+ * beingmayy Apple-style motion 0:50 (11 cuts, ~13/min, median ~2.4s,
+ * 206 wpm, fully synthetic).
+ * Lesson from #5: cadence is not energy — clean/restrained restraint
+ * (one accent/scene, one idea/frame) holds at show-grade speed.
  * podcast (60s) and short_form (4s) are carried over: conversations
  * breathe, verticals snap. ONE table — planner, guide and SKILL.md
  * all read these numbers, never a second copy.

@@ -1,7 +1,8 @@
 # YouTube Talking-Head Example
 
-Classic creator talking-head: 25s interrupt cadence, IDEA CHIAVE captions
-on highlights, zoom punch-ins on attention dips.
+Classic creator talking-head: educational register (~5s cadence),
+keyword caption pops, content-aware banners (act titles, numbers),
+slow push-ins on act opens.
 
 ## Usage (via MCP tools)
 
@@ -12,9 +13,9 @@ on highlights, zoom punch-ins on attention dips.
 { "tool": "transcribe_media", "media_path": "./vlog-raw.mp4", "media_id": "<id>" }
 // 3. analyze
 { "tool": "analyze_transcript", "transcript": "<transcript-json>", "sectionCount": 3 }
-// 4. plan — style youtube_talking_head (default)
+// 4. plan — style educational (default; legacy name youtube_talking_head still works)
 { "tool": "generate_edit_plan", "structure": "<structure-json>",
-  "style": "youtube_talking_head" }
+  "style": "educational", "takesCount": 1 }
 // 5. render — draft first, high for delivery
 { "tool": "render_video", "edit_plan": "<plan-json>",
   "project_dir": "./out/vlog", "raw_video_path": "./vlog-raw.mp4",
@@ -23,8 +24,12 @@ on highlights, zoom punch-ins on attention dips.
 
 ## Why these settings
 
-- `style: youtube_talking_head` — 25s cadence matches YouTube retention
-  curves for 8–15 min videos.
-- Captions fire on the densest 20% of segments; zoom-ins land exactly on
-  detected pauses ≥2.5s.
-- Always preview `draft` before spending time on a `high` render.
+- `style: educational` — ~5s interrupt cadence measured on real
+  explainer videos; breathes, doesn't nag.
+- `takesCount: 1` (default) — single-take gate: caption pops and
+  banners only, no faked multi-cam energy. Pass your real take count;
+  ≥2 unlocks show rhythm and punch zooms.
+- Captions sit at bottom 18% (platform safe area), banners TOP —
+  never overlapping, face always free.
+- Always preview `draft` before spending time on a `high` render
+  (preset slow + crf 15).

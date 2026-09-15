@@ -71,12 +71,12 @@ cutcraft/
 │   ├── tools_ingest.ts         # Step 1: RAW import + ffprobe metadata
 │   ├── tools_transcribe.ts     # Step 2: local Whisper, word timecodes, language detect
 │   ├── tools_analyze.ts        # Step 3: hook, sections, fillers, dips, highlights
-│   ├── tools_plan.ts           # Step 4: Action Plan v1.0 (cuts, animations, interrupts)
+│   ├── tools_plan.ts           # Step 4: Action Plan v1.3 (cuts, animations, registers, graphics)
 │   └── tools_render.ts         # Step 5+6: HyperFrames composition → MP4
 ├── scripts/
 │   ├── setup-whisper.js        # One-time: dedicated venv + faster-whisper
 │   └── setup-check.js          # Verify the environment
-├── tests/                      # 14/14 passing (pipeline + real-render e2e)
+├── tests/                      # 31/31 passing (pipeline + real-render e2e)
 └── examples/                   # Style presets: podcast, talking-head, short-form
 ```
 
@@ -91,7 +91,7 @@ npm install
 node scripts/setup-whisper.js  # dedicated venv + faster-whisper (one-time)
 npm run setup-check             # verify environment (should print OK)
 npm run build                   # compile TypeScript
-npm test                        # run test suite (14/14)
+npm test                        # run test suite (31/31)
 ```
 
 **Wire it into your agent** — add to your MCP client config (`mcpServers`):
@@ -131,20 +131,20 @@ The agent reads the skill, transcribes with Whisper, analyzes the narrative, bui
 | 1 | `import_raw_media` | Register RAW files, extract metadata via ffprobe |
 | 2 | `transcribe_media` | Local Whisper transcription with word timecodes (~100 languages) |
 | 3 | `analyze_transcript` | Hook, sections, fillers, attention dips, highlights |
-| 4 | `generate_edit_plan` | Machine-actionable Edit Plan v1.0 (cuts, animations, b-roll, interrupts) |
-| 5 | `render_video` | HyperFrames composition → MP4 (draft/standard/high) |
+| 4 | `generate_edit_plan` | Machine-actionable Edit Plan v1.3 (cuts, animations, registers, graphics) |
+| 5 | `render_video` | HyperFrames composition → MP4 (draft/standard/high, source fps) |
 
 Every stage's output feeds the next; never skip a stage or invent timestamps by hand. Full agent instructions in [`SKILL.md`](SKILL.md), editor craft in [`docs/analysis-guide.md`](docs/analysis-guide.md).
 
 ## ✅ Status
 
-Verified end-to-end: ingest → transcribe (real Italian audio) → analyze → plan → HyperFrames project (`lint` 0 errors, 0 warnings) → real MP4 render (h264+aac). Test suite: 14/14 passing (`npm test`).
+Verified end-to-end: ingest → transcribe (real Italian audio) → analyze → plan (v1.3: registers, footage gate, content-aware graphics) → HyperFrames project (`lint` 0 errors, 0 warnings) → real MP4 render (h264+aac, source fps). Test suite: 31/31 passing (`npm test`).
 
 ## 💡 Examples
 
 - `examples/podcast-example/` — long-form conversation, 60s interrupt cadence
-- `examples/youtube-talking-head/` — classic talking head, 25s cadence
-- `examples/short-form-clips/` — vertical clips, 4s cadence
+- `examples/youtube-talking-head/` — classic talking head, educational register (~5s cadence)
+- `examples/short-form-clips/` — vertical clips, ~4s cadence
 
 ## ⭐ Star this repo
 

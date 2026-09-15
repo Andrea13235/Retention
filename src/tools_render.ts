@@ -212,8 +212,10 @@ export async function buildHyperframesProject(
       // Caption design system (v1.1):
       // - clean white type, no boxes; spoken word full white, upcoming 40%.
       // - emphasis words (planner keywords) get .hl: accent color + pop.
-      // - safe-area: on portrait canvas captions sit at bottom 12–18%
-      //   (below the chin, above platform UI); never center-face.
+      // - safe-area: captions sit at bottom 18% on EVERY canvas —
+      //   TikTok/Reels/Shorts draw progress bar + rails over the bottom
+      //   ~12–15% of a 9:16 frame; 18% keeps words readable everywhere.
+      //   Never center-face.
       // Words carry SOURCE timecodes → remap each onto the timeline;
       // words inside CUT ranges are dropped (planner usually pre-filters).
       const remapped = (a.words ?? [])
@@ -236,9 +238,7 @@ export async function buildHyperframesProject(
             : "top:8%"
           : a.position === "center"
             ? "top:42%"
-            : portrait
-              ? "bottom:14%"
-              : "bottom:10%";
+            : "bottom:18%";
       const spans = words
         .map(
           (w, wi) =>
@@ -387,8 +387,12 @@ export async function buildHyperframesProject(
       .overlay.lower3rd span { font-size: 34px; font-weight: 600; border-left: 8px solid #4da3ff; border-radius: 0 12px 12px 0; }
       /* karaoke caption: true Apple style — no boxes, no pills.
          Clean white SF type with soft shadow; the spoken word is full
-         white, upcoming words sit at 40% opacity. Restraint = premium. */
-      .overlay.karaoke { background: none; }
+         white, upcoming words sit at 40% opacity. Restraint = premium.
+         SAFE AREA: bottom 18% (not 10%) — TikTok/Reels/Shorts draw the
+         progress bar, like/comment rail and description over the bottom
+         ~12–15% of a 9:16 frame; parking captions at 18% keeps every
+         word readable on every platform, landscape or portrait. */
+      .overlay.karaoke { background: none; bottom: 18%; }
       .overlay.karaoke .clean {
         background: none;
         padding: 0;
@@ -397,7 +401,16 @@ export async function buildHyperframesProject(
         font-weight: 600;
         letter-spacing: 0.005em;
         color: #fff;
-        text-shadow: 0 2px 18px rgba(0,0,0,0.55), 0 1px 3px rgba(0,0,0,0.6);
+        /* Legibility system: layered shadow (halo + contact) + a hairline
+           dark stroke. White-on-skin (selfie talking-heads) washes out
+           with shadow alone — the 1px stroke keeps every glyph readable
+           on bright backgrounds without any box behind the text. */
+        text-shadow:
+          0 2px 18px rgba(0,0,0,0.65),
+          0 1px 4px rgba(0,0,0,0.8),
+          0 0 2px rgba(0,0,0,0.9);
+        -webkit-text-stroke: 1px rgba(0,0,0,0.35);
+        paint-order: stroke fill;
       }
       .overlay.karaoke .kw {
         display: inline-block;
@@ -421,7 +434,14 @@ export async function buildHyperframesProject(
         font-weight: 800;
         letter-spacing: 0.06em;
         color: #fff;
-        text-shadow: 0 2px 18px rgba(0,0,0,0.55), 0 1px 3px rgba(0,0,0,0.6);
+        /* same legibility system as karaoke: layered shadow + hairline
+           stroke, so banners survive bright ceilings / skies */
+        text-shadow:
+          0 2px 18px rgba(0,0,0,0.65),
+          0 1px 4px rgba(0,0,0,0.8),
+          0 0 2px rgba(0,0,0,0.9);
+        -webkit-text-stroke: 1px rgba(0,0,0,0.35);
+        paint-order: stroke fill;
       }
       .overlay.gfx.gfx-number_stat .gfx-title { color: #ffd60a; }
       .overlay.gfx.gfx-quote .gfx-title {
@@ -470,6 +490,19 @@ export interface RenderOptions {
   preset?: RenderPreset;
   output?: string;
   timeoutMs?: number;
+  /**
+   * Target frames per second. Default "source": the render inherits the
+   * RAW footage frame rate (24/25/30/60 stay native — no judder from
+   * resampling). Pass an explicit number (24|25|30|60) only to force a
+   * delivery spec (e.g. platform requires 30p).
+   */
+  fps?: number | "source";
+  /**
+   * Video CRF override (0–51, lower = better). Default: the preset's own
+   * curve (draft 28 / standard 16 via "looks" / high 15 via "delivery").
+   * Rarely needed — the presets already sit at transparency.
+   */
+  crf?: number;
 }
 
 export async function renderVideo(
@@ -479,9 +512,12 @@ export async function renderVideo(
   const preset = opts.preset ?? "standard";
   const output = opts.output ?? join(project.dir, "output.mp4");
 
-  // Real CLI (hyperframes 0.8.40): `render [DIR] -o OUTPUT -q QUALITY`.
+  // Real CLI (hyperframes 0.8.40): `render [DIR] -o OUTPUT -q QUALITY
+  // [--fps N] [--crf N]`.
   // Valid qualities: draft | looks | delivery | standard | high.
   // Skill preset mapping: draft→draft, standard→looks, high→delivery.
+  // "looks" = standard pipeline + crf 16 (visually transparent);
+  // "delivery" = high pipeline: preset slow + crf 15 (max quality).
   const quality = preset === "draft" ? "draft" : preset === "high" ? "delivery" : "looks";
 
   const { existsSync } = await import("node:fs");
@@ -498,14 +534,23 @@ export async function renderVideo(
   };
   const localBin = process.env.HF_CLI_PATH ?? findLocalBin(project.dir);
 
+  // Quality flags: --fps keeps motion native by default ("source" =
+  // no flag → the engine inherits the footage rate). An explicit fps
+  // forces the delivery frame rate. --crf overrides the preset curve.
+  const extraArgs: string[] = [];
+  if (typeof opts.fps === "number" && Number.isFinite(opts.fps) && opts.fps > 0)
+    extraArgs.push("--fps", String(Math.round(opts.fps)));
+  if (typeof opts.crf === "number" && Number.isInteger(opts.crf) && opts.crf >= 0 && opts.crf <= 51)
+    extraArgs.push("--crf", String(opts.crf));
+
   try {
     if (localBin) {
-      await execFileAsync(process.execPath, [localBin, "render", project.dir, "--quality", quality, "--output", output], {
+      await execFileAsync(process.execPath, [localBin, "render", project.dir, "--quality", quality, ...extraArgs, "--output", output], {
         timeout: opts.timeoutMs ?? 30 * 60 * 1000,
         maxBuffer: 64 * 1024 * 1024,
       });
     } else {
-      await execFileAsync("npx", ["hyperframes", "render", project.dir, "--quality", quality, "--output", output], {
+      await execFileAsync("npx", ["hyperframes", "render", project.dir, "--quality", quality, ...extraArgs, "--output", output], {
         timeout: opts.timeoutMs ?? 30 * 60 * 1000,
         maxBuffer: 64 * 1024 * 1024,
       });

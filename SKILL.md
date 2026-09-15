@@ -128,11 +128,25 @@ before rendering. Pass the transcript JSON so words feed captions.
 Completion: valid EditPlan v1.3, KEEP cuts ordered with no gaps, no
 zero-length segments, `resolvedRegister` + `takesCount` written.
 
-### 5. Render — `render_video(edit_plan, project_dir, raw_video_path?, preset?)`
+### 5. Render — `render_video(edit_plan, project_dir, raw_video_path?, preset?, fps?, crf?)`
 
-Build the HyperFrames standalone composition and render the MP4.
-Presets: `draft` (fast iteration), `standard` (default), `high` (delivery).
+Build the HyperFrames standalone composition and render the MP4. The
+builder VALIDATES the plan (overlapping karaoke, zoom in CUT masks,
+overlapping graphic banners → throw with the exact fix). Quality:
+`standard` = visually transparent (crf 16) — the default, use it;
+`high` = max (preset slow + crf 15, slower) for final delivery;
+`draft` (ultrafast + crf 28) for timing checks only. `fps`: omit it —
+the render keeps the footage native frame rate; pass 24|25|30|60 only
+for a delivery spec. `crf`: omit it (preset curves already sit at
+transparency).
 Completion: output MP4 exists, non-empty, duration matches the plan.
+
+### 2b. Transcribe speed tip
+
+`small` is 7–8x faster than `large-v3` and word timings are equally
+good — pass `model: "small"` for drafts, long podcasts, or timing-only
+passes; keep auto/large-v3 when every word must be exact for final
+captions.
 
 ## Style Presets (rhythm registers — measured, not vibes)
 
@@ -145,12 +159,15 @@ Completion: output MP4 exists, non-empty, duration matches the plan.
 | `short_form` | ~4s | Vertical clips, reels, shorts |
 | `youtube_talking_head` | = educational | Legacy alias (old plans still parse; write `educational` in new work) |
 
-Measured 2026-09-15 on 4 reference videos: MrBeast "100 Days in a
+Measured 2026-09-15 on 5 reference videos: MrBeast "100 Days in a
 Circle" (28 cuts/min → ~2s), Higgsfield educational (13/min → ~5s),
 Higgsfield motion-graphics (9/min → educational), Nate Herk tutorial
-(locked-off 30min → ~20s). Speech pace: educational/show ~170–190 wpm,
-tutorial ~257 wpm. The single source of truth is `REGISTER_CADENCE`
-in `src/types.ts` — this table mirrors it.
+(locked-off 30min → ~20s), beingmayy Apple-style motion 0:50
+(11 cuts, ~13/min, median hold ~2.4s, 206 wpm, zero gaps, fully
+synthetic — clean/restrained running at show-grade speed: cadence
+is not energy). Speech pace: educational/show ~170–190 wpm,
+clean-fast ~206 wpm, tutorial ~257 wpm. The single source of truth
+is `REGISTER_CADENCE` in `src/types.ts` — this table mirrors it.
 
 ## Rules
 

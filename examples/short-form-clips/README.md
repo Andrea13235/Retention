@@ -1,6 +1,6 @@
 # Short-Form Clips Example
 
-Vertical reels/shorts/tiktoks cut from a long recording: 4s interrupt
+Vertical reels/shorts/tiktoks cut from a long recording: ~4s interrupt
 cadence, caption pops, tight keep-only-highlights pacing.
 
 ## Usage (via MCP tools)
@@ -9,7 +9,7 @@ cadence, caption pops, tight keep-only-highlights pacing.
 // 1-3. ingest → transcribe → analyze (same as other examples)
 // 4. plan — style short_form
 { "tool": "generate_edit_plan", "structure": "<structure-json>",
-  "style": "short_form", "interruptEverySec": 4 }
+  "style": "short_form" }
 // 5. render — 1080x1920 vertical is set at build time by the agent
 { "tool": "render_video", "edit_plan": "<plan-json>",
   "project_dir": "./out/clip01", "raw_video_path": "./vlog-raw.mp4",

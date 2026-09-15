@@ -38,11 +38,11 @@ server.tool(
 
 server.tool(
   "transcribe_media",
-  "Step 2 — Transcribe audio with local Whisper (per-segment/per-word timecodes). Language auto-detected (~100 languages).",
+  "Step 2 — Transcribe audio with local Whisper (per-segment/per-word timecodes). Language auto-detected (~100 languages). Model: auto = large-v3 on GPU/Apple Silicon, small on CPU. Speed tip: `small` is 7–8x faster and word timings are equally good — pass model=`small` for drafts, long podcasts, or when you only need timings; use large-v3 (default on fast hardware) when every word must be exact for final captions.",
   {
     media_path: z.string().describe("Path of the file to transcribe"),
     media_id: z.string().describe("media_id from import_raw_media"),
-    model: z.string().optional().describe("Whisper model override (default: auto)"),
+    model: z.string().optional().describe("Whisper model override: `small` (fast, good timings) or `large-v3` (exact words). Default: auto."),
   },
   async ({ media_path, media_id, model }) => ({
     content: [
@@ -161,19 +161,23 @@ server.tool(
 
 server.tool(
   "render_video",
-  "Step 5+6 — Build the HyperFrames project from the Action Plan and render it to MP4. The builder VALIDATES the plan and throws on overlapping karaoke captions or zooms inside a cut mask (with the exact fix) — never renders garbage. Only call after clearing `needs_review` and `review_cuts`.",
+  "Step 5+6 — Build the HyperFrames project from the Action Plan and render it to MP4. Quality: standard = transparent (crf 16), high = max (slow + crf 15, slower). `fps`: omit to keep the footage native frame rate (recommended); set 24|25|30|60 only for a delivery spec. `crf`: omit (preset curve is already transparent). The builder VALIDATES the plan and throws on overlapping karaoke captions or zooms inside a cut mask (with the exact fix) — never renders garbage. Only call after clearing `needs_review` and `review_cuts`.",
   {
     edit_plan: z.string().describe("EditPlan JSON (generate_edit_plan output)"),
     project_dir: z.string().describe("HyperFrames project output folder"),
     raw_video_path: z.string().optional().describe("RAW footage to mount in clips"),
     preset: z.enum(["draft", "standard", "high"]).optional(),
+    fps: z.number().optional().describe("Target fps (24|25|30|60). Omit = source rate (recommended)."),
+    crf: z.number().optional().describe("CRF 0–51 override. Omit = preset curve (recommended)."),
   },
-  async ({ edit_plan, project_dir, raw_video_path, preset }) => {
+  async ({ edit_plan, project_dir, raw_video_path, preset, fps, crf }) => {
     const project = await buildHyperframesProject(JSON.parse(edit_plan), project_dir, {
       rawVideoPath: raw_video_path,
     });
     const output = await renderVideo(project, {
       preset: (preset ?? "standard") as keyof typeof RENDER_PRESETS,
+      ...(typeof fps === "number" ? { fps } : {}),
+      ...(typeof crf === "number" ? { crf } : {}),
     });
     return {
       content: [{ type: "text", text: JSON.stringify({ project, output }, null, 2) }],
