@@ -1,0 +1,2 @@
+# faster-whisper (default, §9 dello spec) — trascrizione locale con licenza MIT
+faster-whisper>=1.0.0

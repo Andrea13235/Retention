@@ -1,0 +1,4 @@
+
+# test artifacts
+.tmp-e2e/
+tmp-dbg/
