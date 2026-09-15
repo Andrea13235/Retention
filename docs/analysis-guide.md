@@ -181,7 +181,7 @@ content energy AND by `structure.speech.wpm`, not by gut feeling:
 | Podcast / long interviews | `podcast` | ~60s | conversational | Only on key quotes/numbers | If available, every 2–3 min |
 | Shorts/Reels/TikTok | `short_form` | ~4s | dense | Near-constant captions, caption pops | If available, near every cut |
 
-Reference measurements (5 videos, frame-by-frame):
+Reference measurements (6 videos, frame-by-frame):
 MrBeast "100 Days in a Circle" 16:51 — 479 cuts (28/min, median shot
 1.4s), 182 wpm, zero push-ins, zero karaoke, graphics = cartoon
 context labels (DAY 4, MIDDLE OF NOWHERE, countdown) lasting ~5–8s.
@@ -203,10 +203,17 @@ drawn bridge; NO hard cut, props swap inside the world) →
 fast cards 28.9–46s (mock YouTube player, mock IG profile,
 real Apple-YouTube UI ≤3s as evidence, photo card flash ~1.5s,
 icon isolate ~9s) → glitch brand outro 46–50.5s (RGB-split reserved
-for this ONE beat).
+for this ONE beat). Higgsfield kinetic promo 0:33.6 "What if you
+could create an entire ad" (VID-06, 1020×576 16:9, 30fps) —
+FULLY SYNTHETIC, no cuts to make: 13 spoken phrases → ~13 cards,
+71 words EN, ~182 wpm over voiced spans, speech 0–29.44s + dark
+logo outro 29.44–33.62s. Luminance map (YAVG @2fps): LIGHT
+0–5.5s (hook kinetic type) → DARK 6–20s (product demos) →
+LIGHT 20.5–30s (capability cards) → DARK outro. Full recipe in
+§6c — read it whenever there is no RAW to cut.
 
 Three lessons that became rules:
-1. **The slow push-in appears in NONE of the five.** It is OUR tool
+1. **The slow push-in appears in NONE of the six.** It is OUR tool
    for static talking-heads the references never needed — use with
    restraint (act opens), never as default motion.
 2. **Graphics are always functional**: context (where/when),
@@ -242,6 +249,201 @@ The register says the RHYTHM. The footage says what is LEGAL.
 MrBeast publishes show rhythm because he SHOOTS show coverage
 (10 takes, B-roll, crew) — the rhythm follows the material, never
 the reverse. Never promise what the footage cannot deliver.
+
+## 6c. Kinetic promo: when there is NOTHING to cut (VID-06 recipe)
+
+**When this applies.** The user asks for a promo/trailer/ad for a
+product — and hands you NO footage to cut (no RAW, or a single
+still). There are no `cut_candidates`, no attention dips, no wpm
+to measure against §6: the video is 100% graphics timed to a
+voiceover/TTS script. Do NOT force the §3–§5 pipeline onto this —
+no fake dead-air cuts, no talking-head karaoke, no lower-thirds.
+Build it beat by beat from the STRUCTURE below, then map each beat
+to a plan field EXACTLY as §6c.5 says. (Current renderer limits:
+single-RAW compositions with HTML/CSS overlays — a VID-06 clone
+needs HyperFrames blocks/components, see §6c.6. Plan the cards,
+the copy, and the timing NOW; they survive any renderer.)
+
+**Source numbers (all measured, none guessed).** VID-06 = TikTok
+SaaS promo "What if you could create an entire ad without filming
+anything?" for Higgsfield: 1020×576 16:9, 30fps, 33.62s,
+1020×576@30fps H.264. Audio: EN voiceover, 13 phrases, 71 words,
+speech 0–29.44s then music-only dark logo outro 29.44–33.62s
+(~4.2s). Pace: ~182 wpm over voiced spans — educational/show
+grade, but with ZERO dead air (phrase gaps 0.6–0.9s, the voice
+never rambles, so carry the energy with card swaps, not cuts).
+Scene detection finds NO hard cuts to make (the whole piece is
+continuous motion inside cards — the only measurable signal is
+luminance: YAVG @2fps alternates LIGHT↔DARK↔LIGHT↔DARK). Beat map
+from the real transcript (faster-whisper small, EN 0.993):
+
+| # | Speech (verbatim) | sec | Card |
+|---|---|---|---|
+| 1 | What if you could create an entire ad | 0.00–2.08 | LIGHT kinetic hook (black/gray words, lime blobs) |
+| 2 | without filming anything? | 2.08–3.40 | LIGHT payoff (`Anything` lime, zoom) |
+| 3 | That's one of the things Higgs Field can do. | 4.24–6.22 | TRANSITION (lime-circle wipe → dark) |
+| 4 | Upload a product and turn it | 6.88–8.64 | DARK prompt card (glass, lime glow) |
+| 5 | into a professional looking advertisement. | 8.64–10.56 | DARK resize gesture (cursor + `editor` pill) |
+| 6 | Need a spokesperson? | 11.32–12.12 | DARK avatar grid (3×3, `editor` badge) |
+| 7 | Create an AI character. | 12.94–14.24 | GLASS typewriter band (prompt typing) |
+| 8 | Need them to talk? | 14.88–15.66 | LIGHT capability pile (photo cluster) |
+| 9 | Add dialogue and generate the video. | 16.20–18.24 | DARK AE screen (proof of workflow) |
+| 10 | You can also transform images, | 18.96–20.86 | LIGHT `Images` card (collage + lime aura) |
+| 11 | create different visual styles | 21.42–22.92 | LIGHT style list (pill header + 5 rows) |
+| 12 | and generate content for social media. | 23.44–25.32 | LIGHT platform card + giant glossy icons |
+| 13 | Editors, grab the After Effects project file on | 25.32–29.44 | LIGHT CTA (bicolor line + folder icon) |
+| — | (music only) | 29.44–33.62 | DARK logo outro (dot-grid + lime lockup) |
+
+One spoken phrase = one card = one idea on screen. Card swaps
+land ON the phrase boundary (±0.15s), never mid-phrase.
+
+### 6c.1 The luminance heartbeat (mandatory alternation)
+
+The video breathes LIGHT↔DARK↔LIGHT↔DARK across 33s — that
+alternation IS the retention mechanic (each swap re-grabs the eye
+without a single hard cut). Rule: **alternate luminance at HALF
+level — never place two LIGHT halves or two DARK halves back to
+back.** Inside a half, cards share the family luminance for
+several cards in a row (that is the measured data, not a
+violation: hook = 2 LIGHT cards, demos = 3 DARK cards,
+capabilities = 4 LIGHT cards). Sequence from the measurement:
+LIGHT hook (0–5.5s) → DARK demos (6–20s) → LIGHT capabilities
+(20.5–30s) → DARK outro (29.44–33.62s). The DARK→LIGHT return at
+~20.5s (`You can also transform images`) is the mid-video wake-up
+— plan it as a deliberate beat, not a palette accident. Inside
+each half, cards change but the luminance family holds for
+several cards in a row (DARK runs ~14s, second LIGHT ~9s).
+
+### 6c.2 Palette discipline (measured hex, one accent per card)
+
+- Base LIGHT: off-white `#F5F6F4`–`#F8F8F8`, never pure `#FFFFFF`
+  (flat white reads cheap on phone screens).
+- Base DARK: near-black `#0A0F14`–`#0A0A0A` + dot-grid texture
+  (tiny pale dots) + lime aurora glow low in frame.
+- THE accent: lime/chartreuse `#A6E000`–`#C6FF00` (blobs, glows,
+  pills, cursor, logo disc). Second accent ONLY for small UI
+  truth: folder blue `#2D9DD1` on `#0E4E73`, social red/gradient
+  on the platform card. Never two accents on one card.
+- Type on LIGHT: black `#000000` for spoken words; lime ONLY for
+  the single payoff word per card (`Anything`, `Grab the`) or the
+  pill header. Type on DARK: white `#FFFFFF` on glass.
+- Reserve RGB-split/glitch for the outro-adjacent brand beat at
+  most (same "one loud beat" rule as §6 lesson 3) — VID-06 itself
+  stays clean to the end; the logo lockup carries the close.
+
+### 6c.3 Typography (three sizes, never mixed on one card)
+
+1. **Kinetic statement** (hook + payoffs): extrabold rounded
+   grotesque (Poppins Bold / Montserrat ExtraBold), lowercase
+   except the payoff capital (`Anyth…`), 2–5 words per card,
+   center-anchored, cropped by frame edges at peak zoom.
+2. **UI voice** (demo cards): ALL-CAPS bold condensed white for
+   the prompt headline (`CLIFFSY, WHAT ARE WE CREA…`), regular
+   small white for the typed prompt body, tiny lowercase white
+   in the `editor` pill.
+3. **List voice** (capability cards): black bold left-aligned
+   rows (`Retro / Cyberpunk / Brutalist / Anime / Hyper
+   realism`), pill header + left accent bar in lime.
+One card = one voice. Never kinetic type over a UI mockup.
+
+### 6c.4 The five beats (build in this order, drop none)
+
+1. **Kinetic hook (0–3.4s, LIGHT).** Two cards: Q-line
+   (`What if you…`) with per-word fade-in (spoken word lights at
+   100%, upcoming words wait at ~40% gray) over drifting lime
+   blobs — then payoff word (`Anything`) zooming toward camera.
+   No people, no UI: type + color only.
+2. **Iris transition (~4.2–6.2s).** Full-bleed lime circle
+   expands to cover the frame (ghost of the hook text visible
+   mid-wipe = cross-dissolve, NOT a hard cut), black doodle
+   stroke rides it, lands on DARK. Budget 0.3–0.6s — it is a
+   blink, not a scene.
+3. **DARK demo run (6–20s).** THREE mock-UI cards, each a
+   redrawn (never screenshotted) interface: prompt card with
+   glass border + lime glow → gesture card (oversized cursor
+   drags a resize handle, `editor` pill labels it) → avatar grid
+   (3×3, `editor` badge breaks the grid = the eye magnet).
+   Cursor does ONE action per card (click / drag / select).
+4. **LIGHT capability run (20.5–30s).** THREE–FOUR white cards
+   proving breadth: photo pile (`Images`, collage + lime aura) →
+   style list (pill header + 5 rows + accent bar) → platform
+   card (giant glossy 3D social icons) → CTA (`Editors` black +
+   `Grab the…` lime + folder icon entering cropped from below).
+   Card depth: ONE tilt (MG-006 grammar, 2–3°), ONE glow, ONE
+   sparkle max — 70–95% negative space always.
+5. **DARK logo outro (last ~4s).** Speech ENDS, music carries:
+   dot-grid black + lime circle-disc lockup, center, hold still.
+   Nothing moves except a breathe pulse (MG-013 rule ≤8%).
+
+### 6c.5 Plan mapping (field-by-field, no new fields)
+
+- Each BANNER card (hook, capability header, payoff, CTA) = one
+  `graphics[]` beat (`act_title` for hook/capability headers,
+  `number_stat` for any spoken number, `highlight` for the payoff
+  word, `quote` for the CTA replay) with `time` = phrase start,
+  `duration` = phrase length. Text transcript-verbatim.
+- Each MOCK-UI card (prompt card, gesture, avatar grid, typewriter
+  band, screen proof) = one `structure_notes` entry with timestamp
+  + the UI to build + the spoken line for timing — NEVER a
+  `graphics[]` beat (banner text is transcript-verbatim; interface
+  copy is built in HyperFrames, see §6c.6). No card gets both.
+- Card swaps = `pattern_interrupts` (`caption_pop`) at each phrase
+  boundary — NOT `cuts` (there is no footage to splice; `cuts`
+  stays a single KEEP `[0, mediaEnd]`).
+- The iris wipe (§6c.4 beat 2) gets NO plan entry of its own: it
+  lives inside a speech gap (or overlapping the bridge phrase),
+  and the two `caption_pop` swaps bracketing it already mark the
+  handoff. Gaps ≤1.0s between phrases are delivery pauses, NOT
+  `dead_air` cuts.
+- The music-only outro gets NO `graphics[]` beat (no phrase, no
+  verbatim text): `cuts` KEEP simply extends through it
+  (`[0, mediaEnd]` with mediaEnd = end of music), and ONE
+  `structure_notes` entry records the lockup ("logo outro,
+  dot-grid black + lime disc, breathe pulse only").
+- `cuts` KEEP anchoring without RAW: `mediaEnd` = the voiceover
+  script length (TTS/VO duration) + outro hold (~4s). The single
+  KEEP is `[00:00:00.000, mediaEnd]` — never invent a media id.
+- `duration` precedence: for promos §6c.5 WINS over the
+  `GraphicBeat` comment defaults (act 2.5 / number 3.5 /
+  highlight 3 / quote 4) — `duration` = the spoken phrase length,
+  always. The comment values apply to talking-head banners only.
+- Per-word light-up inside the hook = `karaoke_caption` words with
+  `emphasis: true` on the payoff word (renderer already fades
+  40%→100% + keyword pop — same mechanic, keynote styling).
+- Cursor click/drag/typewriter moments = `structure_notes`
+  (renderer mounts a single RAW; the gesture is built in
+  HyperFrames, not in this plan — note the timestamp + action so
+  the build step places it). This INCLUDES the iris wipe beat and
+  every mock-UI card from §6c.4 beat 3 — merged into the same
+  `structure_notes` convention: timestamp + what to build + spoken
+  line for timing.
+- `speech.wpm` check: ~170–190 over voiced spans CONFIRMS promo
+  pace (voice carries, cards swap under it — visuals change UNDER
+  continuous speech, never the reverse). Gaps >1.0s between
+  phrases are delivery pauses, NOT `dead_air` cuts.
+
+### 6c.6 HyperFrames build notes (verified names, hyperframes 0.8.40)
+
+Resolve against the REAL catalog (`hyperframes catalog`, 393
+items) — these names were verified 2026-09-15, never invent
+variants. Blobs behind hook type: `mk-background` (soft-blob
+gradient, frosted-glass mode) or `vfx-liquid-background`
+(displaced-plane liquid). Glass demo cards: `vfx-liquid-glass`.
+Word light-up: `per-word-crossfade` (calm keynote fade + drift)
+— NOT `caption-highlight` (red TikTok sweep = wrong register),
+NOT `caption-kinetic-slam` (full-screen slam = single-word
+beats only). Single-word payoff zoom: `parallax-zoom` or
+`zoom-through-transition`. Typewriter prompt band: `typewriter`
+or `typed-prompt`. Cursor gesture: `oversized-cursor` (drag) /
+`press-ripple` (click) / `simulated-cursor` (walkthrough).
+Avatar grid: `mk-placeholder-grid` (3×3, staggered box-in).
+Style list: `mk-specs-list` (staggered rows + accent sweep).
+Prompt glow/aurora behind dark cards: `aurora-drift`. Card
+entrance/exit: `fade-through` or `transitions-blur` (blur =
+transition language of this piece: words resolve blur→sharp,
+scenes dissolve through blur). NEVER `caption-glitch-rgb`,
+`rgb-glitch-text`, `whip-pan-cut` mid-video — the register is
+clean/restrained at show speed; glitch is outro-only.
 
 ## 7. Output format: Action Plan JSON (EditPlan v1.3)
 

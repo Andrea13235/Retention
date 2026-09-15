@@ -185,7 +185,7 @@ export type RegisterName = "show" | "educational" | "tutorial" | "podcast" | "sh
 
 /**
  * Measured interruption cadence per register (seconds between beats).
- * Source: 5 reference videos analyzed frame-by-frame 2026-09-15 —
+ * Source: 6 reference videos analyzed frame-by-frame 2026-09-15 —
  * MrBeast "100 Days" (28 cuts/min → ~2s), Higgsfield edu (13/min → ~5s),
  * Higgsfield graphics (9/min → ~7s, rounded into educational),
  * Nate Herk tutorial (locked-off 30min, screen carries it → ~20s),
@@ -194,7 +194,10 @@ export type RegisterName = "show" | "educational" | "tutorial" | "podcast" | "sh
  * Lesson from #5: cadence is not energy — clean/restrained restraint
  * (one accent/scene, one idea/frame) holds at show-grade speed.
  * podcast (60s) and short_form (4s) are carried over: conversations
- * breathe, verticals snap. ONE table — planner, guide and SKILL.md
+ * breathe, verticals snap. Footage-less kinetic promos (VID-06, 0:33.6,
+ * 13 phrases → 13 cards, LIGHT↔DARK heartbeat) bypass cadence: one
+ * card per spoken phrase — see docs/analysis-guide.md §6c.
+ * ONE table — planner, guide and SKILL.md
  * all read these numbers, never a second copy.
  */
 export const REGISTER_CADENCE: Record<RegisterName, number> = {

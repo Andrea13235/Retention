@@ -112,7 +112,10 @@ fixed — follow it in this order, no improvising:
    `caption_pop` only, no `zoom_punch`, no show rhythm. A `show`
    request on a single take is downgraded to `educational` WITH a
    `structure_notes` entry explaining why (never silent). Pass the
-   REAL take count: ≥2 unlocks show rhythm and punch zooms.
+   REAL take count: ≥2 unlocks show rhythm and punch zooms. With
+   NO footage at all (promo/trailer, voiceover-only), skip the
+   cut pipeline and build beat-by-beat from the kinetic-promo
+   recipe — guide §6c.
 4. **Cuts** as a real KEEP splice (confidence-gated: ≥0.85 auto,
    0.5–0.85 applied+flagged in `review_cuts`, <0.5 skipped as
    proposal; manual extraCuts always apply).
@@ -177,13 +180,15 @@ register/graphics were applied. Never deliver an unreviewed render.
 | `short_form` | ~4s | Vertical clips, reels, shorts |
 | `youtube_talking_head` | = educational | Legacy alias (old plans still parse; write `educational` in new work) |
 
-Measured 2026-09-15 on 5 reference videos: MrBeast "100 Days in a
+Measured 2026-09-15 on 6 reference videos: MrBeast "100 Days in a
 Circle" (28 cuts/min → ~2s), Higgsfield educational (13/min → ~5s),
 Higgsfield motion-graphics (9/min → educational), Nate Herk tutorial
 (locked-off 30min → ~20s), beingmayy Apple-style motion 0:50
 (11 cuts, ~13/min, median hold ~2.4s, 206 wpm, zero gaps, fully
 synthetic — clean/restrained running at show-grade speed: cadence
-is not energy). Speech pace: educational/show ~170–190 wpm,
+is not energy), Higgsfield kinetic promo 0:33.6 (VID-06: 13 phrases
+→ 13 cards, LIGHT↔DARK↔LIGHT↔DARK heartbeat, one phrase = one card —
+full recipe in guide §6c for footage-less promos). Speech pace: educational/show ~170–190 wpm,
 clean-fast ~206 wpm, tutorial ~257 wpm. The single source of truth
 is `REGISTER_CADENCE` in `src/types.ts` — this table mirrors it.
 
