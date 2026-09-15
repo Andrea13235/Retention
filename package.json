@@ -11,6 +11,7 @@
     "build": "tsc",
     "dev": "tsx src/server.ts",
     "setup-check": "node scripts/setup-check.js",
+    "setup-whisper": "node scripts/setup-whisper.js",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "vitest run",
     "start": "node dist/server.js"

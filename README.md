@@ -8,11 +8,16 @@ AI video editing skill: turn RAW footage into publish-ready video — transcript
 
 ```bash
 npm install
-pip install -r requirements.txt
+node scripts/setup-whisper.js  # venv dedicato + faster-whisper (una tantum)
 npm run setup-check   # verify environment
 npm run build         # compile TypeScript
 npm test              # run test suite
 ```
+
+> Puoi saltare `setup-whisper.js` se hai già faster-whisper in un Python
+> raggiungibile (oppure punta `AVSKILL_PYTHON=/path/to/python` al tuo
+> interprete). Senza faster-whisper funzionante, `transcribe_media`
+> fallisce con istruzioni chiare.
 
 ## MCP wiring
 

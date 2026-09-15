@@ -12,6 +12,55 @@ import { secToTimecode, type Timecode, type Transcript } from "./types.js";
 
 const execFileAsync = promisify(execFile);
 
+/**
+ * Trova un interprete Python con faster-whisper funzionante.
+ * Ordine: AVSKILL_PYTHON → venv dedicato della skill (~/.andrea-video-skill/.venv)
+ * → venv attivo/convenzionali → python di sistema.
+ * Override manuale: AVSKILL_PYTHON=/path/to/python.
+ */
+export async function findWhisperPython(): Promise<string> {
+  const home = process.env.HOME ?? "";
+  const skillVenv = home
+    ? `${home}/.andrea-video-skill/.venv/bin/python`
+    : undefined;
+  const candidates = [
+    process.env.AVSKILL_PYTHON,
+    skillVenv,
+    // venv attivo o convenzionali (faster-whisper vive spesso qui)
+    process.env.VIRTUAL_ENV ? `${process.env.VIRTUAL_ENV}/bin/python` : undefined,
+    home ? `${home}/.venv/bin/python` : undefined,
+    `${process.cwd()}/.venv/bin/python`,
+    "python3",
+    "/opt/homebrew/bin/python3",
+    "/usr/local/bin/python3",
+    "/usr/bin/python3",
+  ].filter((c): c is string => !!c);
+  for (const bin of new Set(candidates)) {
+    try {
+      await execFileAsync(bin, ["-c", "import faster_whisper"], {
+        timeout: 60_000,
+        env: cleanPythonEnv(),
+      });
+      return bin;
+    } catch {
+      /* prossimo candidato */
+    }
+  }
+  throw new Error(
+    "transcribe_media: faster-whisper non trovato in nessun Python → " +
+      "pip install -r requirements.txt (vedi README)"
+  );
+}
+
+/** Env pulito per i subprocess Python (toglie PYTHONPATH/PYTHONHOME
+ *  ereditati che possono rompere gli import). */
+export function cleanPythonEnv(): NodeJS.ProcessEnv {
+  const env = { ...process.env };
+  delete env.PYTHONPATH;
+  delete env.PYTHONHOME;
+  return env;
+}
+
 /** hardware → modello (§9: selezione automatica). */
 export type HardwareKind = "gpu_nvidia" | "apple_silicon" | "cpu_only";
 
@@ -75,6 +124,8 @@ export async function transcribeMedia(
 ): Promise<Transcript> {
   const hardware = await detectHardware();
   const model = opts.model ?? selectModel(hardware);
+  // Python con faster-whisper funzionante (env pulito, vedi findWhisperPython).
+  const pythonBin = await findWhisperPython();
 
   const dir = await mkdtemp(join(tmpdir(), "avskill-"));
   try {
@@ -83,9 +134,10 @@ export async function transcribeMedia(
     await writeFile(bridge, BRIDGE_SCRIPT);
 
     try {
-      await execFileAsync("python3", [bridge, mediaPath, model, out], {
+      await execFileAsync(pythonBin, [bridge, mediaPath, model, out], {
         timeout: opts.timeoutMs ?? 30 * 60 * 1000,
         maxBuffer: 64 * 1024 * 1024,
+        env: cleanPythonEnv(),
       });
     } catch (err) {
       const msg = (err as Error).message;

@@ -22,9 +22,12 @@ function fail(label, hint) {
   console.error(`  ✗ ${label}\n    → ${hint}`);
 }
 
-function run(cmd, args = []) {
+function runClean(cmd, args = []) {
   try {
-    return execFileSync(cmd, args, { stdio: "pipe", encoding: "utf8" }).trim();
+    const env = { ...process.env };
+    delete env.PYTHONPATH;
+    delete env.PYTHONHOME;
+    return execFileSync(cmd, args, { stdio: "pipe", encoding: "utf8", env }).trim();
   } catch {
     return null;
   }
@@ -39,45 +42,41 @@ function run(cmd, args = []) {
 
 // 2. FFmpeg nel PATH
 {
-  const v = run("ffmpeg", ["-version"]);
+  const v = runClean("ffmpeg", ["-version"]);
   if (v) ok("FFmpeg", v.split("\n")[0].replace("ffmpeg version ", "v"));
   else fail("FFmpeg nel PATH", "installa FFmpeg (es. brew install ffmpeg)");
 }
 
 // 3. ffprobe (arriva con FFmpeg, serve a tools_ingest)
 {
-  if (run("ffprobe", ["-version"])) ok("ffprobe");
+  if (runClean("ffprobe", ["-version"])) ok("ffprobe");
   else fail("ffprobe nel PATH", "reinstalla FFmpeg completo");
 }
 
-// 4. Python 3.9–3.12 (solo per faster-whisper)
+// 4. Python con faster-whisper (qualsiasi 3.9+, env pulito)
 {
-  const v = run("python3", ["--version"]);
-  const m = v && v.match(/Python (\d+)\.(\d+)/);
-  if (m) {
-    const [_, major, minor] = m.map(Number);
-    if (major === 3 && minor >= 9 && minor <= 12)
-      ok("Python", v);
-    else
-      fail("Python 3.9–3.12", `trovato ${v}, faster-whisper richiede 3.9–3.12`);
-  } else {
-    fail("Python 3", "installa Python 3.9–3.12 (solo se usi faster-whisper)");
-  }
+  const v = runClean("python3", ["--version"]);
+  if (v) ok("Python", v);
+  else fail("Python 3", "installa Python 3.9+ (serve a faster-whisper)");
 }
 
-// 5. faster-whisper (pip) — opzionale se si usa whisper.cpp
+// 5. faster-whisper — venv dedicato della skill o python raggiungibile
 {
-  const v = run("python3", ["-c", "import faster_whisper; print(faster_whisper.__version__)"]);
+  const home = process.env.HOME || "";
+  const venvPy = home ? `${home}/.andrea-video-skill/.venv/bin/python` : null;
+  const v =
+    (venvPy && runClean(venvPy, ["-c", "import faster_whisper; print(faster_whisper.__version__)"])) ||
+    runClean("python3", ["-c", "import faster_whisper; print(faster_whisper.__version__)"]);
   if (v) ok("faster-whisper", `v${v}`);
   else
     console.log(
-      "  ○ faster-whisper non installato (ok se usi whisper.cpp) → pip install -r requirements.txt"
+      "  ○ faster-whisper non installato → node scripts/setup-whisper.js"
     );
 }
 
 // 6. HyperFrames CLI installata localmente
 {
-  const v = run("npx", ["--no-install", "hyperframes", "--version"]);
+  const v = runClean("npx", ["--no-install", "hyperframes", "--version"]);
   if (v) ok("HyperFrames CLI", `v${v}`);
   else
     console.log(

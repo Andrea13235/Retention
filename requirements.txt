@@ -1,2 +1,4 @@
-# faster-whisper (default, §9 dello spec) — trascrizione locale con licenza MIT
+# faster-whisper viene installato automaticamente nel venv dedicato
+# della skill con: node scripts/setup-whisper.js
+# (Installazione manuale equivalente: pip install -r requirements.txt)
 faster-whisper>=1.0.0
