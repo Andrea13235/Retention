@@ -100,11 +100,14 @@ Two invisibility guarantees (enforced by construction, not by taste):
   the next card's start (minus a 0.08s breath gap), clamped to 1–4s
   short-form / 1–8s long-form. Cards can never overlap even across
   splice points — whichever clock the render uses.
-- **Invisible splices.** Every CUT resume gets a masking `zoom_in` that
-  lands on the first kept frame (the viewer reads the scale change as
-  intent, not as a jump). No zoom, slow-zoom or interrupt may fire in
-  the 0.8s before a CUT or inside one — a punch on the seam would
-  spotlight it.
+- **Hard cuts for cleanup.** Stutter, dead-air, filler, false-start and
+  trim cuts are NET splices — no animation lands on them. A zoom on a
+  cleanup resume would tell the viewer "something was hidden here".
+  Motion lives ONLY on genuine scene changes: `slow_zoom` opens a new
+  act (section boundary), `zoom_punch` fires solely for explicit agent
+  `attentionRiskPoints` or section boundaries. No zoom, slow-zoom or
+  interrupt may fire in the 0.8s before a CUT or inside one — a punch
+  on the seam would spotlight it.
 The agent reviews `cut_candidates` and adds `extraCuts` for false starts
 and rhetoric the heuristics can't judge (see `review_cuts` in the plan —
 mandatory pre-render read).

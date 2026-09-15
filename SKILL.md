@@ -71,8 +71,10 @@ splice (confidence-gated: ≥0.85 auto, 0.5–0.85 applied+flagged in
 `review_cuts`, <0.5 skipped as proposal; manual extraCuts always apply),
 `format` (`short` → 9:16 canvas when `sourcePortrait` or short-form),
 `animations` (non-overlapping karaoke with only kept, corrected words +
-keyword emphasis, masking zoom on every splice resume, veto on any zoom
-in CUTs/pre-cut masks, slow-zoom motion, lower-thirds),
+keyword emphasis, NO zoom on cleanup-cut resumes — hard cuts stay naked,
+slow_zoom opens new acts only, zoom_punch solely for explicit agent
+attentionRiskPoints or section boundaries, veto on any zoom in
+CUTs/pre-cut masks, lower-thirds),
 `broll` (when sources provided), `pattern_interrupts` on cadence
 (talking-head ~25s, podcast ~60s, short-form ~4s) plus one dedicated
 interrupt per `attention_risk_point`. MANDATORY: read `review_cuts`

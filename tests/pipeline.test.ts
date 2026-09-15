@@ -266,9 +266,17 @@ describe("plan", () => {
     // sample has a filler segment → at least one CUT recorded
     expect(plan.cuts.some((c) => c.reason.startsWith("CUT"))).toBe(true);
     expect(plan.animations.length).toBeGreaterThan(0);
-    // motion follows acts: one slow_zoom per section (3 default sections)
+    // motion opens new acts only: slow_zoom on section 2+ boundaries
+    // (3 sections → up to 2), never on the hook, never mid-act.
     const zooms = plan.animations.filter((a) => a.type === "slow_zoom");
-    expect(zooms.length).toBeGreaterThanOrEqual(2);
+    expect(zooms.length).toBeLessThanOrEqual(2);
+    for (const z of zooms) {
+      const t = timecodeToSec(z.time);
+      const onBoundary = s.sections.some(
+        (sec, i) => i > 0 && Math.abs(timecodeToSec(sec.start) + 0.5 - t) < 0.6
+      );
+      expect(onBoundary).toBe(true);
+    }
     // interrupts every ~25s over 28s of video → 1
     expect(plan.pattern_interrupts).toHaveLength(1);
   });
@@ -534,7 +542,7 @@ describe("render: HyperFrames project build", () => {
       expect(sp.e - sp.s).toBeLessThanOrEqual(4.001);
     }
   });
-  it("invisible cuts: masking zoom at every resume, veto before every cut", () => {
+  it("hard cuts: no zoom on cleanup resumes, zoom only on scene change", () => {
     const words: Array<{ start: string; word: string }> = [];
     for (let i = 0; i < 40; i++) {
       words.push({ start: secToTimecode(i * 0.5), word: `w${i}` });
@@ -556,8 +564,9 @@ describe("render: HyperFrames project build", () => {
     const zooms = plan.animations.filter(
       (a) => a.type === "zoom_in" || a.type === "slow_zoom"
     );
-    // masking punch lands exactly on the resume (cut end 8.0)
-    expect(zooms.some((z) => Math.abs(timecodeToSec(z.time) - 8) < 0.01)).toBe(true);
+    // HARD-CUT: no zoom lands on the cleanup resume (cut end 8.0) —
+    // the splice alone, no animation on top.
+    expect(zooms.some((z) => Math.abs(timecodeToSec(z.time) - 8) < 0.01)).toBe(false);
     // veto: no zoom in [4.2, 5.0) before the cut at 5.0
     expect(zooms.some((z) => {
       const t = timecodeToSec(z.time);
@@ -568,6 +577,41 @@ describe("render: HyperFrames project build", () => {
       const t = timecodeToSec(p.time);
       expect(t < 5 || t >= 8).toBe(true);
       expect(t < 4.2 || t >= 5).toBe(true);
+    }
+  });
+  it("scene change gets emphasis: slow_zoom opens a new act", () => {
+    // 3 segments over 30s → 3 sections; a slow_zoom must open section 2/3
+    // (real scene changes), never section 1 (hook opens clean).
+    const words: Array<{ start: string; word: string }> = [];
+    const segs: Array<{ start: string; end: string; text: string }> = [];
+    for (let g = 0; g < 3; g++) {
+      const gw: string[] = [];
+      for (let i = 0; i < 20; i++) {
+        const w = `g${g}w${i}`;
+        words.push({ start: secToTimecode(g * 10 + i * 0.5), word: w });
+        gw.push(w);
+      }
+      segs.push({
+        start: secToTimecode(g * 10),
+        end: secToTimecode(g * 10 + 10),
+        text: gw.join(" "),
+      });
+    }
+    const s = analyzeTranscript(
+      { media_id: "scene-test", model: "small", segments: segs },
+      { sectionCount: 3 }
+    );
+    expect(s.sections).toHaveLength(3);
+    const plan = generateEditPlan(s, { style: "youtube_talking_head" }, words);
+    const slowZooms = plan.animations.filter((a) => a.type === "slow_zoom");
+    expect(slowZooms.length).toBeGreaterThanOrEqual(1);
+    for (const z of slowZooms) {
+      const t = timecodeToSec(z.time);
+      // every slow_zoom sits on a section boundary (= scene change)
+      const onBoundary = s.sections.some(
+        (sec, i) => i > 0 && Math.abs(timecodeToSec(sec.start) + 0.5 - t) < 0.6
+      );
+      expect(onBoundary).toBe(true);
     }
   });
 });

@@ -240,26 +240,30 @@ export function generateEditPlan(
   // hook_moment emphasis is rendered by the karaoke cards themselves
   // (no separate top caption: double captions + black boxes are banned —
   // the Apple restraint rule).
-  // INVISIBLE-CUT rule: every splice point is masked by a zoom that
-  // LANDS on the first frame after the cut (viewer reads scale change
-  // as intent, not as a jump). Conversely, no zoom may fire in the 0.8s
-  // BEFORE a cut — a punch on the last pre-cut frame spotlights the seam.
+  //
+  // HARD-CUT rule: cleanup cuts (stutter, dead air, filler, false starts,
+  // trims) are NET cuts — the splice alone, no animation on top. A zoom
+  // landing on a cleanup resume tells the viewer "something was hidden
+  // here", which is exactly what must NOT happen.
+  //
+  // Zooms live ONLY on genuine scene changes: section boundaries (a new
+  // act starts — coherent emphasis, not a cover-up) and explicit agent
+  // attentionRiskPoints (the agent judged the moment worthy). The 0.8s
+  // pre-cut mask still vetoes everything: a punch on the last pre-cut
+  // frame would spotlight the seam.
   const CUT_MASK_S = 0.8;
-  const cutEnds = mergedCuts.map((c) => c.e); // timeline resumes here…
-  const cutStarts = mergedCuts.map((c) => c.s); // …after cutting here
+  const cutStarts = mergedCuts.map((c) => c.s); // cuts start here
   const nearCutStart = (t: number): boolean =>
     cutStarts.some((cs) => t >= cs - CUT_MASK_S && t < cs);
-  // Masking punch at every splice resume (source clock = cut end).
-  for (const ce of cutEnds) {
-    animations.push({
-      time: secToTimecode(ce),
-      type: "zoom_in",
-      target: "face",
-    });
-  }
-  // One slow_zoom per section (alternating in/out), punch-ins on slow spots.
-  // Veto: nothing fires inside the pre-cut mask (it would spotlight seams).
+  const isSceneChange = (t: number): boolean =>
+    structure.sections.some(
+      (sec, i) => i > 0 && Math.abs(timecodeToSec(sec.start) - t) < 0.5
+    );
+  // Scene-change emphasis ONLY: a slow_zoom opens a new act (section
+  // boundary = genuine change of scene/topic, coherent by definition).
+  // Mid-act motion is restraint: no drift over continuous speech.
   structure.sections.forEach((s, i) => {
+    if (i === 0) return; // first section opens on the hook — no zoom needed
     const sStart = timecodeToSec(s.start);
     const sEnd = timecodeToSec(s.end);
     const dur = Math.min(12, Math.max(3, sEnd - sStart - 1));
@@ -276,7 +280,7 @@ export function generateEditPlan(
   });
   for (const spot of structure.slow_spots ?? []) {
     const t = timecodeToSec(spot.start);
-    if (isKept(t) && !nearCutStart(t)) {
+    if (isKept(t) && !nearCutStart(t) && isSceneChange(t)) {
       animations.push({
         time: spot.start,
         type: "zoom_in",
@@ -286,7 +290,7 @@ export function generateEditPlan(
   }
   for (const d of structure.attention_dips.slice(0, 10)) {
     const t = timecodeToSec(d.start);
-    if (isKept(t) && !nearCutStart(t)) {
+    if (isKept(t) && !nearCutStart(t) && isSceneChange(t)) {
       animations.push({
         time: d.start,
         type: "zoom_in",
@@ -316,18 +320,29 @@ export function generateEditPlan(
 
   // Pattern interrupts on cadence (short-form keeps every ~4s)…
   // …skipped inside CUT ranges and inside the pre-cut mask (same rule).
+  // Long-form cadence is caption_pop by default; zoom_punch ONLY on
+  // genuine scene changes (section boundary) — motion stays coherent.
   const pattern_interrupts: EditPlan["pattern_interrupts"] = [];
   for (let t = every; t < endSec; t += every) {
     if (!isKept(t) || nearCutStart(t)) continue;
+    const kind =
+      style === "short_form" ? "caption_pop" : isSceneChange(t) ? "zoom_punch" : "caption_pop";
     pattern_interrupts.push({
       time: secToTimecode(t),
-      kind: style === "short_form" ? "caption_pop" : "zoom_punch",
+      kind,
       detail: `interrupt every ~${every}s`,
     });
   }
 
   // …plus one dedicated interrupt per risk point (midpoint), so every
   // attention_risk_point from analysis gets coverage (see checklist).
+  // Explicit agent attentionRiskPoints are genuine scene-change judgments:
+  // they may carry a zoom_punch even mid-act. Heuristic risk points from
+  // analysis only get a caption_pop (never motion) unless they coincide
+  // with a section boundary — motion must stay coherent, never a cover-up.
+  const agentRisk = new Set(
+    (opts.attentionRiskPoints ?? []).map((r) => `${r.start}|${r.end}`)
+  );
   const riskPoints = [
     ...(structure.attention_risk_points ?? []),
     ...(opts.attentionRiskPoints ?? []),
@@ -342,9 +357,16 @@ export function generateEditPlan(
       (p) => Math.abs(timecodeToSec(p.time) - mid) < every / 2
     );
     if (covered) continue;
+    const fromAgent = agentRisk.has(`${r.start}|${r.end}`);
+    const kind =
+      style === "short_form"
+        ? "caption_pop"
+        : fromAgent || isSceneChange(mid)
+          ? "zoom_punch"
+          : "caption_pop";
     pattern_interrupts.push({
       time: secToTimecode(mid),
-      kind: style === "short_form" ? "caption_pop" : "zoom_punch",
+      kind,
       detail: `risk-point coverage: ${r.reason}`,
     });
   }
