@@ -138,31 +138,38 @@ Add to your client configuration (`claude_desktop_config.json`, Cursor MCP, Code
 }
 ```
 
-### Install as an AI Skill (`/Retention.editing`)
-To make the skill appear in your slash commands menu in Antigravity, Claude Code, or Hermès:
+### Install as an AI Skill (`/Retention.editing` & `/Retention`)
+To make the skill appear in your slash commands menu across all AI assistants (**Google Antigravity**, **Claude Code**, **Codex**, and **Hermès**):
 
-#### Option 1: One-command automatic install (Recommended)
+#### Option 1: Universal 1-Click Installer (Recommended)
 From inside your cloned `Retention` directory, run:
 ```bash
 npm run install-skill
 ```
-*This automatically links the repository into `~/.gemini/config/skills/Retention.editing`.*
+*This instantly registers the skill across Google Antigravity (`~/.gemini/config/skills`), Claude Code (`~/.claude/skills` & `~/.claude/commands`), and Codex (`~/.codex/skills`), setting up both `/Retention.editing` and `/Retention` aliases automatically.*
 
 #### Option 2: Clone directly into global skills
-```bash
-git clone https://github.com/Andrea13235/Retention.git ~/.gemini/config/skills/Retention.editing
-```
+- **For Google Antigravity**:
+  ```bash
+  git clone https://github.com/Andrea13235/Retention.git ~/.gemini/config/skills/Retention.editing
+  ```
+- **For Claude Code / Codex**:
+  ```bash
+  git clone https://github.com/Andrea13235/Retention.git ~/.claude/skills/Retention.editing
+  ```
 
 #### Option 3: Workspace auto-discovery
-If you open this repository directly in your project workspace, the built-in `.agents/skills/Retention.editing` directory is automatically discovered with zero configuration.
+If you open this repository directly in your project workspace, the built-in `.agents/skills/` and `.claude/skills/` directories are automatically discovered with zero configuration.
 
 ---
 
 ### Invoking the Skill in Chat:
-Open your AI assistant and type:
+Open your AI assistant (Google Antigravity, Claude Code, Codex) and type:
 ```bash
 /Retention.editing edit my raw footage at ./video.mp4 for YouTube
 ```
+*(or simply `/Retention`)*
+
 > **Natural Language Activation**: You don't even have to type `/Retention.editing`! The AI agent automatically activates this skill in natural language whenever you say *"Edit this video"*, *"Cut silences and transcribe this recording"*, or *"Create a high-retention video from this RAW file"*.
 
 ---
