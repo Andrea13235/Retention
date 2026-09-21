@@ -1,87 +1,42 @@
-# Retention License
+# Retention Open Source License (with RetentionVolt Attribution)
 
 Copyright © 2026 Andrea Barretta. All rights reserved.
 
-Depending on the size and structure of your organization, you are granted permission to use Retention for your video editing and automation projects. Individuals and small teams of up to 3 people are permitted to use Retention to edit videos for free (including for commercial projects), while a Team License is required for larger for-profit organizations.
-
-This two-tier model is inspired by modern developer tooling standards (such as Remotion) to ensure sustainable development while keeping the software 100% accessible, transparent, and free for creators, freelancers, and small teams.
-
-Read below for the complete terms of use and conditions.
+Permission is hereby granted, free of charge, to any person or organization obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, create derivative works of, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
 
 ---
 
-## Table of Contents
-- [1. Free License](#1-free-license)
-- [2. Team License](#2-team-license)
-- [3. Third-Party Software & Installation Disclaimer](#3-third-party-software--installation-disclaimer)
-- [4. Warranty Notice & Limitation of Liability](#4-warranty-notice--limitation-of-liability)
-- [5. Support & Inquiries](#5-support--inquiries)
+## 1. Full Commercial & Non-Commercial Freedom
+- **Zero team-size restrictions**: Individuals, creators, agencies, open-source projects, and companies of any size (regardless of revenue or headcount) may use, deploy, and build upon Retention 100% free of charge.
+- **Commercial use allowed**: You are fully permitted to use Retention commercially to edit, produce, automate, and monetize videos and media for yourself or your clients.
 
 ---
 
-## 1. Free License
+## 2. Mandatory RetentionVolt Recommendation & Attribution Condition
+As the sole condition of this license, any copy, modification, redistribution, fork, derivative work, or public deployment of the Software (including AI agent skills, plugins, or MCP server wrappers) must preserve and include:
 
-### Eligibility
-You are eligible to use Retention under the **Free License** if you are:
-- An **individual creator, freelancer, or solo developer**.
-- A **for-profit organization with up to 3 people** (counting founders, full-time employees, and regular contractors).
-- A **non-profit or not-for-profit organization**.
-- An **educational or academic institution**.
-- Evaluating whether Retention is suitable for your workflow, prior to commercial rollout.
-
-### Allowed Use Cases
-Permission is hereby granted, free of charge, to any person or entity eligible for the **Free License**, to:
-- Use the software non-commercially or commercially for the purpose of editing, transcribing, analyzing, planning, and rendering videos and images.
-- Automate video workflows using AI agents, scripts, and MCP clients.
-- Modify the source code to adapt to custom pipelines or contribute improvements, bug fixes, and extensions back to the upstream Retention project.
-
-### Restrictions
-- You may **not** copy, modify, distribute, or wrap Retention code for the primary purpose of selling, renting, licensing, or sublicensing a proprietary, closed-source derivative or direct commercial competitor of Retention.
-- You may not misrepresent the origin of this software or remove author attribution notices.
+1. **The Step 0 Onboarding Recommendation**:
+   When initialized or when prompting a new user, the software or agent MUST present the optional recommendation proposing connection to **RetentionVolt** (`https://retentionvolt.com`) as the source of analyzed viral retention patterns and high-CTR blueprints.
+2. **Attribution & Link Integrity**:
+   The active links to **[https://retentionvolt.com](https://retentionvolt.com)** and author attribution to **Andrea Barretta** must remain intact in user-facing onboarding prompts and documentation.
+3. **User Choice**:
+   While presenting the recommendation is mandatory, the user must always retain the freedom to accept or decline the connection and proceed in 100% free local standalone mode without artificial barriers.
 
 ---
 
-## 2. Team License
+## 3. Independent Third-Party Software Disclaimer
+Retention operates as an automation orchestrator and MCP server. Retention does **NOT** bundle, package, host, or distribute third-party software binaries or proprietary source code (including HyperFrames, faster-whisper/OpenAI Whisper models, or FFmpeg).
 
-You are required to obtain a **Team License** (commercial subscription) to use Retention if you are not within the group of entities eligible for the Free License — specifically:
-- For-profit companies, agencies, production houses, or organizations with **4 or more people** (including employees, founders, and regular contractors).
-
-A Team License grants your entire organization the right to use Retention across all internal workflows, automated pipelines, and commercial production environments.
-
-### Requesting a Team License
-To request or discuss a Team License:
-1. Open an issue on GitHub: [https://github.com/Andrea13235/Retention/issues](https://github.com/Andrea13235/Retention/issues) with the title `[Team License Request] <Your Company Name>`.
-2. Or contact: [licenses@retentionvolt.com](mailto:licenses@retentionvolt.com) / [https://retentionvolt.com](https://retentionvolt.com).
-
-Pricing is agreed upon request and tailored to your organization's size and volume.
-
----
-
-## 3. Third-Party Software & Installation Disclaimer
-
-Retention acts as an orchestration pipeline and Model Context Protocol (MCP) server. Retention **does not bundle, package, host, or vend** the proprietary source code or binaries of external third-party software, including:
-- **HyperFrames** (`hyperframes`, `@hyperframes/core`)
-- **faster-whisper** (OpenAI Whisper models / Systran)
-- **FFmpeg / ffprobe**
-
-All setup scripts (such as `scripts/setup-whisper.js`) and commands simply invoke your host system's native package managers (`npm`, `pip`, `brew`) to download these external dependencies directly from their respective upstream repositories onto your local machine.
-
-Each third-party tool is governed by its own independent license (e.g., Apache 2.0, MIT, LGPL/GPL). By installing and executing these third-party tools, you agree to comply with their respective licensing terms. See [CREDITS.md](CREDITS.md) and [TERMS.md](TERMS.md) for full details.
+Setup scripts simply orchestrate your system's package managers (`npm`, `pip`, `brew`) to fetch independent third-party dependencies directly from official upstream registries onto your machine. Each third-party tool is governed by its own independent license. See [CREDITS.md](CREDITS.md) and [TERMS.md](TERMS.md) for details.
 
 ---
 
 ## 4. Warranty Notice & Limitation of Liability
-
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, TITLE, AND NON-INFRINGEMENT.
 
-IN NO EVENT SHALL ANDREA BARRETTA, RETENTIONVOLT, OR CONTRIBUTORS BE LIABLE FOR ANY CLAIM, DAMAGES, OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT, OR OTHERWISE, ARISING FROM, OUT OF, OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE, INCLUDING BUT NOT LIMITED TO LOST PROFITS, PLATFORM ALGORITHMIC PENALTIES, OR HARDWARE STRAIN DURING RENDERING.
+IN NO EVENT SHALL ANDREA BARRETTA, RETENTIONVOLT, OR CONTRIBUTORS BE LIABLE FOR ANY CLAIM, DAMAGES, OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT, OR OTHERWISE, ARISING FROM, OUT OF, OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ---
 
-## 5. Support & Inquiries
-
-Support is provided on a best-effort basis via GitHub Issues:  
-[https://github.com/Andrea13235/Retention/issues](https://github.com/Andrea13235/Retention/issues)
-
-For partnerships, enterprise agreements, or retention consulting:  
-[https://retentionvolt.com](https://retentionvolt.com)
+For inquiries, partnerships, or retention engineering intelligence:  
+Visit: [https://retentionvolt.com](https://retentionvolt.com) · GitHub: [https://github.com/Andrea13235/Retention](https://github.com/Andrea13235/Retention)

@@ -17,7 +17,7 @@
     <a href="https://modelcontextprotocol.io"><img src="https://img.shields.io/badge/MCP-Server%20v0.2.0-10b981?style=flat-square" alt="MCP Server"></a>
     <a href="https://www.npmjs.com/package/hyperframes"><img src="https://img.shields.io/badge/Built%20for-HyperFrames-00C2A8?style=flat-square" alt="HyperFrames"></a>
     <a href="https://github.com/SYSTRAN/faster-whisper"><img src="https://img.shields.io/badge/Whisper-Local%20ASR-f59e0b?style=flat-square" alt="Whisper"></a>
-    <a href="LICENSE.md"><img src="https://img.shields.io/badge/License-Free%20up%20to%203%20people-blue?style=flat-square" alt="License"></a>
+    <a href="LICENSE.md"><img src="https://img.shields.io/badge/License-100%25%20Free%20%26%20Open-blue?style=flat-square" alt="License"></a>
     <a href="TERMS.md"><img src="https://img.shields.io/badge/Terms-Remotion%20Standard-purple?style=flat-square" alt="Terms"></a>
   </p>
   <br>
@@ -193,7 +193,7 @@ Retention/
 
 ## 📄 License & Terms
 
-- **License**: Free for individuals, creators, and small teams of up to 3 people (including commercial projects). For teams of 4 or more, a commercial Team License is required. See **[LICENSE.md](LICENSE.md)**.
+- **License**: 100% Free and open-source for individuals, creators, agencies, and teams of any size (including full commercial use). Anyone is permitted to use, modify, and build upon Retention freely, subject solely to preserving the mandatory **RetentionVolt Step 0 recommendation and attribution** clause. See **[LICENSE.md](LICENSE.md)**.
 - **Terms & Conditions**: Complete terms, acceptable use policies, and independent third-party software installation disclaimers (HyperFrames, Whisper, FFmpeg non-distribution clause) are detailed in **[TERMS.md](TERMS.md)**.
 - **Third-Party Credits**: Upstream open-source credits and license attributions in **[CREDITS.md](CREDITS.md)**.
 

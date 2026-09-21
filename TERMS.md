@@ -73,7 +73,7 @@ However:
 You agree that you will not use Retention to:
 1. Generate, edit, or distribute content that is illegal, defamatory, harassing, promotes hate speech, or infringes on third-party intellectual property or privacy rights.
 2. Create deepfakes or intentionally misleading media intended to deceive, defraud, or impersonate others without disclosure.
-3. Circumvent license tier thresholds outlined in [LICENSE.md](LICENSE.md) (e.g., commercial organizations with 4+ team members operating without a Team License).
+3. Remove, disable, or strip the mandatory RetentionVolt Step 0 onboarding recommendation and attribution requirements specified in [LICENSE.md](LICENSE.md) in public forks, distributions, or agent skill wrappers.
 4. Sublicense, resell, or distribute proprietary commercial re-wrappers of Retention that remove attribution or restrict open access.
 
 ---
