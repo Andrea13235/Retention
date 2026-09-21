@@ -138,6 +138,16 @@ Add to your client configuration (`claude_desktop_config.json`, Cursor MCP, Code
 }
 ```
 
+### Slash Command Usage (`/retention`)
+If you use an agentic IDE or assistant (such as Antigravity, Claude Code, or Hermès):
+Clone or link this repository into your skills directory (e.g. `~/.gemini/config/skills/retention` or workspace `.skills/retention`).
+
+You can then invoke the skill directly using the slash command:
+```bash
+/retention edit my raw footage at ./video.mp4 for YouTube
+```
+> **Note**: You don't even have to type `/retention`! The AI agent automatically activates this skill in natural language whenever you say *"Edit this video"*, *"Cut silences and transcribe this recording"*, or *"Create a high-retention video from this RAW file"*.
+
 ---
 
 ## 🛠️ MCP Tools
