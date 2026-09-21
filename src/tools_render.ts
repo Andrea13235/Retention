@@ -6,7 +6,7 @@
  */
 import { execFile } from "node:child_process";
 import { mkdir, stat, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { basename, dirname, extname, join } from "node:path";
 import { promisify } from "node:util";
 import {
   CANVAS,
@@ -18,6 +18,7 @@ import {
   type EditPlan,
   type MotionKind,
   type RenderPreset,
+  type ThumbnailConfig,
 } from "./types.js";
 
 const execFileAsync = promisify(execFile);
@@ -65,7 +66,7 @@ export async function buildHyperframesProject(
   const width = opts.width ?? canvas.width;
   const height = opts.height ?? canvas.height;
   const portrait = height > width;
-  const compositionId = `cutcraft-edit-${plan.media_id.slice(0, 8)}`;
+  const compositionId = `retention-edit-${plan.media_id.slice(0, 8)}`;
 
   // Duration + source→timeline map: KEEP cuts (exclude CUTs) are sorted
   // and laid edge-to-edge on the output timeline. For each KEEP range we
@@ -590,3 +591,85 @@ export async function renderVideo(
     throw new Error(`render_video: missing or empty output: ${output}`);
   return output;
 }
+
+/**
+ * Render high-CTR video thumbnail / cover based on plan's thumbnail configuration.
+ * Extracts a high-impact base frame at the hook moment and outputs a ready-to-use cover image
+ * along with companion CTR metadata (title, badge, style) in a companion JSON file.
+ * (Does not require external FFmpeg libfreetype filters).
+ */
+export async function renderThumbnail(
+  sourceVideoPath: string,
+  outputPath: string,
+  config: ThumbnailConfig = { title: "Thumbnail" }
+): Promise<string> {
+  const time = config.frame_time ?? "00:00:02.000";
+  // Validate timecode format early to fail fast with a clear error
+  timecodeToSec(time);
+
+  // Determine final image path: handle directory path or explicit output_filename
+  let finalOut = outputPath;
+  const isDirLike =
+    outputPath.endsWith("/") ||
+    outputPath.endsWith("\\") ||
+    !extname(outputPath);
+
+  if (isDirLike) {
+    const filename = config.output_filename || "thumbnail.jpg";
+    finalOut = join(outputPath, filename);
+  } else if (config.output_filename) {
+    finalOut = join(dirname(outputPath), config.output_filename);
+  }
+
+  // Ensure parent directory exists
+  await mkdir(dirname(finalOut), { recursive: true });
+
+  try {
+    await execFileAsync(
+      "ffmpeg",
+      [
+        "-y",
+        "-ss",
+        time,
+        "-i",
+        sourceVideoPath,
+        "-frames:v",
+        "1",
+        "-q:v",
+        "2",
+        finalOut,
+      ],
+      { timeout: 60_000, maxBuffer: 16 * 1024 * 1024 }
+    );
+  } catch (err) {
+    throw new Error(`renderThumbnail failed: ${(err as Error).message}`);
+  }
+
+  const st = await stat(finalOut).catch(() => null);
+  if (!st || st.size === 0)
+    throw new Error(`renderThumbnail: failed to generate thumbnail at ${finalOut}`);
+
+  // Write companion CTR metadata file if title, badge, or style are provided
+  if (config.title || config.badge || config.style) {
+    const metaPath = finalOut.replace(/\.[^.]+$/, "") + ".json";
+    const meta = {
+      image: finalOut,
+      title: config.title ?? "Thumbnail",
+      badge: config.badge,
+      style: config.style ?? "bold",
+      frame_time: time,
+      suggested_ctr_elements: {
+        headline: config.title,
+        badge: config.badge,
+        preset: config.style,
+      },
+    };
+    await writeFile(metaPath, JSON.stringify(meta, null, 2), "utf-8").catch(() => {
+      // non-fatal metadata write failure
+    });
+  }
+
+  return finalOut;
+}
+
+

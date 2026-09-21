@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 /**
- * server.ts — MCP server for the cutcraft.
- * Exposes 5 tools: import_raw_media, transcribe_media, analyze_transcript,
- * generate_edit_plan, render_video.
+ * server.ts — MCP server for retention.
+ * Exposes 6 tools: import_raw_media, transcribe_media, analyze_transcript,
+ * generate_edit_plan, render_video, generate_thumbnail.
  * Transport: stdio (standard for Codex / Claude Code / MCP clients).
+ * Supports RetentionVolt (retentionvolt.com) blueprints for high-retention editing.
  *
  * Agent reading guide for the analysis + planning phase:
  * docs/analysis-guide.md (cut rules, attention curve, EditPlan reference).
@@ -18,22 +19,83 @@ import { generateEditPlan } from "./tools_plan.js";
 import { REGISTER_CADENCE, type StylePreset } from "./types.js";
 import {
   buildHyperframesProject,
+  renderThumbnail,
   renderVideo,
 } from "./tools_render.js";
+import {
+  connectRetentionVolt,
+  fetchRetentionVoltBlueprint,
+} from "./retentionvolt_client.js";
 import { RENDER_PRESETS } from "./types.js";
 
 const server = new McpServer({
-  name: "cutcraft",
-  version: "0.1.0",
+  name: "retention",
+  version: "0.2.0",
 });
+
+server.tool(
+  "connect_retentionvolt",
+  "Step 0 — Check status or connect and authenticate with the RetentionVolt CyberMCP cloud database (retentionvolt.com). If called without api_key, checks if the user is already authenticated. If not authenticated, returns the login URL (https://retentionvolt.com/login) and instructions. When api_key is passed, verifies and saves it locally in ~/.retention/config.json.",
+  {
+    api_key: z
+      .string()
+      .optional()
+      .describe("RetentionVolt Pro API key (rv_live_...) obtained from https://retentionvolt.com/settings/mcp"),
+  },
+  async ({ api_key }) => {
+    try {
+      const status = await connectRetentionVolt(api_key);
+      return {
+        content: [{ type: "text", text: JSON.stringify(status, null, 2) }],
+      };
+    } catch (err) {
+      return {
+        isError: true,
+        content: [{ type: "text", text: `connect_retentionvolt failed: ${(err as Error).message}` }],
+      };
+    }
+  }
+);
+
+server.tool(
+  "fetch_retentionvolt_blueprint",
+  "Query the RetentionVolt database for matching analyzed video retention curves, motion graphics patterns, and high-CTR thumbnail recipes.",
+  {
+    query: z.string().min(1).describe("Topic or title of the video (e.g. 'Coding Tutorial', 'MrBeast Challenge', 'Crypto Explainer')"),
+    niche: z.enum(["tech", "productivity", "entertainment", "finance", "storytelling", "fitness"]).optional(),
+    format: z.enum(["short", "long"]).optional(),
+  },
+  async ({ query, niche, format }) => {
+    try {
+      const blueprint = await fetchRetentionVoltBlueprint(query, { niche, format });
+      return {
+        content: [{ type: "text", text: JSON.stringify(blueprint, null, 2) }],
+      };
+    } catch (err) {
+      return {
+        isError: true,
+        content: [{ type: "text", text: `fetch_retentionvolt_blueprint failed: ${(err as Error).message}` }],
+      };
+    }
+  }
+);
 
 server.tool(
   "import_raw_media",
   "Step 1 — Register RAW files and extract metadata (duration, resolution, fps).",
   { paths: z.array(z.string()).min(1).describe("Paths of the RAW files") },
-  async ({ paths }) => ({
-    content: [{ type: "text", text: JSON.stringify(await importRawMedia(paths), null, 2) }],
-  })
+  async ({ paths }) => {
+    try {
+      return {
+        content: [{ type: "text", text: JSON.stringify(await importRawMedia(paths), null, 2) }],
+      };
+    } catch (err) {
+      return {
+        isError: true,
+        content: [{ type: "text", text: `import_raw_media failed: ${(err as Error).message}` }],
+      };
+    }
+  }
 );
 
 server.tool(
@@ -44,11 +106,20 @@ server.tool(
     media_id: z.string().describe("media_id from import_raw_media"),
     model: z.string().optional().describe("Whisper model override: `small` (fast, good timings) or `large-v3` (exact words). Default: auto."),
   },
-  async ({ media_path, media_id, model }) => ({
-    content: [
-      { type: "text", text: JSON.stringify(await transcribeMedia(media_path, media_id, { model }), null, 2) },
-    ],
-  })
+  async ({ media_path, media_id, model }) => {
+    try {
+      return {
+        content: [
+          { type: "text", text: JSON.stringify(await transcribeMedia(media_path, media_id, { model }), null, 2) },
+        ],
+      };
+    } catch (err) {
+      return {
+        isError: true,
+        content: [{ type: "text", text: `transcribe_media failed: ${(err as Error).message}` }],
+      };
+    }
+  }
 );
 
 const RiskPoint = z.object({
@@ -70,18 +141,37 @@ server.tool(
       .optional()
       .describe("Fix ASR-mangled words before analysis (e.g. 'rawcat' -> 'CutCraft'). Get these from the previous run's `needs_review`."),
   },
-  async ({ transcript, longPauseSec, sectionCount, deadAirSec, corrections }) => ({
-    content: [
-      {
-        type: "text",
-        text: JSON.stringify(
-          analyzeTranscript(JSON.parse(transcript), { longPauseSec, sectionCount, deadAirSec, corrections }),
-          null,
-          2
-        ),
-      },
-    ],
-  })
+  async ({ transcript, longPauseSec, sectionCount, deadAirSec, corrections }) => {
+    let parsedTranscript: any;
+    try {
+      parsedTranscript = JSON.parse(transcript);
+    } catch {
+      return {
+        isError: true,
+        content: [{ type: "text", text: "analyze_transcript: 'transcript' must be valid JSON output from transcribe_media" }],
+      };
+    }
+
+    try {
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify(
+              analyzeTranscript(parsedTranscript, { longPauseSec, sectionCount, deadAirSec, corrections }),
+              null,
+              2
+            ),
+          },
+        ],
+      };
+    } catch (err) {
+      return {
+        isError: true,
+        content: [{ type: "text", text: `analyze_transcript failed: ${(err as Error).message}` }],
+      };
+    }
+  }
 );
 
 const STYLE: [StylePreset, ...StylePreset[]] = [
@@ -120,8 +210,22 @@ server.tool(
       .array(z.object({ misheard: z.string(), correct: z.string() }))
       .optional()
       .describe("Fix ASR-mangled words in captions (also accepted by analyze_transcript)"),
+    retentionvolt_blueprint: z
+      .string()
+      .optional()
+      .describe("Optional RetentionVolt blueprint JSON (from retentionvolt.com MCP server). Injects proven animations, motion graphics and pattern interrupts directly, bypassing heuristic guesswork."),
   },
-  async ({ structure, transcript, style, sourcePortrait, takesCount, brollSources, attentionRiskPoints, extraCuts, corrections }) => {
+  async ({ structure, transcript, style, sourcePortrait, takesCount, brollSources, attentionRiskPoints, extraCuts, corrections, retentionvolt_blueprint }) => {
+    let parsedStructure: any;
+    try {
+      parsedStructure = JSON.parse(structure);
+    } catch {
+      return {
+        isError: true,
+        content: [{ type: "text", text: "generate_edit_plan: 'structure' must be valid JSON output from analyze_transcript" }],
+      };
+    }
+
     let words: Array<{ start: string; word: string }> | undefined;
     if (transcript) {
       try {
@@ -133,29 +237,88 @@ server.tool(
         );
         if (words.length === 0) words = undefined;
       } catch {
-        words = undefined;
+        return {
+          isError: true,
+          content: [{ type: "text", text: "generate_edit_plan: 'transcript' must be valid JSON output from transcribe_media" }],
+        };
       }
     }
-    return {
-      content: [
-        {
-          type: "text",
-          text: JSON.stringify(
-            generateEditPlan(JSON.parse(structure), {
-              style,
-              sourcePortrait,
-              takesCount,
-              brollSources,
-              attentionRiskPoints,
-              extraCuts,
-              corrections,
-            }, words),
-            null,
-            2
-          ),
-        },
-      ],
-    };
+
+    let rvBlueprint: any;
+    if (retentionvolt_blueprint) {
+      try {
+        rvBlueprint = JSON.parse(retentionvolt_blueprint);
+      } catch {
+        return {
+          isError: true,
+          content: [{ type: "text", text: "generate_edit_plan: 'retentionvolt_blueprint' must be valid JSON from fetch_retentionvolt_blueprint" }],
+        };
+      }
+    }
+
+    try {
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify(
+              generateEditPlan(
+                parsedStructure,
+                {
+                  style,
+                  sourcePortrait,
+                  takesCount,
+                  brollSources,
+                  attentionRiskPoints,
+                  extraCuts,
+                  corrections,
+                  retentionvoltBlueprint: rvBlueprint,
+                },
+                words
+              ),
+              null,
+              2
+            ),
+          },
+        ],
+      };
+    } catch (err) {
+      return {
+        isError: true,
+        content: [{ type: "text", text: `generate_edit_plan failed: ${(err as Error).message}` }],
+      };
+    }
+  }
+);
+
+server.tool(
+  "generate_thumbnail",
+  "Step 4b — Extract high-impact hook base frame and export companion CTR metadata (title/badge/style) ready for cover production.",
+  {
+    source_video_path: z.string().describe("Path of the video file to capture frame from"),
+    output_path: z.string().describe("Output image path (e.g. ./thumbnail.jpg)"),
+    frame_time: z.string().optional().describe("Timestamp to capture frame from (HH:MM:SS.mmm, default 00:00:02.000)"),
+    title: z.string().optional().describe("Hook title / headline for cover"),
+    badge: z.string().optional().describe("Highlight badge text"),
+    style: z.enum(["minimal", "bold", "youtube_clean"]).optional(),
+  },
+  async ({ source_video_path, output_path, frame_time, title, badge, style }) => {
+    try {
+      const thumb = await renderThumbnail(source_video_path, output_path, {
+        title: title ?? "Thumbnail",
+        badge,
+        frame_time,
+        style,
+      });
+      return {
+        content: [{ type: "text", text: JSON.stringify({ thumbnail: thumb, status: "generated" }, null, 2) }],
+      };
+    } catch (err) {
+      return {
+        isError: true,
+        content: [{ type: "text", text: `generate_thumbnail failed: ${(err as Error).message}` }],
+      };
+    }
   }
 );
 
@@ -171,20 +334,37 @@ server.tool(
     crf: z.number().optional().describe("CRF 0–51 override. Omit = preset curve (recommended)."),
   },
   async ({ edit_plan, project_dir, raw_video_path, preset, fps, crf }) => {
-    const project = await buildHyperframesProject(JSON.parse(edit_plan), project_dir, {
-      rawVideoPath: raw_video_path,
-    });
-    const output = await renderVideo(project, {
-      preset: (preset ?? "standard") as keyof typeof RENDER_PRESETS,
-      ...(typeof fps === "number" ? { fps } : {}),
-      ...(typeof crf === "number" ? { crf } : {}),
-    });
-    return {
-      content: [{ type: "text", text: JSON.stringify({ project, output }, null, 2) }],
-    };
+    let parsedPlan: any;
+    try {
+      parsedPlan = JSON.parse(edit_plan);
+    } catch {
+      return {
+        isError: true,
+        content: [{ type: "text", text: "render_video: 'edit_plan' must be valid JSON output from generate_edit_plan" }],
+      };
+    }
+
+    try {
+      const project = await buildHyperframesProject(parsedPlan, project_dir, {
+        rawVideoPath: raw_video_path,
+      });
+      const output = await renderVideo(project, {
+        preset: (preset ?? "standard") as keyof typeof RENDER_PRESETS,
+        ...(typeof fps === "number" ? { fps } : {}),
+        ...(typeof crf === "number" ? { crf } : {}),
+      });
+      return {
+        content: [{ type: "text", text: JSON.stringify({ project, output }, null, 2) }],
+      };
+    } catch (err) {
+      return {
+        isError: true,
+        content: [{ type: "text", text: `render_video failed: ${(err as Error).message}` }],
+      };
+    }
   }
 );
 
 const transport = new StdioServerTransport();
 await server.connect(transport);
-console.error("cutcraft MCP server running (stdio)");
+console.error("retention MCP server running (stdio)");

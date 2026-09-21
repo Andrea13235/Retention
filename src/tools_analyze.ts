@@ -138,7 +138,7 @@ export interface AnalyzeOptions {
    * Transcript corrections applied BEFORE analysis (and forwarded into
    * the plan so captions render corrected): { misheard, correct }.
    * Fixes brand names / proper nouns Whisper-small mangles
-   * ("raw cut" → "CutCraft", "cloud" → "Claude").
+   * ("raw cut" → "RetentionVolt", "cloud" → "Claude").
    */
   corrections?: Array<{ misheard: string; correct: string }>;
 }
@@ -396,7 +396,7 @@ function buildSpeech(
  * transcript) AND (emphasized (spoken slowly) OR long (≥7 chars) OR
  * adjacent to a long pause (uncertain delivery)). Those are exactly
  * the brand names / proper nouns / neologisms small models invent
- * ("rawcat" for CutCraft, "cloud" for Claude): frequent words are
+ * ("rawcat" for RetentionVolt, "cloud" for Claude): frequent words are
  * never flagged (the model gets common speech right), stopwords and
  * fillers are excluded by construction.
  * Each flag carries sentence context so the agent can correct it

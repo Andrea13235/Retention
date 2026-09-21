@@ -103,7 +103,7 @@ error message.
 ## 3c. `needs_review`: the first-take safety net (READ THIS)
 
 Whisper-small mangles exactly the words that matter most on screen:
-brand names, proper nouns, neologisms ("rawcat" for CutCraft, "cloud"
+brand names, proper nouns, neologisms ("rawcat" for RetentionVolt, "cloud"
 for Claude). `analyze_transcript` flags them in `needs_review` —
 rare tokens (seen once) that are long, emphasized, or hesitantly
 delivered — each with sentence context.

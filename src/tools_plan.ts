@@ -42,7 +42,9 @@ import {
   type MotionKind,
   type NarrativeStructure,
   type RegisterName,
+  type RetentionVoltBlueprint,
   type StylePreset,
+  type ThumbnailConfig,
 } from "./types.js";
 
 export type { StylePreset };
@@ -90,6 +92,17 @@ export interface PlanOptions {
    * Short-form keeps cards tiny for pace; long-form allows full phrases.
    */
   maxWordsPerCard?: number;
+  /**
+   * Optional RetentionVolt blueprint (from retentionvolt.com MCP server).
+   * When provided:
+   * 1. Bypasses heuristic animation & motion-graphics guesswork (uses proven
+   *    animations and pattern interrupts from RetentionVolt).
+   * 2. Sets retentionvolt_applied = true in the plan.
+   * 3. Configures high-CTR thumbnail generation from the blueprint.
+   */
+  retentionvoltBlueprint?: RetentionVoltBlueprint;
+  /** Thumbnail configuration or override */
+  thumbnail?: ThumbnailConfig;
 }
 
 export function generateEditPlan(
@@ -343,36 +356,73 @@ export function generateEditPlan(
     structure.sections.some(
       (sec, i) => i > 0 && Math.abs(timecodeToSec(sec.start) - t) < 0.5
     );
-  // Scene-change emphasis ONLY: a slow_zoom opens a new act (section
-  // boundary = genuine change of scene/topic, coherent by definition).
-  // Mid-act motion is restraint: no drift over continuous speech.
-  // Placed cuts-first via pushMotion: the full span must clear every CUT
-  // edge (pre-mask + post-settle + no crossing) or it relocates/clamps.
-  structure.sections.forEach((s, i) => {
-    if (i === 0) return; // first section opens on the hook — no zoom needed
-    const sStart = timecodeToSec(s.start);
-    const sEnd = timecodeToSec(s.end);
-    const dur = Math.min(12, Math.max(3, sEnd - sStart - 1));
-    if (dur >= 3) {
-      const want = sStart + 0.5;
-      const placed = pushMotion(want, "slow_zoom", dur, `slow_zoom (act "${s.title}")`);
-      if (placed !== null) {
-        const last = animations[animations.length - 1];
-        if (last && last.type === "slow_zoom")
-          last.direction = i % 2 === 0 ? "in" : "out";
-      }
-    }
-  });
-  for (const spot of structure.slow_spots ?? []) {
-    const t = timecodeToSec(spot.start);
-    if (isSceneChange(t)) {
-      pushMotion(t, "zoom_in", undefined, `zoom_in (slow spot: ${spot.reason})`);
+
+  const rv = opts.retentionvoltBlueprint;
+  if (rv) {
+    structure_notes.push({
+      time: secToTimecode(0),
+      note: `RetentionVolt blueprint applied (${rv.pattern_id ?? "curated pattern"}): heuristic guesswork bypassed. Proven animations and visual cues injected.`,
+    });
+    for (const note of rv.retention_notes ?? []) {
+      structure_notes.push({ time: secToTimecode(0), note: `[RetentionVolt]: ${note}` });
     }
   }
-  for (const d of structure.attention_dips.slice(0, 10)) {
-    const t = timecodeToSec(d.start);
-    if (isSceneChange(t)) {
-      pushMotion(t, "zoom_in", undefined, `zoom_in (attention dip: ${d.reason})`);
+
+  // Motion & visual animations:
+  // If RetentionVolt blueprint is provided, bypass heuristic guesswork:
+  // the database already provides the tested, high-retention animations and motion graphics!
+  if (rv?.animations && rv.animations.length > 0) {
+    for (const anim of rv.animations) {
+      try {
+        const t = timecodeToSec(anim.time);
+        if (anim.type === "slow_zoom" || anim.type === "zoom_in" || anim.type === "zoom_out") {
+          const placed = pushMotion(t, anim.type, anim.duration, `RetentionVolt ${anim.type}`);
+          if (placed !== null && anim.type === "slow_zoom" && anim.direction) {
+            const last = animations[animations.length - 1];
+            if (last && last.type === "slow_zoom") last.direction = anim.direction;
+          }
+        } else {
+          if (isKept(t) && !nearCutStart(t)) {
+            animations.push({ ...anim });
+          }
+        }
+      } catch {
+        /* skip invalid timecode */
+      }
+    }
+  } else {
+    // Standard local heuristics:
+    // Scene-change emphasis ONLY: a slow_zoom opens a new act (section
+    // boundary = genuine change of scene/topic, coherent by definition).
+    // Mid-act motion is restraint: no drift over continuous speech.
+    // Placed cuts-first via pushMotion: the full span must clear every CUT
+    // edge (pre-mask + post-settle + no crossing) or it relocates/clamps.
+    structure.sections.forEach((s, i) => {
+      if (i === 0) return; // first section opens on the hook — no zoom needed
+      const sStart = timecodeToSec(s.start);
+      const sEnd = timecodeToSec(s.end);
+      const dur = Math.min(12, Math.max(3, sEnd - sStart - 1));
+      if (dur >= 3) {
+        const want = sStart + 0.5;
+        const placed = pushMotion(want, "slow_zoom", dur, `slow_zoom (act "${s.title}")`);
+        if (placed !== null) {
+          const last = animations[animations.length - 1];
+          if (last && last.type === "slow_zoom")
+            last.direction = i % 2 === 0 ? "in" : "out";
+        }
+      }
+    });
+    for (const spot of structure.slow_spots ?? []) {
+      const t = timecodeToSec(spot.start);
+      if (isSceneChange(t)) {
+        pushMotion(t, "zoom_in", undefined, `zoom_in (slow spot: ${spot.reason})`);
+      }
+    }
+    for (const d of structure.attention_dips.slice(0, 10)) {
+      const t = timecodeToSec(d.start);
+      if (isSceneChange(t)) {
+        pushMotion(t, "zoom_in", undefined, `zoom_in (attention dip: ${d.reason})`);
+      }
     }
   }
   animations.sort((a, b) => timecodeToSec(a.time) - timecodeToSec(b.time));
@@ -404,19 +454,37 @@ export function generateEditPlan(
   // energy. multi_take unlocks zoom_punch on scene changes / agent risk.
   const mode = footageMode(opts.takesCount);
   const pattern_interrupts: EditPlan["pattern_interrupts"] = [];
-  for (let t = every; t < endSec; t += every) {
-    if (!isKept(t) || nearCutStart(t)) continue;
-    const kind =
-      isShort || mode === "single_take"
-        ? "caption_pop"
-        : isSceneChange(t)
-          ? "zoom_punch"
-          : "caption_pop";
-    pattern_interrupts.push({
-      time: secToTimecode(t),
-      kind,
-      detail: `interrupt every ~${every}s`,
-    });
+
+  if (rv?.pattern_interrupts && rv.pattern_interrupts.length > 0) {
+    for (const pi of rv.pattern_interrupts) {
+      try {
+        const t = timecodeToSec(pi.time);
+        if (isKept(t) && !nearCutStart(t)) {
+          const kind =
+            mode === "single_take" && pi.kind === "zoom_punch"
+              ? "caption_pop"
+              : pi.kind;
+          pattern_interrupts.push({ ...pi, kind });
+        }
+      } catch {
+        /* skip invalid timecode */
+      }
+    }
+  } else {
+    for (let t = every; t < endSec; t += every) {
+      if (!isKept(t) || nearCutStart(t)) continue;
+      const kind =
+        isShort || mode === "single_take"
+          ? "caption_pop"
+          : isSceneChange(t)
+            ? "zoom_punch"
+            : "caption_pop";
+      pattern_interrupts.push({
+        time: secToTimecode(t),
+        kind,
+        detail: `interrupt every ~${every}s`,
+      });
+    }
   }
 
   // …plus one dedicated interrupt per risk point (midpoint), so every
@@ -495,69 +563,83 @@ export function generateEditPlan(
       const c = w.toLowerCase().replace(/[.,!?;:]+$/, "");
       return c.length > 0 && !CONTENT_STOP.has(c);
     });
-  // 1. act titles (section 2+, max 3)
-  let actCount = 0;
-  for (let i = 1; i < structure.sections.length && actCount < 3; i++) {
-    const sec = structure.sections[i];
-    const sStart = timecodeToSec(sec.start);
-    const words = contentWords(fixWord(sec.summary)).slice(0, 6);
-    if (words.length === 0) continue;
-    const t = sStart + 0.5;
-    const dur = 2.5;
-    if (!claimGraphic(t, dur)) continue;
-    graphics.push({
-      time: secToTimecode(t),
-      kind: "act_title",
-      title: words.join(" ").toUpperCase().slice(0, 48),
-      subtitle: sec.title,
-      duration: dur,
-    });
-    actCount++;
-  }
-  // 2. number stats (top-10 digit keywords, max 2)
-  const numKws = (structure.keywords ?? [])
-    .filter((k, i) => i < 10 && /\d/.test(k.word))
-    .slice(0, 2);
-  for (const k of numKws) {
-    const t = timecodeToSec(k.start);
-    const dur = 3.5;
-    if (!claimGraphic(t, dur)) continue;
-    graphics.push({
-      time: secToTimecode(t),
-      kind: "number_stat",
-      title: fixWord(k.word).slice(0, 48),
-      duration: dur,
-    });
-  }
-  // 3. highlights (top-5 non-numeric, clear of numbers ±20s, max 2)
-  const numTimes = numKws.map((k) => timecodeToSec(k.start));
-  let hlCount = 0;
-  for (const k of (structure.keywords ?? []).slice(0, 5)) {
-    if (hlCount >= 2) break;
-    if (/\d/.test(k.word)) continue;
-    const t = timecodeToSec(k.start);
-    if (numTimes.some((n) => Math.abs(n - t) < 20)) continue;
-    const dur = 3;
-    if (!claimGraphic(t, dur)) continue;
-    graphics.push({
-      time: secToTimecode(t),
-      kind: "highlight",
-      title: fixWord(k.word).toUpperCase().slice(0, 40),
-      duration: dur,
-    });
-    hlCount++;
-  }
-  // 4. quote recap (hook replay past midpoint, >8min media only)
-  if (structure.hook_moment && mediaEnd > 8 * 60) {
-    const t = mediaEnd / 2;
-    const dur = 4;
-    if (claimGraphic(t, dur)) {
+  // 1. act titles / RetentionVolt graphics
+  if (rv?.graphics && rv.graphics.length > 0) {
+    for (const g of rv.graphics) {
+      try {
+        const t = timecodeToSec(g.time);
+        const dur = Math.max(1, Math.min(8, Number(g.duration) || 3));
+        if (claimGraphic(t, dur)) {
+          graphics.push({ ...g, duration: dur });
+        }
+      } catch {
+        /* skip invalid timecode */
+      }
+    }
+  } else {
+    let actCount = 0;
+    for (let i = 1; i < structure.sections.length && actCount < 3; i++) {
+      const sec = structure.sections[i];
+      const sStart = timecodeToSec(sec.start);
+      const words = contentWords(fixWord(sec.summary)).slice(0, 6);
+      if (words.length === 0) continue;
+      const t = sStart + 0.5;
+      const dur = 2.5;
+      if (!claimGraphic(t, dur)) continue;
       graphics.push({
         time: secToTimecode(t),
-        kind: "quote",
-        title: fixWord(structure.hook_moment.text).slice(0, 90),
+        kind: "act_title",
+        title: words.join(" ").toUpperCase().slice(0, 48),
+        subtitle: sec.title,
         duration: dur,
       });
+      actCount++;
+    }
+    // 2. number stats (top-10 digit keywords, max 2)
+    const numKws = (structure.keywords ?? [])
+      .filter((k, i) => i < 10 && /\d/.test(k.word))
+      .slice(0, 2);
+    for (const k of numKws) {
+      const t = timecodeToSec(k.start);
+      const dur = 3.5;
+      if (!claimGraphic(t, dur)) continue;
+      graphics.push({
+        time: secToTimecode(t),
+        kind: "number_stat",
+        title: fixWord(k.word).slice(0, 48),
+        duration: dur,
+      });
+    }
+    // 3. highlights (top-5 non-numeric, clear of numbers ±20s, max 2)
+    const numTimes = numKws.map((k) => timecodeToSec(k.start));
+    let hlCount = 0;
+    for (const k of (structure.keywords ?? []).slice(0, 5)) {
+      if (hlCount >= 2) break;
+      if (/\d/.test(k.word)) continue;
+      const t = timecodeToSec(k.start);
+      if (numTimes.some((n) => Math.abs(n - t) < 20)) continue;
+      const dur = 3;
+      if (!claimGraphic(t, dur)) continue;
+      graphics.push({
+        time: secToTimecode(t),
+        kind: "highlight",
+        title: fixWord(k.word).toUpperCase().slice(0, 40),
+        duration: dur,
+      });
+      hlCount++;
+    }
+    // 4. quote recap (hook replay past midpoint, >8min media only)
+    if (structure.hook_moment && mediaEnd > 8 * 60) {
+      const t = mediaEnd / 2;
+      const dur = 4;
+      if (claimGraphic(t, dur)) {
+        graphics.push({
+          time: secToTimecode(t),
+          kind: "quote",
+          title: fixWord(structure.hook_moment.text).slice(0, 90),
+          duration: dur,
+        });
+      }
     }
   }
   graphics.sort((a, b) => timecodeToSec(a.time) - timecodeToSec(b.time));
@@ -578,6 +660,21 @@ export function generateEditPlan(
   const keptWords = transcriptWords
     ? transcriptWords.filter((w) => isKept(timecodeToSec(w.start))).length
     : undefined;
+
+  const thumbnail = opts.thumbnail
+    ? { ...opts.thumbnail }
+    : rv?.thumbnail
+      ? { ...rv.thumbnail }
+      : rv
+        ? {
+            title: fixWord(structure.hook?.summary ?? "").slice(0, 40) || "Highlights",
+            badge: "HIGH RETENTION",
+            frame_time:
+              structure.hook_moment?.start ?? structure.hook?.start ?? "00:00:02.000",
+            style: "bold" as const,
+          }
+        : undefined;
+
   return {
     version: "1.3",
     style,
@@ -599,6 +696,14 @@ export function generateEditPlan(
     graphics: graphics.length > 0 ? graphics : undefined,
     structure_notes: structure_notes.length > 0 ? structure_notes : undefined,
     review_cuts: reviewCuts.length > 0 ? reviewCuts : undefined,
+    retentionvolt_applied: Boolean(
+      rv &&
+        ((rv.animations?.length ?? 0) +
+          (rv.pattern_interrupts?.length ?? 0) +
+          (rv.graphics?.length ?? 0) >
+          0)
+    ),
+    thumbnail,
   };
 }
 

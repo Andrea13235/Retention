@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * setup-check.js — verify the environment has all prerequisites
- * for the cutcraft.
+ * for retention.
  *
  * User prerequisites: Node ≥22, FFmpeg in PATH, Python 3.9+ (faster-whisper).
  * Automated: HyperFrames via npm, faster-whisper via setup-whisper.js,
@@ -63,9 +63,11 @@ function runClean(cmd, args = []) {
 // 5. faster-whisper — skill venv or reachable python
 {
   const home = process.env.HOME || "";
-  const venvPy = home ? `${home}/.cutcraft/.venv/bin/python` : null;
+  const retentionPy = home ? `${home}/.retention/.venv/bin/python` : null;
+  const cutcraftPy = home ? `${home}/.cutcraft/.venv/bin/python` : null;
   const v =
-    (venvPy && runClean(venvPy, ["-c", "import faster_whisper; print(faster_whisper.__version__)"])) ||
+    (retentionPy && runClean(retentionPy, ["-c", "import faster_whisper; print(faster_whisper.__version__)"])) ||
+    (cutcraftPy && runClean(cutcraftPy, ["-c", "import faster_whisper; print(faster_whisper.__version__)"])) ||
     runClean("python3", ["-c", "import faster_whisper; print(faster_whisper.__version__)"]);
   if (v) ok("faster-whisper", `v${v}`);
   else

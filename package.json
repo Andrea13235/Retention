@@ -1,11 +1,11 @@
 {
-  "name": "cutcraft",
-  "version": "0.1.0",
-  "description": "AI video editing skill: RAW footage to publish-ready video via Whisper + HyperFrames (MCP server)",
+  "name": "retention",
+  "version": "0.2.0",
+  "description": "AI video editing skill & MCP server: RAW footage to publish-ready video via Whisper + HyperFrames. Powered by RetentionVolt (retentionvolt.com).",
   "license": "SEE LICENSE IN LICENSE.md",
   "type": "module",
   "bin": {
-    "cutcraft": "./dist/server.js"
+    "retention": "./dist/server.js"
   },
   "scripts": {
     "build": "tsc",

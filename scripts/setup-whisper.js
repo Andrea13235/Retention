@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * setup-whisper.js — create the skill's dedicated venv
- * (~/.cutcraft/.venv) and install faster-whisper.
+ * (~/.retention/.venv) and install faster-whisper.
  * Idempotent: if the venv already exists with faster-whisper, does nothing.
  * Usage: node scripts/setup-whisper.js
  */
@@ -10,7 +10,10 @@ import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-const SKILL_DIR = join(homedir(), ".cutcraft");
+const RETENTION_DIR = join(homedir(), ".retention");
+const CUTCRAFT_DIR = join(homedir(), ".cutcraft");
+// If .cutcraft/.venv already exists, reuse it; otherwise create .retention/.venv
+const SKILL_DIR = existsSync(join(CUTCRAFT_DIR, ".venv")) ? CUTCRAFT_DIR : RETENTION_DIR;
 const VENV = join(SKILL_DIR, ".venv");
 const VENV_PY = join(VENV, "bin", "python");
 

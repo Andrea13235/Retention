@@ -12,6 +12,7 @@ import { execFile } from "node:child_process";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { secToTimecode, type Timecode, type Transcript } from "./types.js";
 
@@ -19,18 +20,19 @@ const execFileAsync = promisify(execFile);
 
 /**
  * Find a Python interpreter with working faster-whisper.
- * Order: CUTCRAFT_PYTHON → skill venv (~/.cutcraft/.venv)
+ * Order: RETENTION_PYTHON / CUTCRAFT_PYTHON → skill venv (~/.retention/.venv or ~/.cutcraft/.venv)
  * → active/conventional venvs → system pythons.
- * Manual override: CUTCRAFT_PYTHON=/path/to/python.
+ * Manual override: RETENTION_PYTHON=/path/to/python.
  */
 export async function findWhisperPython(): Promise<string> {
   const home = process.env.HOME ?? "";
-  const skillVenv = home
-    ? `${home}/.cutcraft/.venv/bin/python`
-    : undefined;
+  const retentionVenv = home ? `${home}/.retention/.venv/bin/python` : undefined;
+  const legacyVenv = home ? `${home}/.cutcraft/.venv/bin/python` : undefined;
   const candidates = [
+    process.env.RETENTION_PYTHON,
     process.env.CUTCRAFT_PYTHON,
-    skillVenv,
+    retentionVenv,
+    legacyVenv,
     // Active or conventional venvs (faster-whisper often lives here)
     process.env.VIRTUAL_ENV ? `${process.env.VIRTUAL_ENV}/bin/python` : undefined,
     home ? `${home}/.venv/bin/python` : undefined,
@@ -51,6 +53,34 @@ export async function findWhisperPython(): Promise<string> {
       /* next candidate */
     }
   }
+
+  // Self-healing fallback: attempt automatic setup unless opt-out requested via RETENTION_NO_AUTO_SETUP
+  if (!process.env.RETENTION_NO_AUTO_SETUP) {
+    try {
+      console.error(
+        "transcribe_media: faster-whisper not found in environment; attempting one-time automated setup..."
+      );
+      const setupScript = fileURLToPath(new URL("../scripts/setup-whisper.js", import.meta.url));
+      await execFileAsync(process.execPath, [setupScript], {
+        timeout: 3 * 60 * 1000,
+        env: cleanPythonEnv(),
+      });
+      for (const bin of new Set(candidates)) {
+        try {
+          await execFileAsync(bin, ["-c", "import faster_whisper"], {
+            timeout: 60_000,
+            env: cleanPythonEnv(),
+          });
+          return bin;
+        } catch {
+          /* continue */
+        }
+      }
+    } catch {
+      /* fallback to throw below */
+    }
+  }
+
   throw new Error(
     "transcribe_media: faster-whisper not found in any Python → " +
       "run: node scripts/setup-whisper.js (see README)"
@@ -132,7 +162,7 @@ export async function transcribeMedia(
   // Python with working faster-whisper (clean env, see findWhisperPython).
   const pythonBin = await findWhisperPython();
 
-  const dir = await mkdtemp(join(tmpdir(), "cutcraft-"));
+  const dir = await mkdtemp(join(tmpdir(), "retention-"));
   try {
     const bridge = join(dir, "bridge.py");
     const out = join(dir, "transcript.json");

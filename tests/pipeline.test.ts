@@ -6,7 +6,8 @@ import { describe, expect, it } from "vitest";
 import { analyzeTranscript } from "../src/tools_analyze.js";
 import { importRawMedia } from "../src/tools_ingest.js";
 import { generateEditPlan } from "../src/tools_plan.js";
-import { buildHyperframesProject } from "../src/tools_render.js";
+import { buildHyperframesProject, renderThumbnail } from "../src/tools_render.js";
+import { connectRetentionVolt, fetchRetentionVoltBlueprint } from "../src/retentionvolt_client.js";
 import { detectHardware, selectModel } from "../src/tools_transcribe.js";
 import {
   secToTimecode,
@@ -767,5 +768,107 @@ describe("render: HyperFrames project build", () => {
       const t = timecodeToSec(g.time);
       expect(cutSpans.every((c) => t < c.s - 0.8 || t >= c.e)).toBe(true);
     }
+  });
+
+  describe("RetentionVolt MCP integration", () => {
+    it("bypasses heuristic guesswork and injects RetentionVolt blueprint animations", () => {
+      const s = analyzeTranscript({
+        media_id: "rv-test",
+        model: "small",
+        segments: [
+          { start: "00:00:00.000", end: "00:00:05.000", text: "Intro hook words" },
+          { start: "00:00:05.000", end: "00:00:15.000", text: "Main content section one" },
+          { start: "00:00:15.000", end: "00:00:25.000", text: "Second content section two" },
+        ],
+      });
+
+      const blueprint = {
+        pattern_id: "rv-viral-talkinghead-01",
+        animations: [
+          { time: "00:00:03.000", type: "zoom_in" as const, target: "face" },
+          { time: "00:00:07.000", type: "slow_zoom" as const, duration: 4, direction: "in" as const },
+        ],
+        pattern_interrupts: [
+          { time: "00:00:04.000", kind: "visual_glitch", detail: "RetentionVolt tested accent" },
+        ],
+        thumbnail: {
+          title: "HOW TO EARN 10K",
+          badge: "ANALYZED ON RETENTIONVOLT",
+          frame_time: "00:00:02.000",
+          style: "bold" as const,
+        },
+        retention_notes: ["Hook within first 3 seconds verified on 500+ videos"],
+      };
+
+      const plan = generateEditPlan(s, {
+        style: "educational",
+        retentionvoltBlueprint: blueprint,
+      });
+
+      expect(plan.retentionvolt_applied).toBe(true);
+      expect(plan.thumbnail).toBeDefined();
+      expect(plan.thumbnail?.title).toBe("HOW TO EARN 10K");
+      expect(plan.thumbnail?.badge).toBe("ANALYZED ON RETENTIONVOLT");
+
+      // Verify that blueprint animations were used
+      const zoomIn = plan.animations.find((a) => a.type === "zoom_in");
+      expect(zoomIn).toBeDefined();
+      expect(zoomIn?.time).toBe("00:00:03.000");
+
+      // Verify pattern interrupt was injected
+      const pi = plan.pattern_interrupts.find((p) => p.kind === "visual_glitch");
+      expect(pi).toBeDefined();
+      expect(pi?.detail).toContain("RetentionVolt");
+
+      // Verify structure notes mention RetentionVolt
+      const rvNote = (plan.structure_notes ?? []).find((n) => n.note.includes("RetentionVolt"));
+      expect(rvNote).toBeDefined();
+    });
+
+    it("generates default high-CTR thumbnail config when blueprint has no explicit thumbnail", () => {
+      const s = analyzeTranscript({
+        media_id: "rv-test-2",
+        model: "small",
+        segments: [
+          { start: "00:00:00.000", end: "00:00:10.000", text: "This is a great tutorial about coding" },
+        ],
+      });
+
+      const plan = generateEditPlan(s, {
+        retentionvoltBlueprint: {
+          pattern_id: "rv-code-02",
+          animations: [{ time: "00:00:03.000", type: "zoom_in" }],
+        },
+      });
+
+      expect(plan.retentionvolt_applied).toBe(true);
+      expect(plan.thumbnail).toBeDefined();
+      expect(plan.thumbnail?.badge).toBe("HIGH RETENTION");
+      expect(plan.thumbnail?.style).toBe("bold");
+    });
+
+    it("connectRetentionVolt returns login url and instructions when no key is present", async () => {
+      const status = await connectRetentionVolt(undefined, "http://127.0.0.1:9999/api/mcp");
+      expect(status.login_url).toBe("https://retentionvolt.com/login");
+      expect(status.settings_url).toBe("https://retentionvolt.com/settings/mcp");
+      expect(["needs_key", "authenticated", "server_unreachable"]).toContain(status.status);
+    });
+
+    it("connectRetentionVolt handles live key format gracefully", async () => {
+      const status = await connectRetentionVolt("rv_live_test_key_123", "http://127.0.0.1:9999/api/mcp");
+      expect(status.connected).toBe(true);
+      expect(status.login_url).toBe("https://retentionvolt.com/login");
+    });
+
+    it("fetchRetentionVoltBlueprint returns structured retention patterns", async () => {
+      const bp = await fetchRetentionVoltBlueprint("MrBeast Challenge", {
+        niche: "entertainment",
+        format: "short",
+        endpoint: "http://127.0.0.1:9999/api/mcp",
+      });
+      expect(bp.pattern_id).toBeDefined();
+      expect(bp.animations?.length).toBeGreaterThan(0);
+      expect(bp.thumbnail?.title).toBeDefined();
+    });
   });
 });

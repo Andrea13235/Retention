@@ -1,6 +1,7 @@
 /**
- * Shared types for the cutcraft MCP tools.
+ * Shared types for the retention MCP tools.
  * Pipeline: ingest → transcribe → analyze → plan → render.
+ * Supports RetentionVolt (retentionvolt.com) blueprints for high-retention editing.
  */
 
 /** "HH:MM:SS.mmm" timecode, e.g. "00:03:10.000" */
@@ -448,6 +449,59 @@ export interface EditPlan {
     end: Timecode;
     reason: string;
   }>;
+  /** Flag set when animations and motion graphics originate from RetentionVolt */
+  retentionvolt_applied?: boolean;
+  /** Thumbnail configuration (generated or suggested by RetentionVolt) */
+  thumbnail?: ThumbnailConfig;
+}
+
+/**
+ * RetentionVolt Blueprint (from retentionvolt.com MCP server).
+ * Contains proven patterns, animations, motion graphics, and thumbnail guidance
+ * derived from database analysis of top-performing videos.
+ */
+export interface RetentionVoltBlueprint {
+  /** Video reference pattern or archetype ID from RetentionVolt */
+  pattern_id?: string;
+  /** Provenance of the blueprint: cloud database or local fallback */
+  source?: "retentionvolt_cloud" | "local_fallback";
+  /** Proven animations/motion graphics mapped to source timecodes */
+  animations?: Array<{
+    time: Timecode;
+    type: AnimationType;
+    content?: string;
+    position?: "top" | "bottom" | "center";
+    target?: string;
+    duration?: number;
+    direction?: "in" | "out";
+    intensity?: number;
+  }>;
+  /** Proven pattern interrupts (e.g. caption pops, visual jolts) */
+  pattern_interrupts?: Array<{
+    time: Timecode;
+    kind: "caption_pop" | "zoom_punch" | "visual_glitch" | string;
+    detail?: string;
+  }>;
+  /** Graphic banners / lower thirds from proven retention structures */
+  graphics?: GraphicBeat[];
+  /** Recommended thumbnail / cover configuration for high CTR */
+  thumbnail?: ThumbnailConfig;
+  /** Free-form notes or retention tips from the reference video */
+  retention_notes?: string[];
+}
+
+/** Configuration for high-CTR video thumbnail / cover generation. */
+export interface ThumbnailConfig {
+  /** Main hook headline on cover (large, high-contrast) */
+  title: string;
+  /** Optional subtitle or badge (e.g. "DEFINITIVE GUIDE", "$10K") */
+  badge?: string;
+  /** Source timestamp to capture base frame from (defaults to hook_moment or 00:00:02.000) */
+  frame_time?: Timecode;
+  /** Style preset for thumbnail: "minimal" | "bold" | "youtube_clean" */
+  style?: "minimal" | "bold" | "youtube_clean";
+  /** Target filename when output path is a directory (default: "thumbnail.png") */
+  output_filename?: string;
 }
 
 /** Convert "HH:MM:SS.mmm" to seconds. */
