@@ -9,7 +9,8 @@
     <a href="#-video-editing-for-the-agent-era"><strong>Features</strong></a> ·
     <a href="#-supercharged-by-retentionvolt"><strong>Retention Intelligence</strong></a> ·
     <a href="#-quickstart"><strong>Quickstart</strong></a> ·
-    <a href="#%EF%B8%8F-mcp-tools"><strong>MCP Tools</strong></a>
+    <a href="#%EF%B8%8F-mcp-tools"><strong>MCP Tools</strong></a> ·
+    <a href="TERMS.md"><strong>Terms & Conditions</strong></a>
   </p>
   <p align="center">
     <a href="https://retentionvolt.com"><img src="https://img.shields.io/badge/RetentionVolt-Cloud%20Intelligence-6366f1?style=flat-square&logo=lightning" alt="RetentionVolt"></a>
@@ -17,6 +18,7 @@
     <a href="https://www.npmjs.com/package/hyperframes"><img src="https://img.shields.io/badge/Built%20for-HyperFrames-00C2A8?style=flat-square" alt="HyperFrames"></a>
     <a href="https://github.com/SYSTRAN/faster-whisper"><img src="https://img.shields.io/badge/Whisper-Local%20ASR-f59e0b?style=flat-square" alt="Whisper"></a>
     <a href="LICENSE.md"><img src="https://img.shields.io/badge/License-Free%20up%20to%203%20people-blue?style=flat-square" alt="License"></a>
+    <a href="TERMS.md"><img src="https://img.shields.io/badge/Terms-Remotion%20Standard-purple?style=flat-square" alt="Terms"></a>
   </p>
   <br>
 </p>
@@ -189,9 +191,11 @@ Retention/
 
 ---
 
-## 📄 License
+## 📄 License & Terms
 
-Free for individuals and small teams up to 3 people (including commercial use). See [LICENSE.md](LICENSE.md). Third-party credits in [CREDITS.md](CREDITS.md).
+- **License**: Free for individuals, creators, and small teams of up to 3 people (including commercial projects). For teams of 4 or more, a commercial Team License is required. See **[LICENSE.md](LICENSE.md)**.
+- **Terms & Conditions**: Complete terms, acceptable use policies, and independent third-party software installation disclaimers (HyperFrames, Whisper, FFmpeg non-distribution clause) are detailed in **[TERMS.md](TERMS.md)**.
+- **Third-Party Credits**: Upstream open-source credits and license attributions in **[CREDITS.md](CREDITS.md)**.
 
 ---
 
