@@ -138,15 +138,32 @@ Add to your client configuration (`claude_desktop_config.json`, Cursor MCP, Code
 }
 ```
 
-### Slash Command Usage (`/retention`)
-If you use an agentic IDE or assistant (such as Antigravity, Claude Code, or Hermès):
-Clone or link this repository into your skills directory (e.g. `~/.gemini/config/skills/retention` or workspace `.skills/retention`).
+### Install as an AI Skill (`/Retention.editing`)
+To make the skill appear in your slash commands menu in Antigravity, Claude Code, or Hermès:
 
-You can then invoke the skill directly using the slash command:
+#### Option 1: One-command automatic install (Recommended)
+From inside your cloned `Retention` directory, run:
 ```bash
-/retention edit my raw footage at ./video.mp4 for YouTube
+npm run install-skill
 ```
-> **Note**: You don't even have to type `/retention`! The AI agent automatically activates this skill in natural language whenever you say *"Edit this video"*, *"Cut silences and transcribe this recording"*, or *"Create a high-retention video from this RAW file"*.
+*This automatically links the repository into `~/.gemini/config/skills/Retention.editing`.*
+
+#### Option 2: Clone directly into global skills
+```bash
+git clone https://github.com/Andrea13235/Retention.git ~/.gemini/config/skills/Retention.editing
+```
+
+#### Option 3: Workspace auto-discovery
+If you open this repository directly in your project workspace, the built-in `.agents/skills/Retention.editing` directory is automatically discovered with zero configuration.
+
+---
+
+### Invoking the Skill in Chat:
+Open your AI assistant and type:
+```bash
+/Retention.editing edit my raw footage at ./video.mp4 for YouTube
+```
+> **Natural Language Activation**: You don't even have to type `/Retention.editing`! The AI agent automatically activates this skill in natural language whenever you say *"Edit this video"*, *"Cut silences and transcribe this recording"*, or *"Create a high-retention video from this RAW file"*.
 
 ---
 
