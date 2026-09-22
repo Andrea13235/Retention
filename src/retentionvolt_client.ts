@@ -3,8 +3,10 @@
  * Handles authentication, key persistence in ~/.retention/config.json,
  * and direct querying of the RetentionVolt database for patterns, motion graphics, and thumbnails.
  */
+import { exec } from "node:child_process";
 import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
+import http from "node:http";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { RetentionVoltBlueprint } from "./types.js";
@@ -12,6 +14,83 @@ import type { RetentionVoltBlueprint } from "./types.js";
 export const RETENTIONVOLT_LOGIN_URL = "https://retentionvolt.com/login";
 export const RETENTIONVOLT_MCP_SETTINGS_URL = "https://retentionvolt.com/settings/mcp";
 export const DEFAULT_RETENTIONVOLT_ENDPOINT = "https://retentionvolt.com/api/mcp";
+
+export function openBrowser(url: string): void {
+  const start =
+    process.platform === "darwin"
+      ? "open"
+      : process.platform === "win32"
+      ? "start"
+      : "xdg-open";
+  try {
+    exec(`${start} "${url}"`, () => {});
+  } catch {
+    // ignore
+  }
+}
+
+let activeAuthServer: http.Server | null = null;
+
+export function startLocalAuthServer(port = 19876): Promise<string> {
+  return new Promise((resolve) => {
+    if (activeAuthServer) {
+      try {
+        activeAuthServer.close();
+      } catch {}
+      activeAuthServer = null;
+    }
+    const server = http.createServer(async (req, res) => {
+      try {
+        const url = new URL(req.url || "/", `http://localhost:${port}`);
+        if (url.pathname === "/callback") {
+          const key =
+            url.searchParams.get("key") ||
+            url.searchParams.get("api_key") ||
+            url.searchParams.get("token");
+          if (key) {
+            await saveApiKey(key);
+            res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+            res.end(`
+              <!DOCTYPE html>
+              <html lang="it">
+              <head><meta charset="utf-8"><title>RetentionVolt — Connesso</title></head>
+              <body style="font-family: -apple-system, BlinkMacSystemFont, sans-serif; text-align: center; padding: 60px 20px; background: #0c0d14; color: #ffffff;">
+                <div style="max-width: 520px; margin: 0 auto; background: rgba(255,255,255,0.05); padding: 40px; border-radius: 16px; border: 1px solid rgba(255,255,255,0.1); box-shadow: 0 20px 40px rgba(0,0,0,0.5);">
+                  <h1 style="color: #4ade80; margin-bottom: 16px; font-size: 26px;">⚡ RetentionVolt Connesso!</h1>
+                  <p style="color: #94a3b8; font-size: 16px; line-height: 1.6;">Il tuo account è stato collegato automaticamente al server MCP locale.<br>Puoi chiudere questa scheda del browser e tornare al tuo assistente AI.</p>
+                </div>
+              </body>
+              </html>
+            `);
+            server.close();
+            activeAuthServer = null;
+            resolve(key);
+            return;
+          }
+        }
+        res.writeHead(400, { "Content-Type": "text/plain" });
+        res.end("Missing key parameter");
+      } catch {
+        res.writeHead(500, { "Content-Type": "text/plain" });
+        res.end("Internal error");
+      }
+    });
+
+    server.listen(port, () => {
+      activeAuthServer = server;
+    });
+
+    // Auto-close after 3 minutes if no callback received
+    setTimeout(() => {
+      if (activeAuthServer === server) {
+        try {
+          server.close();
+        } catch {}
+        activeAuthServer = null;
+      }
+    }, 180_000);
+  });
+}
 
 export function getRetentionDir(): string {
   if (process.env.RETENTION_CONFIG_DIR) {
@@ -65,12 +144,21 @@ export interface AuthStatus {
   settings_url: string;
   message: string;
   plan?: string;
+  browser_opened?: boolean;
 }
 
 export async function connectRetentionVolt(
   apiKey?: string,
-  endpoint = DEFAULT_RETENTIONVOLT_ENDPOINT
+  endpoint = DEFAULT_RETENTIONVOLT_ENDPOINT,
+  options?: { openBrowser?: boolean }
 ): Promise<AuthStatus> {
+  if (options?.openBrowser) {
+    const callbackUrl = encodeURIComponent("http://localhost:19876/callback");
+    const targetUrl = `${RETENTIONVOLT_LOGIN_URL}?redirect_uri=${callbackUrl}`;
+    openBrowser(targetUrl);
+    startLocalAuthServer(19876).catch(() => {});
+  }
+
   const keyToTest = apiKey?.trim() ?? (await getStoredApiKey());
 
   if (!keyToTest) {
@@ -79,8 +167,10 @@ export async function connectRetentionVolt(
       status: "needs_key",
       login_url: RETENTIONVOLT_LOGIN_URL,
       settings_url: RETENTIONVOLT_MCP_SETTINGS_URL,
-      message:
-        "RetentionVolt requires an API key (rv_live_...). Please log in at https://retentionvolt.com/login and generate your key at https://retentionvolt.com/settings/mcp.",
+      browser_opened: options?.openBrowser ?? false,
+      message: options?.openBrowser
+        ? "Browser opened to https://retentionvolt.com/login. Complete login in browser or paste your API key."
+        : "RetentionVolt requires an API key (rv_live_...). Please log in at https://retentionvolt.com/login and generate your key at https://retentionvolt.com/settings/mcp.",
     };
   }
 

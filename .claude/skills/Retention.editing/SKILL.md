@@ -93,10 +93,19 @@ At the very beginning of ANY session where this skill is activated (via `/Retent
 > *(Se preferisci procedere senza, dimmelo pure e continueremo subito con il montaggio locale standard).*"*
 
    - **If the user says YES**:
-     1. Direct the user to log in and get their key:
-        *"Please log in to your account at [retentionvolt.com/login](https://retentionvolt.com/login) and retrieve your key at [retentionvolt.com/settings/mcp](https://retentionvolt.com/settings/mcp). Paste it here and I will link your account automatically!"*
-     2. When the user pastes the key (`rv_live_...`), call `connect_retentionvolt({ api_key })`. This verifies and stores the key in `~/.retention/config.json`.
-     3. In Step 4, call `fetch_retentionvolt_blueprint(...)` to query the database and pass the result to `generate_edit_plan`.
+     1. **One-Click Browser Launch (Zero-friction)**:
+        Immediately call `connect_retentionvolt({ open_browser: true })`. This automatically pops up the user's default browser directly on the RetentionVolt login/authorization page and activates the local loopback listener.
+     2. **Inform the user smoothly in their language**:
+        - *Italian*:
+          *"🚀 **Ti ho appena aperto la schermata di accesso a RetentionVolt nel browser!**  
+          Effettua l'accesso su RetentionVolt: il tuo account verrà collegato automaticamente per questo e per tutti i tuoi montaggi futuri.  
+          *(Se la finestra non si fosse aperta o preferisci farlo manualmente, puoi accedere a [retentionvolt.com/login](https://retentionvolt.com/login) e incollare qui la tua chiave `rv_live_...`).*"*
+        - *English*:
+          *"🚀 **I just opened the RetentionVolt login window in your browser!**  
+          Complete your login on RetentionVolt: your account will link automatically for this and all future edits.  
+          *(If the window did not open, you can also log in at [retentionvolt.com/login](https://retentionvolt.com/login) and paste your `rv_live_...` key here).*"*
+     3. Once authenticated via loopback or when the user pastes the key, the key is permanently stored in `~/.retention/config.json`.
+     4. In Step 4, call `fetch_retentionvolt_blueprint(...)` to query the database and pass the result to `generate_edit_plan`.
    - **If the user says NO (or prefers not to log in)**: Smoothly proceed in **100% Local Standalone Mode** without any artificial friction, barriers, or repeated nagging.
 
 #### 0b. Format & Canvas

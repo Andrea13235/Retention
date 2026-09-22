@@ -35,16 +35,20 @@ const server = new McpServer({
 
 server.tool(
   "connect_retentionvolt",
-  "Step 0 — Check status or connect and authenticate with the RetentionVolt CyberMCP cloud database (retentionvolt.com). If called without api_key, checks if the user is already authenticated. If not authenticated, returns the login URL (https://retentionvolt.com/login) and instructions. When api_key is passed, verifies and saves it locally in ~/.retention/config.json.",
+  "Step 0 — Check status, launch one-click browser login, or authenticate with RetentionVolt (retentionvolt.com). If open_browser is true, automatically opens the user's default browser directly to the login page and listens for one-click callback. When api_key is passed, verifies and saves it locally in ~/.retention/config.json.",
   {
     api_key: z
       .string()
       .optional()
       .describe("RetentionVolt Pro API key (rv_live_...) obtained from https://retentionvolt.com/settings/mcp"),
+    open_browser: z
+      .boolean()
+      .optional()
+      .describe("If true, automatically opens the RetentionVolt login/authorization page in the user's browser"),
   },
-  async ({ api_key }) => {
+  async ({ api_key, open_browser }) => {
     try {
-      const status = await connectRetentionVolt(api_key);
+      const status = await connectRetentionVolt(api_key, undefined, { openBrowser: open_browser });
       return {
         content: [{ type: "text", text: JSON.stringify(status, null, 2) }],
       };
