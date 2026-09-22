@@ -506,7 +506,7 @@ ${beats}
   await writeFile(join(outDir, "index.html"), html);
   await writeFile(
     join(outDir, "hyperframes.json"),
-    JSON.stringify({ compositionId, generatedBy: "cutcraft" }, null, 2)
+    JSON.stringify({ compositionId, generatedBy: "retention" }, null, 2)
   );
   return { dir: outDir, compositionId, durationSec };
 }

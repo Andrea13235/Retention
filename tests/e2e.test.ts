@@ -23,7 +23,7 @@ const HF_BIN = join(SKILL_ROOT, "node_modules", "hyperframes", "bin", "hyperfram
 
 describe("e2e pipeline", () => {
   it("RAW → EditPlan → HyperFrames project → clean lint", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "cutcraft-e2e-"));
+    const dir = mkdtempSync(join(tmpdir(), "retention-e2e-"));
     try {
       // 1. Synthetic 10s RAW, 1280x720, 30fps, with audio
       const raw = join(dir, "raw.mp4");

@@ -41,7 +41,7 @@ describe("whisper model selection", () => {
 
 describe("ingest (real ffprobe)", () => {
   it("extracts metadata from an ffmpeg-generated mp4", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "cutcraft-ingest-"));
+    const dir = mkdtempSync(join(tmpdir(), "retention-ingest-"));
     try {
       const mp4 = join(dir, "raw.mp4");
       execFileSync("ffmpeg", [
@@ -244,9 +244,9 @@ describe("analyze", () => {
       segments: [{ start: "00:00:00.000", end: "00:00:05.000", text: "parliamo di raw cut oggi" }],
     };
     const s = analyzeTranscript(tr, {
-      corrections: [{ misheard: "raw cut", correct: "CutCraft" }],
+      corrections: [{ misheard: "raw cut", correct: "Retention" }],
     });
-    expect(s.hook.summary).toContain("CutCraft");
+    expect(s.hook.summary).toContain("Retention");
     expect(s.hook.summary).not.toMatch(/raw cut/i);
   });
 });
@@ -357,7 +357,7 @@ describe("plan", () => {
 
 describe("render: HyperFrames project build", () => {
   it("generates a valid standalone index.html", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "cutcraft-hf-"));
+    const dir = mkdtempSync(join(tmpdir(), "retention-hf-"));
     try {
       const s = analyzeTranscript(SAMPLE_TRANSCRIPT);
       const plan = generateEditPlan(s);
@@ -379,7 +379,7 @@ describe("render: HyperFrames project build", () => {
     }
   });
   it("renders slow_zoom, lower_third and custom caption duration — no silent drops", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "cutcraft-hf2-"));
+    const dir = mkdtempSync(join(tmpdir(), "retention-hf2-"));
     try {
       const plan = {
         version: "1.2" as const,
@@ -425,7 +425,7 @@ describe("render: HyperFrames project build", () => {
     }
   });
   it("splice: CUT middle range → two clips with data-media-start, remapped timeline", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "cutcraft-splice-"));
+    const dir = mkdtempSync(join(tmpdir(), "retention-splice-"));
     try {
       // real 12s RAW so the splice path (data-media-start) is exercised
       const raw = join(dir, "raw.mp4");
@@ -478,7 +478,7 @@ describe("render: HyperFrames project build", () => {
     }
   });
   it("renders graphic banners TOP with transcript text — and rejects overlaps", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "cutcraft-gfx-"));
+    const dir = mkdtempSync(join(tmpdir(), "retention-gfx-"));
     try {
       const plan = {
         version: "1.3" as const,
@@ -519,7 +519,7 @@ describe("render: HyperFrames project build", () => {
     }
   });
   it("renderer rejects overlapping karaoke captions with a fix hint", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "cutcraft-reject-"));
+    const dir = mkdtempSync(join(tmpdir(), "retention-reject-"));
     try {
       const plan = {
         version: "1.2" as const,
@@ -548,7 +548,7 @@ describe("render: HyperFrames project build", () => {
     }
   });
   it("renderer rejects zooms inside the pre-cut mask with a fix hint", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "cutcraft-reject2-"));
+    const dir = mkdtempSync(join(tmpdir(), "retention-reject2-"));
     try {
       const plan = {
         version: "1.2" as const,

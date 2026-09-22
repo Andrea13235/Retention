@@ -128,7 +128,7 @@ export interface NarrativeStructure {
   /**
    * Words Whisper likely mangled — rare tokens the agent MUST confirm
    * before rendering (brand names, proper nouns, neologisms like
-   * "rawcat" for CutCraft). Each entry carries the sentence context so
+   * "rawcat" for Retention). Each entry carries the sentence context so
    * the agent can fix it without re-listening to the audio. If ignored,
    * the raw ASR text reaches the captions verbatim.
    */

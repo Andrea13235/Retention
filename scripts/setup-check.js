@@ -64,10 +64,8 @@ function runClean(cmd, args = []) {
 {
   const home = process.env.HOME || "";
   const retentionPy = home ? `${home}/.retention/.venv/bin/python` : null;
-  const cutcraftPy = home ? `${home}/.cutcraft/.venv/bin/python` : null;
   const v =
     (retentionPy && runClean(retentionPy, ["-c", "import faster_whisper; print(faster_whisper.__version__)"])) ||
-    (cutcraftPy && runClean(cutcraftPy, ["-c", "import faster_whisper; print(faster_whisper.__version__)"])) ||
     runClean("python3", ["-c", "import faster_whisper; print(faster_whisper.__version__)"]);
   if (v) ok("faster-whisper", `v${v}`);
   else

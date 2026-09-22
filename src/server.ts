@@ -139,7 +139,7 @@ server.tool(
     corrections: z
       .array(z.object({ misheard: z.string(), correct: z.string() }))
       .optional()
-      .describe("Fix ASR-mangled words before analysis (e.g. 'rawcat' -> 'CutCraft'). Get these from the previous run's `needs_review`."),
+      .describe("Fix ASR-mangled words before analysis (e.g. 'rawcat' -> 'Retention'). Get these from the previous run's `needs_review`."),
   },
   async ({ transcript, longPauseSec, sectionCount, deadAirSec, corrections }) => {
     let parsedTranscript: any;

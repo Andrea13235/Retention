@@ -20,19 +20,16 @@ const execFileAsync = promisify(execFile);
 
 /**
  * Find a Python interpreter with working faster-whisper.
- * Order: RETENTION_PYTHON / CUTCRAFT_PYTHON → skill venv (~/.retention/.venv or ~/.cutcraft/.venv)
+ * Order: RETENTION_PYTHON → skill venv (~/.retention/.venv)
  * → active/conventional venvs → system pythons.
  * Manual override: RETENTION_PYTHON=/path/to/python.
  */
 export async function findWhisperPython(): Promise<string> {
   const home = process.env.HOME ?? "";
   const retentionVenv = home ? `${home}/.retention/.venv/bin/python` : undefined;
-  const legacyVenv = home ? `${home}/.cutcraft/.venv/bin/python` : undefined;
   const candidates = [
     process.env.RETENTION_PYTHON,
-    process.env.CUTCRAFT_PYTHON,
     retentionVenv,
-    legacyVenv,
     // Active or conventional venvs (faster-whisper often lives here)
     process.env.VIRTUAL_ENV ? `${process.env.VIRTUAL_ENV}/bin/python` : undefined,
     home ? `${home}/.venv/bin/python` : undefined,

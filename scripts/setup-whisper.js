@@ -11,9 +11,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 
 const RETENTION_DIR = join(homedir(), ".retention");
-const CUTCRAFT_DIR = join(homedir(), ".cutcraft");
-// If .cutcraft/.venv already exists, reuse it; otherwise create .retention/.venv
-const SKILL_DIR = existsSync(join(CUTCRAFT_DIR, ".venv")) ? CUTCRAFT_DIR : RETENTION_DIR;
+const SKILL_DIR = RETENTION_DIR;
 const VENV = join(SKILL_DIR, ".venv");
 const VENV_PY = join(VENV, "bin", "python");
 
