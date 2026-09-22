@@ -599,10 +599,31 @@ export async function renderVideo(
  * (Does not require external FFmpeg libfreetype filters).
  */
 export async function renderThumbnail(
-  sourceVideoPath: string,
-  outputPath: string,
-  config: ThumbnailConfig = { title: "Thumbnail" }
+  sourceOrOptions:
+    | string
+    | ({ source_video_path: string; output_path: string } & ThumbnailConfig),
+  outputPathOrConfig?: string | ThumbnailConfig,
+  configArg?: ThumbnailConfig
 ): Promise<string> {
+  let sourceVideoPath: string;
+  let outputPath: string;
+  let config: ThumbnailConfig;
+
+  if (typeof sourceOrOptions === "object" && sourceOrOptions !== null) {
+    sourceVideoPath = sourceOrOptions.source_video_path;
+    outputPath = sourceOrOptions.output_path;
+    config = sourceOrOptions;
+  } else {
+    sourceVideoPath = sourceOrOptions;
+    outputPath =
+      typeof outputPathOrConfig === "string"
+        ? outputPathOrConfig
+        : "thumbnail.jpg";
+    config =
+      (typeof outputPathOrConfig === "object" ? outputPathOrConfig : configArg) ??
+      { title: "Thumbnail" };
+  }
+
   const time = config.frame_time ?? "00:00:02.000";
   // Validate timecode format early to fail fast with a clear error
   timecodeToSec(time);

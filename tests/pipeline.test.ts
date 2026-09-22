@@ -7,7 +7,7 @@ import { analyzeTranscript } from "../src/tools_analyze.js";
 import { importRawMedia } from "../src/tools_ingest.js";
 import { generateEditPlan } from "../src/tools_plan.js";
 import { buildHyperframesProject, renderThumbnail } from "../src/tools_render.js";
-import { connectRetentionVolt, fetchRetentionVoltBlueprint } from "../src/retentionvolt_client.js";
+import { connectRetentionVolt, fetchRetentionVoltBlueprint, startLocalAuthServer } from "../src/retentionvolt_client.js";
 import { detectHardware, selectModel } from "../src/tools_transcribe.js";
 import {
   secToTimecode,
@@ -871,6 +871,25 @@ describe("render: HyperFrames project build", () => {
         const status = await connectRetentionVolt("rv_live_test_key_123", "http://127.0.0.1:9999/api/mcp");
         expect(status.connected).toBe(true);
         expect(status.login_url).toBe("https://retentionvolt.com/login");
+      } finally {
+        if (oldEnv !== undefined) process.env.RETENTION_CONFIG_DIR = oldEnv;
+        else delete process.env.RETENTION_CONFIG_DIR;
+        rmSync(testDir, { recursive: true, force: true });
+      }
+    });
+
+    it("startLocalAuthServer captures callback key and serves confirmation HTML", async () => {
+      const testDir = mkdtempSync(join(tmpdir(), "retention-test-loopback-"));
+      const oldEnv = process.env.RETENTION_CONFIG_DIR;
+      process.env.RETENTION_CONFIG_DIR = testDir;
+      try {
+        const authPromise = startLocalAuthServer(19877);
+        const res = await fetch("http://localhost:19877/callback?key=rv_live_loopback_test");
+        expect(res.status).toBe(200);
+        const text = await res.text();
+        expect(text).toContain("RetentionVolt Connesso");
+        const key = await authPromise;
+        expect(key).toBe("rv_live_loopback_test");
       } finally {
         if (oldEnv !== undefined) process.env.RETENTION_CONFIG_DIR = oldEnv;
         else delete process.env.RETENTION_CONFIG_DIR;
