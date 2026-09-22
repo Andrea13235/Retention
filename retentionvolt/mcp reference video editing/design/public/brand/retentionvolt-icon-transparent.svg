@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%" fill="none">
+  <!-- RetentionVolt - Official Transparent Mark -->
+  <path d="M 125 418 V 206 C 125 131 175 96 245 96 C 315 96 365 141 365 211 C 365 276 315 311 240 311 H 125" 
+        stroke="#D1FE17" 
+        stroke-width="52" 
+        stroke-linecap="butt" 
+        stroke-linejoin="round"/>
+  <path d="M 235 311 C 265 311 295 346 325 396 C 342 424 365 434 395 426" 
+        stroke="#D1FE17" 
+        stroke-width="52" 
+        stroke-linecap="butt" 
+        stroke-linejoin="round"/>
+</svg>

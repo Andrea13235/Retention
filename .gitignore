@@ -1,0 +1,24 @@
+# Local media and attachment specs (never push large raw files)
+.hermes/
+*.MP4
+*.mp4
+*.mov
+*.MOV
+/test/
+/proof/
+*.log
+.DS_Store
+
+# Supabase CLI cache and link state
+**/.temp/
+**/supabase/.temp/
+
+# Nested projects env & modules
+**/node_modules/
+**/.next/
+**/.env
+**/.env*.local
+!.env.example
+
+# Local skill symlinks
+.agents/skills/computer_use

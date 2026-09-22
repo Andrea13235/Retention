@@ -1,0 +1,37 @@
+{
+  "name": "retentionvolt",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev -p 3000",
+    "build": "next build",
+    "start": "next start -p 3000",
+    "lint": "next lint",
+    "ingest": "ts-node -r dotenv/config -r tsconfig-paths/register -O '{\"module\":\"commonjs\"}' scripts/ingest-video.ts",
+    "analyze": "ts-node -r dotenv/config -r tsconfig-paths/register -O '{\"module\":\"commonjs\"}' scripts/process-single-video.ts",
+    "queue": "ts-node -r dotenv/config -r tsconfig-paths/register -O '{\"module\":\"commonjs\"}' scripts/run-queue.ts"
+  },
+  "dependencies": {
+    "@stripe/stripe-js": "^9.16.0",
+    "@supabase/supabase-js": "^2.116.0",
+    "clsx": "^2.1.1",
+    "lucide-react": "^0.446.0",
+    "next": "^14.2.13",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "stripe": "^22.6.2",
+    "tailwind-merge": "^2.5.2"
+  },
+  "devDependencies": {
+    "@types/node": "^20.16.5",
+    "@types/react": "^18.3.8",
+    "@types/react-dom": "^18.3.0",
+    "autoprefixer": "^10.4.20",
+    "dotenv": "^18.0.0",
+    "postcss": "^8.4.47",
+    "tailwindcss": "^3.4.12",
+    "ts-node": "^10.9.2",
+    "tsconfig-paths": "^4.2.0",
+    "typescript": "^5.6.2"
+  }
+}

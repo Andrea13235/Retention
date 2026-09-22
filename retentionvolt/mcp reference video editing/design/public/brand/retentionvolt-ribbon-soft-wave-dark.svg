@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%" fill="none">
+  <defs>
+    <filter id="soft-glow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="0" stdDeviation="12" flood-color="#D1FE17" flood-opacity="0.4"/>
+    </filter>
+  </defs>
+  <!-- RetentionVolt - Soft Serpentine Curve (Higgsfield Style) Dark Mode -->
+  <rect width="512" height="512" rx="112" fill="#0B0C0E" stroke="rgba(255, 255, 255, 0.12)" stroke-width="6"/>
+  <path d="M 140 415 C 180 370 175 270 145 200 C 130 140 185 95 260 95 C 340 95 385 140 385 210 C 385 280 320 315 220 315" 
+        stroke="#D1FE17" 
+        stroke-width="50" 
+        stroke-linecap="butt" 
+        stroke-linejoin="round"
+        filter="url(#soft-glow)"/>
+  <path d="M 220 315 C 275 315 305 345 330 385 C 350 420 380 435 415 422" 
+        stroke="#D1FE17" 
+        stroke-width="50" 
+        stroke-linecap="butt" 
+        stroke-linejoin="round"
+        filter="url(#soft-glow)"/>
+</svg>
