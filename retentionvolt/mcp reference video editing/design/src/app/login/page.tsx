@@ -56,12 +56,20 @@ function LoginFormContent() {
     }
   }, [safeRedirect]);
 
+  // If redirect_uri is passed, forward directly to dedicated /login-mcp loopback flow
+  const rawRedirectUri = searchParams.get('redirect_uri');
+  useEffect(() => {
+    if (rawRedirectUri) {
+      window.location.href = `/login-mcp?redirect_uri=${encodeURIComponent(rawRedirectUri)}`;
+    }
+  }, [rawRedirectUri]);
+
   // If already logged in, redirect immediately to target
   useEffect(() => {
-    if (!isLoading && isLoggedIn) {
+    if (!isLoading && isLoggedIn && !rawRedirectUri) {
       window.location.href = safeRedirect;
     }
-  }, [isLoading, isLoggedIn, safeRedirect]);
+  }, [isLoading, isLoggedIn, safeRedirect, rawRedirectUri]);
 
   if (isLoading || isLoggedIn) {
     return (
