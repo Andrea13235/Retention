@@ -853,7 +853,7 @@ describe("render: HyperFrames project build", () => {
       process.env.RETENTION_CONFIG_DIR = testDir;
       try {
         const status = await connectRetentionVolt(undefined, "http://127.0.0.1:9999/api/mcp");
-        expect(status.login_url).toBe("https://retentionvolt.com/login");
+        expect(status.login_url).toBe("https://retentionvolt.com/login-mcp");
         expect(status.settings_url).toBe("https://retentionvolt.com/settings/mcp");
         expect(["needs_key", "authenticated", "server_unreachable"]).toContain(status.status);
       } finally {
@@ -870,7 +870,7 @@ describe("render: HyperFrames project build", () => {
       try {
         const status = await connectRetentionVolt("rv_live_test_key_123", "http://127.0.0.1:9999/api/mcp");
         expect(status.connected).toBe(true);
-        expect(status.login_url).toBe("https://retentionvolt.com/login");
+        expect(status.login_url).toBe("https://retentionvolt.com/login-mcp");
       } finally {
         if (oldEnv !== undefined) process.env.RETENTION_CONFIG_DIR = oldEnv;
         else delete process.env.RETENTION_CONFIG_DIR;

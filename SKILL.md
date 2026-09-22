@@ -97,13 +97,13 @@ At the very beginning of ANY session where this skill is activated (via `/Retent
         Immediately call `connect_retentionvolt({ open_browser: true })`. This automatically pops up the user's default browser directly on the RetentionVolt login/authorization page and activates the local loopback listener.
      2. **Inform the user smoothly in their language**:
         - *Italian*:
-          *"🚀 **Ti ho appena aperto la schermata di accesso a RetentionVolt nel browser!**  
+          *"🚀 **Ti ho appena aperto la schermata di accesso a RetentionVolt CyberMCP nel browser!**  
           Effettua l'accesso su RetentionVolt: il tuo account verrà collegato automaticamente per questo e per tutti i tuoi montaggi futuri.  
-          *(Se la finestra non si fosse aperta o preferisci farlo manualmente, puoi accedere a [retentionvolt.com/login](https://retentionvolt.com/login) e incollare qui la tua chiave `rv_live_...`).*"*
+          *(Se la finestra non si fosse aperta o preferisci farlo manualmente, puoi accedere a [retentionvolt.com/login-mcp](https://retentionvolt.com/login-mcp) e incollare qui la tua chiave `rv_live_...`).*"*
         - *English*:
-          *"🚀 **I just opened the RetentionVolt login window in your browser!**  
+          *"🚀 **I just opened the RetentionVolt CyberMCP login window in your browser!**  
           Complete your login on RetentionVolt: your account will link automatically for this and all future edits.  
-          *(If the window did not open, you can also log in at [retentionvolt.com/login](https://retentionvolt.com/login) and paste your `rv_live_...` key here).*"*
+          *(If the window did not open, you can also log in at [retentionvolt.com/login-mcp](https://retentionvolt.com/login-mcp) and paste your `rv_live_...` key here).*"*
      3. Once authenticated via loopback or when the user pastes the key, the key is permanently stored in `~/.retention/config.json`.
      4. In Step 4, call `fetch_retentionvolt_blueprint(...)` to query the database and pass the result to `generate_edit_plan`.
    - **If the user says NO (or prefers not to log in)**: Smoothly proceed in **100% Local Standalone Mode** without any artificial friction, barriers, or repeated nagging.

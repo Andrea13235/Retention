@@ -11,7 +11,8 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import type { RetentionVoltBlueprint } from "./types.js";
 
-export const RETENTIONVOLT_LOGIN_URL = "https://retentionvolt.com/login";
+export const RETENTIONVOLT_LOGIN_URL = "https://retentionvolt.com/login-mcp";
+export const RETENTIONVOLT_MCP_LOGIN_URL = "https://retentionvolt.com/login-mcp";
 export const RETENTIONVOLT_MCP_SETTINGS_URL = "https://retentionvolt.com/settings/mcp";
 export const DEFAULT_RETENTIONVOLT_ENDPOINT = "https://retentionvolt.com/api/mcp";
 
@@ -154,7 +155,7 @@ export async function connectRetentionVolt(
 ): Promise<AuthStatus> {
   if (options?.openBrowser) {
     const callbackUrl = encodeURIComponent("http://localhost:19876/callback");
-    const targetUrl = `${RETENTIONVOLT_LOGIN_URL}?redirect_uri=${callbackUrl}`;
+    const targetUrl = `${RETENTIONVOLT_MCP_LOGIN_URL}?redirect_uri=${callbackUrl}`;
     openBrowser(targetUrl);
     startLocalAuthServer(19876).catch(() => {});
   }
@@ -169,8 +170,8 @@ export async function connectRetentionVolt(
       settings_url: RETENTIONVOLT_MCP_SETTINGS_URL,
       browser_opened: options?.openBrowser ?? false,
       message: options?.openBrowser
-        ? "Browser opened to https://retentionvolt.com/login. Complete login in browser or paste your API key."
-        : "RetentionVolt requires an API key (rv_live_...). Please log in at https://retentionvolt.com/login and generate your key at https://retentionvolt.com/settings/mcp.",
+        ? "Browser aperto su https://retentionvolt.com/login-mcp. Completa l'accesso per collegare automaticamente la chiave CyberMCP."
+        : "RetentionVolt richiede una chiave API Pro (rv_live_...). Accedi a https://retentionvolt.com/login-mcp oppure recupera la tua chiave da https://retentionvolt.com/settings/mcp.",
     };
   }
 
