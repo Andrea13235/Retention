@@ -14,6 +14,9 @@ export const RETENTIONVOLT_MCP_SETTINGS_URL = "https://retentionvolt.com/setting
 export const DEFAULT_RETENTIONVOLT_ENDPOINT = "https://retentionvolt.com/api/mcp";
 
 export function getRetentionDir(): string {
+  if (process.env.RETENTION_CONFIG_DIR) {
+    return process.env.RETENTION_CONFIG_DIR;
+  }
   return join(homedir(), ".retention");
 }
 
