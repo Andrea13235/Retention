@@ -86,17 +86,34 @@ export async function POST(req: NextRequest) {
     ? body.name.trim().slice(0, 60)
     : 'Default key';
 
-  // Enforce key cap
+  // Enforce key cap with optional auto-rotation for seamless agent connections
   const { count } = await supabaseAdmin
     .from('mcp_api_keys')
     .select('id', { count: 'exact', head: true })
     .eq('user_id', user.id)
     .eq('is_active', true);
   if ((count || 0) >= MAX_KEYS_PER_USER) {
-    return NextResponse.json(
-      { error: `Key limit reached (${MAX_KEYS_PER_USER} active keys). Revoke one first.` },
-      { status: 400 }
-    );
+    if (body.autoRotate) {
+      const { data: oldest } = await supabaseAdmin
+        .from('mcp_api_keys')
+        .select('id')
+        .eq('user_id', user.id)
+        .eq('is_active', true)
+        .order('created_at', { ascending: true })
+        .limit(1)
+        .maybeSingle();
+      if (oldest?.id) {
+        await supabaseAdmin
+          .from('mcp_api_keys')
+          .update({ is_active: false })
+          .eq('id', oldest.id);
+      }
+    } else {
+      return NextResponse.json(
+        { error: `Key limit reached (${MAX_KEYS_PER_USER} active keys). Revoke one first.` },
+        { status: 400 }
+      );
+    }
   }
 
   const fullKey = generateMcpKey();

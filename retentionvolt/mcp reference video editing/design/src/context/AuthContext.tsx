@@ -68,11 +68,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           const { data: { session } } = await supabase.auth.getSession();
           if (session?.user) {
             const meta = session.user.user_metadata || {};
+            const appMeta = session.user.app_metadata || {};
             const isCompleted = Boolean(
               meta.onboarding_completed ||
               meta.onboardingCompleted ||
               localStorage.getItem(`retentionvolt_onboarding_${session.user.id}`) === 'true'
             );
+            const livePlan: 'free' | 'pro' =
+              appMeta.plan === 'pro' || meta.plan === 'pro' || appMeta.role === 'admin' || meta.role === 'admin' ? 'pro' : 'free';
             const liveUser: UserProfile = {
               id: session.user.id,
               email: session.user.email || '',
@@ -80,7 +83,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               role: meta.role || (isCompleted ? 'Video Editor' : ''),
               hearSource: meta.hearSource || '',
               useCase: meta.useCase || '',
-              plan: meta.plan || 'free',
+              plan: livePlan,
               avatarUrl: meta.avatar_url || meta.picture || '',
               createdAt: session.user.created_at,
               onboardingCompleted: isCompleted,
@@ -107,7 +110,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 meta.onboardingCompleted ||
                 localStorage.getItem(`retentionvolt_onboarding_${session.user.id}`) === 'true'
               );
-              const livePlan = appMeta.plan === 'pro' || meta.plan === 'pro' ? 'pro' : 'free';
+              const livePlan: 'free' | 'pro' =
+                appMeta.plan === 'pro' || meta.plan === 'pro' || appMeta.role === 'admin' || meta.role === 'admin' ? 'pro' : 'free';
               const liveUser: UserProfile = {
                 id: session.user.id,
                 email: session.user.email || '',
@@ -426,7 +430,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const appMeta = (session.user.app_metadata || {}) as Record<string, unknown>;
       const userMeta = (session.user.user_metadata || {}) as Record<string, unknown>;
       const livePlan: 'free' | 'pro' =
-        appMeta.plan === 'pro' || userMeta.plan === 'pro' ? 'pro' : 'free';
+        appMeta.plan === 'pro' || userMeta.plan === 'pro' || appMeta.role === 'admin' || userMeta.role === 'admin' ? 'pro' : 'free';
       setUser(prev => {
         if (!prev) return prev;
         const updated = { ...prev, plan: livePlan };

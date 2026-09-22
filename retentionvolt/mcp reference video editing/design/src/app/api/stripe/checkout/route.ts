@@ -111,8 +111,22 @@ export async function POST(req: NextRequest) {
           billingCycle,
         },
       },
-      success_url: `${origin}/?session_id={CHECKOUT_SESSION_ID}&upgrade=success`,
-      cancel_url: `${origin}/?upgrade=cancel`,
+      success_url: (() => {
+        if (typeof body.successUrl === 'string') {
+          const trimmed = body.successUrl.trim();
+          if (trimmed.startsWith('/') && !trimmed.startsWith('//')) return `${origin}${trimmed}`;
+          if (allowedOrigins.some(o => trimmed.startsWith(o))) return trimmed;
+        }
+        return `${origin}/?session_id={CHECKOUT_SESSION_ID}&upgrade=success`;
+      })(),
+      cancel_url: (() => {
+        if (typeof body.cancelUrl === 'string') {
+          const trimmed = body.cancelUrl.trim();
+          if (trimmed.startsWith('/') && !trimmed.startsWith('//')) return `${origin}${trimmed}`;
+          if (allowedOrigins.some(o => trimmed.startsWith(o))) return trimmed;
+        }
+        return `${origin}/?upgrade=cancel`;
+      })(),
     };
 
     const session = await stripe.checkout.sessions.create(sessionParams);

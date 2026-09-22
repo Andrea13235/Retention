@@ -27,7 +27,10 @@ import {
   CheckCircle2,
   Lock,
   Download,
-  Plus
+  Plus,
+  Zap,
+  Cpu,
+  Bot
 } from 'lucide-react';
 import { McpIcon } from '@/components/McpIcon';
 import { MCP_TOOLS_DEFINITIONS } from '@/mcp/tools';
@@ -48,7 +51,11 @@ export const MobbinSettingsView: React.FC<MobbinSettingsViewProps> = ({
 }) => {
   const { user, updateProfile, logout } = useAuth();
   const [activeTab, setActiveTab] = useState<'account' | 'preferences' | 'billing' | 'team' | 'mcp'>(initialTab);
-  const [activeTool, setActiveTool] = useState<'claude_code' | 'cursor' | 'codex' | 'v0' | 'other'>('codex');
+  const [activeTool, setActiveTool] = useState<'cursor' | 'claude_code' | 'antigravity' | 'windsurf' | 'codex' | 'v0' | 'other'>('cursor');
+  const [setupFormat, setSetupFormat] = useState<'agent_prompt' | 'cli' | 'json'>('agent_prompt');
+  const [customKeyInput, setCustomKeyInput] = useState('');
+  const [copiedFormat, setCopiedFormat] = useState<string | null>(null);
+  const [copyToastMessage, setCopyToastMessage] = useState<string | null>(null);
 
   // MCP API keys (server-issued, Pro only). Plaintext shown ONCE at creation.
   const isProUser = user?.plan === 'pro';
@@ -76,6 +83,18 @@ export const MobbinSettingsView: React.FC<MobbinSettingsViewProps> = ({
   const [copiedPromptId, setCopiedPromptId] = useState<number | null>(null);
   const [pingStatus, setPingStatus] = useState<{ state: 'idle' | 'testing' | 'success' | 'error'; ms?: number; message?: string }>({ state: 'idle' });
   const [selectedToolIndex, setSelectedToolIndex] = useState<number | null>(0);
+
+  // Restore fresh key from sessionStorage if present in this browser session
+  useEffect(() => {
+    try {
+      const savedKey = sessionStorage.getItem('retentionvolt_active_mcp_key');
+      if (savedKey && (savedKey.startsWith('rv_') || savedKey.startsWith('rb_'))) {
+        setFreshKey(savedKey);
+      }
+    } catch {
+      /* ignore */
+    }
+  }, []);
 
   // The key actually used in configs / ping: the explicitly selected active key,
   // else the most recent active key. Never a predictable client-side string.
@@ -510,49 +529,178 @@ export const MobbinSettingsView: React.FC<MobbinSettingsViewProps> = ({
     setTimeout(() => setInviteSent(false), 2500);
   };
 
-  // Tool Configurations — the full key is only ever known right after creation
-  // (freshKey). Otherwise we show the stored prefix and instruct to paste the saved key.
-  const displayKeyRef = freshKey || (activeKeyPrefix ? `${activeKeyPrefix}… (paste your saved full key)` : 'rv_live_… (create a key below)');
-  const codexJsonConfig = `{
+  // 1-Click Code Agent Key Resolution & Prompt Builder (21st.dev style)
+  const effectiveKeyForDisplay = freshKey || customKeyInput.trim() || (activeKeyPrefix ? `${activeKeyPrefix}…` : 'rv_live_••••••••••••••••');
+
+  const ensureActiveKey = async (): Promise<string | null> => {
+    if (freshKey) return freshKey;
+    if (customKeyInput.trim().startsWith('rv_') || customKeyInput.trim().startsWith('rb_')) {
+      const k = customKeyInput.trim();
+      setFreshKey(k);
+      try { sessionStorage.setItem('retentionvolt_active_mcp_key', k); } catch {}
+      return k;
+    }
+    setCreatingKey(true);
+    setKeysError(null);
+    try {
+      const headers = await authHeaders();
+      const toolLabels: Record<string, string> = {
+        cursor: 'Cursor Agent Key',
+        claude_code: 'Claude Code Key',
+        antigravity: 'Antigravity Key',
+        windsurf: 'Windsurf Key',
+        codex: 'Codex Key',
+        v0: 'v0 Key',
+        other: 'Universal Agent Key',
+      };
+      const keyName = `${toolLabels[activeTool] || 'Agent Key'} - ${new Date().toLocaleDateString('it-IT')}`;
+      const res = await fetch('/api/mcp/keys', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...headers },
+        body: JSON.stringify({ name: keyName }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'Impossibile generare la chiave');
+      if (data.key) {
+        setFreshKey(data.key);
+        try { sessionStorage.setItem('retentionvolt_active_mcp_key', data.key); } catch {}
+        setSelectedKeyId(data.record?.id || null);
+        setMcpKeys(prev => [data.record, ...prev.filter(k => k.id !== data.record?.id)]);
+        return data.key;
+      }
+    } catch (err: any) {
+      setKeysError(err?.message || 'Errore durante la creazione della chiave');
+    } finally {
+      setCreatingKey(false);
+    }
+    return null;
+  };
+
+  const getAgentPrompt = (tool: string, keyVal?: string) => {
+    const k = keyVal || effectiveKeyForDisplay;
+    switch (tool) {
+      case 'cursor':
+        return `Configura il server MCP di RetentionVolt in questo workspace Cursor.
+Aggiungi la configurazione al file .cursor/mcp.json:
+
+{
   "mcpServers": {
     "retentionvolt": {
       "url": "${mcpServerUrl}",
       "headers": {
-        "Authorization": "Bearer ${displayKeyRef}"
+        "Authorization": "Bearer ${k}"
       }
     }
   }
-}`;
+}
 
-  const codexCliCommand = `codex mcp add retentionvolt ${mcpServerUrl} --header "Authorization: Bearer <YOUR_API_KEY>"`;
+Crea o aggiorna il file .cursor/mcp.json con questa configurazione e verifica la connessione richiamando i tool disponibili.`;
 
-  const cursorJsonConfig = `{
+      case 'claude_code':
+        return `Installa e connetti il server MCP di RetentionVolt per Claude Code eseguendo questo comando:
+claude mcp add --transport http retentionvolt "${mcpServerUrl}" --header "Authorization: Bearer ${k}"
+
+Verifica la connessione ed elenca i tool MCP disponibili.`;
+
+      case 'antigravity':
+        return `Configura il server MCP di RetentionVolt nel mio workspace Antigravity.
+Aggiungi alla configurazione MCP dell'ambiente:
+- Nome Server: retentionvolt
+- Tipo: Streamable HTTP
+- Endpoint: ${mcpServerUrl}
+- Header: Authorization: Bearer ${k}
+
+Salva la configurazione e verifica la disponibilità dei tool di analisi e retention video.`;
+
+      case 'windsurf':
+        return `Configura il server MCP di RetentionVolt in Windsurf.
+Aggiungi la seguente configurazione a ~/.codeium/windsurf/mcp_config.json:
+
+{
   "mcpServers": {
     "retentionvolt": {
       "url": "${mcpServerUrl}",
       "headers": {
-        "Authorization": "Bearer ${displayKeyRef}"
+        "Authorization": "Bearer ${k}"
       }
     }
   }
-}`;
+}
 
-  const claudeCodeCommand = `claude mcp add --transport http retentionvolt ${mcpServerUrl}`;
+Salva il file e verifica gli strumenti di montaggio e pacing di RetentionVolt.`;
 
-  const v0Instructions = `In v0, add custom tool endpoint:
+      case 'codex':
+        return `Configura il server MCP di RetentionVolt in Codex tramite CLI:
+codex mcp add retentionvolt "${mcpServerUrl}" --header "Authorization: Bearer ${k}"`;
+
+      case 'v0':
+        return `In v0, configura un Custom Tool Endpoint con i seguenti parametri:
 URL: ${mcpServerUrl}
-Headers: { "Authorization": "Bearer ${displayKeyRef}" }`;
+Headers: { "Authorization": "Bearer ${k}" }`;
 
-  const otherClaudeDesktopConfig = `{
-  "mcpServers": {
-    "retentionvolt": {
-      "url": "${mcpServerUrl}",
-      "headers": {
-        "Authorization": "Bearer ${displayKeyRef}"
-      }
+      default:
+        return `Configura il server MCP di RetentionVolt nel mio ambiente di sviluppo:
+- Nome: retentionvolt
+- Endpoint: ${mcpServerUrl}
+- Headers:
+  Authorization: Bearer ${k}
+
+Salva la configurazione nel file MCP appropriato per questo editor e verifica la connessione.`;
     }
-  }
-}`;
+  };
+
+  const getCliCommand = (tool: string, keyVal?: string) => {
+    const k = keyVal || effectiveKeyForDisplay;
+    if (tool === 'claude_code') {
+      return `claude mcp add --transport http retentionvolt "${mcpServerUrl}" --header "Authorization: Bearer ${k}"`;
+    }
+    return `codex mcp add retentionvolt "${mcpServerUrl}" --header "Authorization: Bearer ${k}"`;
+  };
+
+  const getJsonConfig = (tool: string, keyVal?: string) => {
+    const k = keyVal || effectiveKeyForDisplay;
+    return `{\n  "mcpServers": {\n    "retentionvolt": {\n      "url": "${mcpServerUrl}",\n      "headers": {\n        "Authorization": "Bearer ${k}"\n      }\n    }\n  }\n}`;
+  };
+
+  const handleCopyAgentSetup = async (format: 'agent_prompt' | 'cli' | 'json') => {
+    try {
+      let key: string | null = freshKey || (customKeyInput.trim() ? customKeyInput.trim() : null);
+      if (!key) {
+        key = await ensureActiveKey();
+      }
+      if (!key) return;
+
+      let contentToCopy = '';
+      if (format === 'agent_prompt') {
+        contentToCopy = getAgentPrompt(activeTool, key);
+      } else if (format === 'cli') {
+        contentToCopy = getCliCommand(activeTool, key);
+      } else {
+        contentToCopy = getJsonConfig(activeTool, key);
+      }
+
+      await navigator.clipboard.writeText(contentToCopy);
+      setCopiedFormat(format);
+      const label = activeTool === 'cursor' ? 'Cursor' :
+                    activeTool === 'claude_code' ? 'Claude Code' :
+                    activeTool === 'antigravity' ? 'Antigravity' :
+                    activeTool === 'windsurf' ? 'Windsurf' :
+                    activeTool === 'codex' ? 'Codex' : 'Code Agent';
+      setCopyToastMessage(
+        format === 'agent_prompt'
+          ? `✅ Messaggio per ${label} copiato con la tua API Key! Incollalo nella chat dell'editor (Cmd+V).`
+          : format === 'cli'
+          ? `✅ Comando CLI copiato con la tua API Key! Incollalo nel terminale.`
+          : `✅ Configurazione JSON copiata con la tua API Key!`
+      );
+      setTimeout(() => {
+        setCopiedFormat(null);
+        setCopyToastMessage(null);
+      }, 5000);
+    } catch (err: any) {
+      setKeysError(err?.message || 'Errore durante la copia');
+    }
+  };
 
   const examplePrompts = [
     {
@@ -1500,208 +1648,279 @@ Headers: { "Authorization": "Bearer ${displayKeyRef}" }`;
                 </div>
               ) : (
                 <>
-                  <div className="space-y-4">
-                    <div>
-                      <h3 className="text-sm font-bold text-white">Connect tool</h3>
-                      <p className="text-xs text-[#8e8e8e] mt-0.5">
-                        Select your AI assistant to view copyable integration instructions.
-                      </p>
+                  <div className="space-y-6">
+                    {/* Header */}
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                      <div>
+                        <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-[#d1fe17]/10 text-[#d1fe17] text-[10px] font-mono font-bold uppercase tracking-wider border border-[#d1fe17]/20 mb-1">
+                          <Zap className="w-3 h-3" />
+                          <span>Setup 1-Click Zero Frizione</span>
+                        </div>
+                        <h3 className="text-base sm:text-lg font-bold text-white tracking-tight flex items-center gap-2">
+                          <span>Installa nel tuo Code Agent</span>
+                        </h3>
+                        <p className="text-xs text-[#8e8e8e] mt-0.5">
+                          La chiave API viene generata e inserita direttamente nel messaggio. Incollalo una volta sola nella chat o nel terminale del tuo editor.
+                        </p>
+                      </div>
+
+                      {/* Toast Banner if copied */}
+                      {copyToastMessage && (
+                        <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-[#d1fe17]/10 border border-[#d1fe17]/30 text-[#d1fe17] text-xs font-mono animate-fade-in shadow-lg">
+                          <CheckCircle2 className="w-4 h-4 shrink-0" />
+                          <span>{copyToastMessage}</span>
+                        </div>
+                      )}
                     </div>
 
-                {/* 5 Exact Buttons: Claude Code, Cursor, Codex, v0, Other */}
-                <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5">
-                  <button
-                    onClick={() => setActiveTool('claude_code')}
-                    className={`p-3.5 rounded-2xl border text-xs font-bold transition-all flex flex-col items-center justify-center gap-2 ${
-                      activeTool === 'claude_code'
-                        ? 'bg-white text-black border-white shadow-md'
-                        : 'bg-[#14151a] text-[#8e8e8e] border-[#20222a] hover:text-white hover:border-[#333]'
-                    }`}
-                  >
-                    <Terminal className="w-5 h-5" />
-                    <span>Claude Code</span>
-                  </button>
+                    {/* Client Selector (Tabs) */}
+                    <div className="grid grid-cols-2 sm:grid-cols-6 gap-2">
+                      <button
+                        onClick={() => setActiveTool('cursor')}
+                        className={`p-3 rounded-2xl border text-xs font-bold transition-all flex flex-col items-center justify-center gap-1.5 ${
+                          activeTool === 'cursor'
+                            ? 'bg-white text-black border-white shadow-lg scale-[1.02]'
+                            : 'bg-[#14151a] text-[#8e8e8e] border-[#20222a] hover:text-white hover:border-[#333]'
+                        }`}
+                      >
+                        <Code2 className="w-4 h-4" />
+                        <span>Cursor</span>
+                      </button>
 
-                  <button
-                    onClick={() => setActiveTool('cursor')}
-                    className={`p-3.5 rounded-2xl border text-xs font-bold transition-all flex flex-col items-center justify-center gap-2 ${
-                      activeTool === 'cursor'
-                        ? 'bg-white text-black border-white shadow-md'
-                        : 'bg-[#14151a] text-[#8e8e8e] border-[#20222a] hover:text-white hover:border-[#333]'
-                    }`}
-                  >
-                    <Code2 className="w-5 h-5" />
-                    <span>Cursor</span>
-                  </button>
+                      <button
+                        onClick={() => setActiveTool('claude_code')}
+                        className={`p-3 rounded-2xl border text-xs font-bold transition-all flex flex-col items-center justify-center gap-1.5 ${
+                          activeTool === 'claude_code'
+                            ? 'bg-white text-black border-white shadow-lg scale-[1.02]'
+                            : 'bg-[#14151a] text-[#8e8e8e] border-[#20222a] hover:text-white hover:border-[#333]'
+                        }`}
+                      >
+                        <Terminal className="w-4 h-4" />
+                        <span>Claude Code</span>
+                      </button>
 
-                  <button
-                    onClick={() => setActiveTool('codex')}
-                    className={`p-3.5 rounded-2xl border text-xs font-bold transition-all flex flex-col items-center justify-center gap-2 ${
-                      activeTool === 'codex'
-                        ? 'bg-white text-black border-white shadow-md'
-                        : 'bg-[#14151a] text-[#8e8e8e] border-[#20222a] hover:text-white hover:border-[#333]'
-                    }`}
-                  >
-                    <Sparkles className="w-5 h-5 text-[#d1fe17]" />
-                    <span>Codex</span>
-                  </button>
+                      <button
+                        onClick={() => setActiveTool('antigravity')}
+                        className={`p-3 rounded-2xl border text-xs font-bold transition-all flex flex-col items-center justify-center gap-1.5 ${
+                          activeTool === 'antigravity'
+                            ? 'bg-white text-black border-white shadow-lg scale-[1.02]'
+                            : 'bg-[#14151a] text-[#8e8e8e] border-[#20222a] hover:text-white hover:border-[#333]'
+                        }`}
+                      >
+                        <Sparkles className="w-4 h-4 text-[#d1fe17]" />
+                        <span>Antigravity</span>
+                      </button>
 
-                  <button
-                    onClick={() => setActiveTool('v0')}
-                    className={`p-3.5 rounded-2xl border text-xs font-bold transition-all flex flex-col items-center justify-center gap-2 ${
-                      activeTool === 'v0'
-                        ? 'bg-white text-black border-white shadow-md'
-                        : 'bg-[#14151a] text-[#8e8e8e] border-[#20222a] hover:text-white hover:border-[#333]'
-                    }`}
-                  >
-                    <span className="font-mono font-extrabold text-base">v0</span>
-                    <span>v0</span>
-                  </button>
+                      <button
+                        onClick={() => setActiveTool('windsurf')}
+                        className={`p-3 rounded-2xl border text-xs font-bold transition-all flex flex-col items-center justify-center gap-1.5 ${
+                          activeTool === 'windsurf'
+                            ? 'bg-white text-black border-white shadow-lg scale-[1.02]'
+                            : 'bg-[#14151a] text-[#8e8e8e] border-[#20222a] hover:text-white hover:border-[#333]'
+                        }`}
+                      >
+                        <Cpu className="w-4 h-4" />
+                        <span>Windsurf</span>
+                      </button>
 
-                  <button
-                    onClick={() => setActiveTool('other')}
-                    className={`p-3.5 rounded-2xl border text-xs font-bold transition-all flex flex-col items-center justify-center gap-2 col-span-2 sm:col-span-1 ${
-                      activeTool === 'other'
-                        ? 'bg-white text-black border-white shadow-md'
-                        : 'bg-[#14151a] text-[#8e8e8e] border-[#20222a] hover:text-white hover:border-[#333]'
-                    }`}
-                  >
-                    <Server className="w-5 h-5" />
-                    <span>Other</span>
-                  </button>
-                </div>
+                      <button
+                        onClick={() => setActiveTool('codex')}
+                        className={`p-3 rounded-2xl border text-xs font-bold transition-all flex flex-col items-center justify-center gap-1.5 ${
+                          activeTool === 'codex'
+                            ? 'bg-white text-black border-white shadow-lg scale-[1.02]'
+                            : 'bg-[#14151a] text-[#8e8e8e] border-[#20222a] hover:text-white hover:border-[#333]'
+                        }`}
+                      >
+                        <Bot className="w-4 h-4" />
+                        <span>Codex</span>
+                      </button>
 
-                <div className="text-[11px] text-[#666] pt-1">
-                  You can also connect non-coding tools like Claude Desktop or Antigravity.{' '}
-                  <button onClick={() => setActiveTool('other')} className="text-white hover:underline">
-                    See all supported clients.
-                  </button>
-                </div>
+                      <button
+                        onClick={() => setActiveTool('other')}
+                        className={`p-3 rounded-2xl border text-xs font-bold transition-all flex flex-col items-center justify-center gap-1.5 ${
+                          activeTool === 'other'
+                            ? 'bg-white text-black border-white shadow-lg scale-[1.02]'
+                            : 'bg-[#14151a] text-[#8e8e8e] border-[#20222a] hover:text-white hover:border-[#333]'
+                        }`}
+                      >
+                        <Server className="w-4 h-4" />
+                        <span>Universal / Altri</span>
+                      </button>
+                    </div>
 
-                {/* Tool Instruction Panel */}
-                <div className="p-5 rounded-2xl bg-[#14151a] border border-[#20222a] space-y-4">
-                  
-                  {/* CODEX SETUP */}
-                  {activeTool === 'codex' && (
-                    <div className="space-y-4">
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <div className="text-xs font-bold text-white flex items-center gap-2">
-                            <span>OpenAI Codex Setup</span>
-                            <span className="text-[10px] px-1.5 py-0.2 rounded bg-[#d1fe17]/20 text-[#d1fe17] font-mono">Streamable HTTP</span>
-                          </div>
-                          <p className="text-[11px] text-[#8e8e8e] mt-0.5">
-                            Add Retentionvolt to Codex MCP configuration or execute via CLI command.
-                          </p>
+                    {/* HERO 1-CLICK INTEGRATION CARD */}
+                    <div className="p-6 rounded-3xl bg-gradient-to-br from-[#161821] to-[#101116] border border-[#262938] shadow-2xl relative overflow-hidden space-y-5">
+                      <div className="absolute top-0 right-0 w-80 h-80 bg-[#d1fe17]/5 rounded-full blur-3xl pointer-events-none" />
+
+                      {/* Top status bar inside hero */}
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+                        <div className="flex items-center gap-2">
+                          <span className="w-2.5 h-2.5 rounded-full bg-[#d1fe17] animate-pulse" />
+                          <span className="font-mono text-[#8e8e8e]">
+                            {freshKey || customKeyInput ? (
+                              <span className="text-white">
+                                Chiave API attiva inclusa: <code className="text-[#d1fe17] bg-black/40 px-1.5 py-0.5 rounded font-mono font-bold">{(freshKey || customKeyInput).slice(0, 14)}••••••••</code>
+                              </span>
+                            ) : (
+                              <span>Nessuna configurazione manuale: cliccando su Copia verrà creata e inserita la chiave in automatico.</span>
+                            )}
+                          </span>
                         </div>
 
+                        {freshKey && (
+                          <button
+                            onClick={() => {
+                              setFreshKey(null);
+                              try { sessionStorage.removeItem('retentionvolt_active_mcp_key'); } catch {}
+                            }}
+                            className="text-[11px] font-mono text-[#8e8e8e] hover:text-white underline underline-offset-2 self-start sm:self-auto"
+                          >
+                            Genera nuova chiave al prossimo click
+                          </button>
+                        )}
+                      </div>
+
+                      {/* Primary 1-Click Action Buttons */}
+                      <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 pt-1">
                         <button
-                          onClick={() => handleCopy(codexCliCommand, setCopiedConfig)}
-                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs font-mono transition-colors"
+                          onClick={() => handleCopyAgentSetup('agent_prompt')}
+                          disabled={creatingKey}
+                          className="flex-1 py-4 px-6 rounded-2xl bg-[#d1fe17] hover:bg-[#d8ff33] text-black font-extrabold text-sm transition-all shadow-xl flex items-center justify-center gap-2.5 active:scale-[0.98] disabled:opacity-50"
                         >
-                          {copiedConfig ? <Check className="w-3.5 h-3.5 text-[#d1fe17]" /> : <Copy className="w-3.5 h-3.5" />}
-                          <span>{copiedConfig ? 'Copied' : 'Copy CLI Command'}</span>
+                          {creatingKey ? (
+                            <>
+                              <RefreshCw className="w-4 h-4 animate-spin" />
+                              <span>Generazione chiave in corso…</span>
+                            </>
+                          ) : copiedFormat === 'agent_prompt' ? (
+                            <>
+                              <Check className="w-4 h-4 stroke-[3]" />
+                              <span>Messaggio Copiato con API Key!</span>
+                            </>
+                          ) : (
+                            <>
+                              <Zap className="w-4 h-4 fill-black" />
+                              <span>
+                                Copia Messaggio per {
+                                  activeTool === 'cursor' ? 'Cursor Composer' :
+                                  activeTool === 'claude_code' ? 'Claude Code' :
+                                  activeTool === 'antigravity' ? 'Antigravity' :
+                                  activeTool === 'windsurf' ? 'Windsurf' :
+                                  activeTool === 'codex' ? 'Codex' : 'Code Agent'
+                                } (1-Click)
+                              </span>
+                            </>
+                          )}
+                        </button>
+
+                        {(activeTool === 'claude_code' || activeTool === 'codex') && (
+                          <button
+                            onClick={() => handleCopyAgentSetup('cli')}
+                            disabled={creatingKey}
+                            className="py-4 px-5 rounded-2xl bg-white/10 hover:bg-white/15 text-white font-mono font-bold text-xs transition-colors border border-white/10 flex items-center justify-center gap-2 shrink-0 active:scale-[0.98]"
+                          >
+                            {copiedFormat === 'cli' ? <Check className="w-4 h-4 text-[#d1fe17]" /> : <Terminal className="w-4 h-4" />}
+                            <span>Copia Comando CLI</span>
+                          </button>
+                        )}
+
+                        <button
+                          onClick={() => handleCopyAgentSetup('json')}
+                          disabled={creatingKey}
+                          className="py-4 px-5 rounded-2xl bg-white/10 hover:bg-white/15 text-white font-mono font-bold text-xs transition-colors border border-white/10 flex items-center justify-center gap-2 shrink-0 active:scale-[0.98]"
+                        >
+                          {copiedFormat === 'json' ? <Check className="w-4 h-4 text-[#d1fe17]" /> : <Code2 className="w-4 h-4" />}
+                          <span>Copia JSON</span>
                         </button>
                       </div>
 
-                      <div className="space-y-1.5">
-                        <div className="text-[11px] text-[#8e8e8e] font-mono">1. Command Line:</div>
-                        <pre className="p-3.5 rounded-xl bg-[#0c0d10] border border-[#242732] text-xs font-mono text-[#d1fe17] overflow-x-auto">
-                          {codexCliCommand}
-                        </pre>
-                      </div>
+                      {/* Format preview selector tabs */}
+                      <div className="pt-2">
+                        <div className="flex items-center justify-between border-b border-white/5 pb-2 mb-3">
+                          <div className="flex items-center gap-2">
+                            <button
+                              onClick={() => setSetupFormat('agent_prompt')}
+                              className={`text-xs font-mono px-3 py-1.5 rounded-lg transition-colors ${
+                                setupFormat === 'agent_prompt'
+                                  ? 'bg-white/10 text-white font-bold'
+                                  : 'text-[#8e8e8e] hover:text-white'
+                              }`}
+                            >
+                              💬 Prompt per Code Agent (Consigliato)
+                            </button>
+                            <button
+                              onClick={() => setSetupFormat('json')}
+                              className={`text-xs font-mono px-3 py-1.5 rounded-lg transition-colors ${
+                                setupFormat === 'json'
+                                  ? 'bg-white/10 text-white font-bold'
+                                  : 'text-[#8e8e8e] hover:text-white'
+                              }`}
+                            >
+                              ⚙️ Configurazione JSON (.mcp.json)
+                            </button>
+                            {(activeTool === 'claude_code' || activeTool === 'codex') && (
+                              <button
+                                onClick={() => setSetupFormat('cli')}
+                                className={`text-xs font-mono px-3 py-1.5 rounded-lg transition-colors ${
+                                  setupFormat === 'cli'
+                                    ? 'bg-white/10 text-white font-bold'
+                                    : 'text-[#8e8e8e] hover:text-white'
+                                }`}
+                              >
+                                💻 Comando Terminale
+                              </button>
+                            )}
+                          </div>
 
-                      <div className="space-y-1.5">
-                        <div className="flex items-center justify-between text-[11px] text-[#8e8e8e] font-mono">
-                          <span>2. Or JSON Configuration:</span>
+                          <span className="text-[11px] font-mono text-[#8e8e8e] hidden sm:inline">
+                            {setupFormat === 'agent_prompt'
+                              ? 'Incolla nella chat del tuo editor'
+                              : setupFormat === 'json'
+                              ? 'Configurazione JSON per workspace'
+                              : 'Esegui nel tuo terminale'}
+                          </span>
+                        </div>
+
+                        {/* Code box preview */}
+                        <div className="relative group">
+                          <pre className="p-4 rounded-2xl bg-[#090a0d] border border-[#222532] text-xs font-mono text-[#ccc] overflow-x-auto max-h-72 leading-relaxed">
+                            {setupFormat === 'agent_prompt' && getAgentPrompt(activeTool)}
+                            {setupFormat === 'json' && getJsonConfig(activeTool)}
+                            {setupFormat === 'cli' && getCliCommand(activeTool)}
+                          </pre>
                           <button
-                            onClick={() => handleCopy(codexJsonConfig, setCopiedConfig)}
-                            className="hover:text-white"
+                            onClick={() => handleCopyAgentSetup(setupFormat)}
+                            className="absolute top-3 right-3 flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs font-mono transition-colors border border-white/10"
                           >
-                            Copy JSON
+                            {copiedFormat === setupFormat ? <Check className="w-3.5 h-3.5 text-[#d1fe17]" /> : <Copy className="w-3.5 h-3.5" />}
+                            <span>{copiedFormat === setupFormat ? 'Copiato' : 'Copia'}</span>
                           </button>
                         </div>
-                        <pre className="p-3.5 rounded-xl bg-[#0c0d10] border border-[#242732] text-xs font-mono text-[#aaa] overflow-x-auto">
-                          {codexJsonConfig}
-                        </pre>
                       </div>
-                    </div>
-                  )}
 
-                  {/* CURSOR SETUP */}
-                  {activeTool === 'cursor' && (
-                    <div className="space-y-3">
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <div className="text-xs font-bold text-white">Cursor IDE Integration</div>
-                          <p className="text-[11px] text-[#8e8e8e] mt-0.5">
-                            Open <strong>Settings &gt; Features &gt; MCP</strong> or edit <code className="bg-black/50 px-1 py-0.5 rounded text-white">~/.cursor/mcp.json</code>
+                      {/* 3 Step Instruction Guide */}
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2 text-xs">
+                        <div className="p-3.5 rounded-xl bg-[#0b0c10] border border-white/5 space-y-1">
+                          <div className="font-mono text-[#d1fe17] font-bold">1. Copia in 1-Click</div>
+                          <p className="text-[#8e8e8e] text-[11px] leading-relaxed">
+                            La chiave API Pro viene incorporata istantaneamente nel messaggio.
                           </p>
                         </div>
-                        <button
-                          onClick={() => handleCopy(cursorJsonConfig, setCopiedConfig)}
-                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs font-mono transition-colors"
-                        >
-                          {copiedConfig ? <Check className="w-3.5 h-3.5 text-[#d1fe17]" /> : <Copy className="w-3.5 h-3.5" />}
-                          <span>{copiedConfig ? 'Copied' : 'Copy JSON'}</span>
-                        </button>
-                      </div>
-                      <pre className="p-3.5 rounded-xl bg-[#0c0d10] border border-[#242732] text-xs font-mono text-[#d1fe17] overflow-x-auto">
-                        {cursorJsonConfig}
-                      </pre>
-                    </div>
-                  )}
-
-                  {/* CLAUDE CODE SETUP */}
-                  {activeTool === 'claude_code' && (
-                    <div className="space-y-3">
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <div className="text-xs font-bold text-white">Claude Code CLI Integration</div>
-                          <p className="text-[11px] text-[#8e8e8e] mt-0.5">Run this command in your terminal to connect instantly.</p>
+                        <div className="p-3.5 rounded-xl bg-[#0b0c10] border border-white/5 space-y-1">
+                          <div className="font-mono text-white font-bold">2. Incolla nell'Agente</div>
+                          <p className="text-[#8e8e8e] text-[11px] leading-relaxed">
+                            Apri la chat del tuo editor (Cursor Composer, Windsurf, Claude Code, Antigravity) e premi Cmd+V.
+                          </p>
                         </div>
-                        <button
-                          onClick={() => handleCopy(claudeCodeCommand, setCopiedConfig)}
-                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs font-mono transition-colors"
-                        >
-                          {copiedConfig ? <Check className="w-3.5 h-3.5 text-[#d1fe17]" /> : <Copy className="w-3.5 h-3.5" />}
-                          <span>{copiedConfig ? 'Copied' : 'Copy Command'}</span>
-                        </button>
-                      </div>
-                      <pre className="p-3.5 rounded-xl bg-[#0c0d10] border border-[#242732] text-xs font-mono text-[#d1fe17] overflow-x-auto">
-                        {claudeCodeCommand}
-                      </pre>
-                    </div>
-                  )}
-
-                  {/* V0 SETUP */}
-                  {activeTool === 'v0' && (
-                    <div className="space-y-3">
-                      <div className="text-xs font-bold text-white">v0 Platform Integration</div>
-                      <p className="text-[11px] text-[#8e8e8e]">Configure Retentionvolt as a custom API context provider in v0.</p>
-                      <pre className="p-3.5 rounded-xl bg-[#0c0d10] border border-[#242732] text-xs font-mono text-[#d1fe17] overflow-x-auto">
-                        {v0Instructions}
-                      </pre>
-                    </div>
-                  )}
-
-                  {/* OTHER CLIENTS (Claude Desktop, Antigravity, Windsurf) */}
-                  {activeTool === 'other' && (
-                    <div className="space-y-4">
-                      <div className="space-y-2">
-                        <div className="text-xs font-bold text-white">Claude Desktop Configuration</div>
-                        <p className="text-[11px] text-[#8e8e8e]">
-                          Add to <code className="bg-black/50 px-1 py-0.5 rounded text-white">~/Library/Application Support/Claude/claude_desktop_config.json</code>
-                        </p>
-                        <pre className="p-3.5 rounded-xl bg-[#0c0d10] border border-[#242732] text-xs font-mono text-[#aaa] overflow-x-auto">
-                          {otherClaudeDesktopConfig}
-                        </pre>
+                        <div className="p-3.5 rounded-xl bg-[#0b0c10] border border-white/5 space-y-1">
+                          <div className="font-mono text-[#d1fe17] font-bold">3. Pronto all'Uso</div>
+                          <p className="text-[#8e8e8e] text-[11px] leading-relaxed">
+                            L'agente si connette a RetentionVolt con tutti gli 8 tool CyberMCP sbloccati.
+                          </p>
+                        </div>
                       </div>
                     </div>
-                  )}
-
-                </div>
-              </div>
+                  </div>
 
               {/* Server Credentials Box */}
               <div className="p-6 rounded-2xl bg-[#14151a] border border-[#20222a] space-y-4">
@@ -1728,6 +1947,38 @@ Headers: { "Authorization": "Bearer ${displayKeyRef}" }`;
                         <span>{copiedUrl ? 'Copied' : 'Copy'}</span>
                       </button>
                     </div>
+                  </div>
+
+                  {/* Use existing key input */}
+                  <div className="space-y-1.5 pt-1">
+                    <div className="flex items-center justify-between text-xs font-mono text-[#8e8e8e] uppercase">
+                      <span>Hai già una chiave salvata? (opzionale)</span>
+                      {customKeyInput && (
+                        <button
+                          onClick={() => {
+                            setCustomKeyInput('');
+                            try { sessionStorage.removeItem('retentionvolt_active_mcp_key'); } catch {}
+                          }}
+                          className="text-[10px] text-[#8e8e8e] hover:text-white"
+                        >
+                          Rimuovi
+                        </button>
+                      )}
+                    </div>
+                    <input
+                      type="text"
+                      placeholder="Incolla una chiave salvata (rv_live_...) per usarla nei comandi sopra"
+                      value={customKeyInput}
+                      onChange={(e) => {
+                        const val = e.target.value.trim();
+                        setCustomKeyInput(val);
+                        if (val.startsWith('rv_') || val.startsWith('rb_')) {
+                          setFreshKey(val);
+                          try { sessionStorage.setItem('retentionvolt_active_mcp_key', val); } catch {}
+                        }
+                      }}
+                      className="w-full bg-[#0c0d10] border border-[#242732] rounded-xl px-4 py-2.5 text-xs font-mono text-white placeholder-[#555] focus:outline-none focus:border-[#d1fe17]/40"
+                    />
                   </div>
 
                   {/* Fresh key banner — shown ONCE after creation */}

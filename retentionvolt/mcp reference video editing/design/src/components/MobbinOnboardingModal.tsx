@@ -10,6 +10,7 @@ interface MobbinOnboardingModalProps {
   onClose?: () => void;
   onFinished: () => void;
   onOpenPaywall?: () => void;
+  isMcpMode?: boolean;
 }
 
 export const MobbinOnboardingModal: React.FC<MobbinOnboardingModalProps> = ({
@@ -17,6 +18,7 @@ export const MobbinOnboardingModal: React.FC<MobbinOnboardingModalProps> = ({
   onClose,
   onFinished,
   onOpenPaywall,
+  isMcpMode = false,
 }) => {
   const { user, completeOnboarding, logout } = useAuth();
 
@@ -183,17 +185,22 @@ export const MobbinOnboardingModal: React.FC<MobbinOnboardingModalProps> = ({
           <div className="space-y-5 animate-fade-in">
             <div className="text-center space-y-1.5">
               <h2 className="text-2xl sm:text-[26px] font-bold tracking-tight text-neutral-900">
-                Get full access.
+                {isMcpMode ? 'Attiva Pro per CyberMCP' : 'Get full access.'}
               </h2>
               <div className="flex items-center justify-center gap-1.5 text-xs text-neutral-600">
-                <span>Upgrade like</span>
-                {/* Overlapping User Avatars */}
-                <div className="inline-flex -space-x-1.5 overflow-hidden">
-                  <div className="inline-block h-4 w-4 rounded-full ring-1 ring-white bg-purple-500" />
-                  <div className="inline-block h-4 w-4 rounded-full ring-1 ring-white bg-amber-500" />
-                  <div className="inline-block h-4 w-4 rounded-full ring-1 ring-white bg-emerald-500" />
-                </div>
-                <span>for only $12/mo (or $6/mo billed annually) — Cancel anytime.</span>
+                {isMcpMode ? (
+                  <span>Abbonamento Pro obbligatorio per collegare assistenti AI (prova gratuita di 7 giorni).</span>
+                ) : (
+                  <>
+                    <span>Upgrade like</span>
+                    <div className="inline-flex -space-x-1.5 overflow-hidden">
+                      <div className="inline-block h-4 w-4 rounded-full ring-1 ring-white bg-purple-500" />
+                      <div className="inline-block h-4 w-4 rounded-full ring-1 ring-white bg-amber-500" />
+                      <div className="inline-block h-4 w-4 rounded-full ring-1 ring-white bg-emerald-500" />
+                    </div>
+                    <span>for only $12/mo (or $6/mo billed annually) — Cancel anytime.</span>
+                  </>
+                )}
               </div>
             </div>
 
@@ -202,34 +209,27 @@ export const MobbinOnboardingModal: React.FC<MobbinOnboardingModalProps> = ({
               <div className="flex items-center gap-2">
                 <span className="font-bold text-base text-neutral-900">Pro</span>
                 <span className="bg-[#0066ff] text-white text-[10px] font-extrabold uppercase px-1.5 py-0.5 rounded tracking-wider">
-                  POPULAR
+                  {isMcpMode ? 'OBBLIGATORIO PER MCP' : 'POPULAR'}
                 </span>
               </div>
 
               {/* Locked Features List with clean icons */}
               <ul className="space-y-2.5 text-xs text-neutral-700 font-medium">
                 <li className="flex items-center gap-2.5">
-                  <Lock className="w-3.5 h-3.5 text-neutral-500 shrink-0" />
-                  <span>Browse all 500,000+ video cut cadences</span>
+                  <Sparkles className="w-3.5 h-3.5 text-[#0066ff] shrink-0" />
+                  <span className="font-bold text-neutral-900">Accesso Server CyberMCP per Codex &amp; AI Agents</span>
                 </li>
                 <li className="flex items-center gap-2.5">
-                  <Sparkles className="w-3.5 h-3.5 text-neutral-500 shrink-0" />
-                  <span>CyberMCP Server Remote Access for AI Agents</span>
+                  <Lock className="w-3.5 h-3.5 text-neutral-500 shrink-0" />
+                  <span>500.000+ ritmi di taglio, zoom e retention curves</span>
                 </li>
                 <li className="flex items-center gap-2.5">
                   <Bookmark className="w-3.5 h-3.5 text-neutral-500 shrink-0" />
-                  <span>Unlimited collections &amp; moodboards</span>
-                </li>
-                <li className="flex items-center gap-2.5">
-                  <EyeOff className="w-3.5 h-3.5 text-neutral-500 shrink-0" />
-                  <span>Hide player watermark &amp; screen footers</span>
+                  <span>Collezioni e moodboard illimitati</span>
                 </li>
                 <li className="flex items-center gap-2.5">
                   <Download className="w-3.5 h-3.5 text-neutral-500 shrink-0" />
-                  <span>Download Premiere/DaVinci EDL &amp; XML exports</span>
-                </li>
-                <li className="text-[11px] text-neutral-400 pl-6">
-                  ...and more
+                  <span>Download Premiere/DaVinci EDL &amp; XML</span>
                 </li>
               </ul>
 
@@ -241,17 +241,19 @@ export const MobbinOnboardingModal: React.FC<MobbinOnboardingModalProps> = ({
                   disabled={isUpgrading}
                   className="w-full py-3 rounded-full bg-black hover:bg-neutral-800 text-white font-bold text-xs transition-all shadow-sm active:scale-[0.99] flex items-center justify-center gap-2"
                 >
-                  {isUpgrading ? 'Redirecting...' : 'Upgrade to Pro — 7-Day Free Trial ($6/mo)'}
+                  {isUpgrading ? 'Reindirizzamento...' : 'Attiva Pro — 7 Giorni Gratis ($6/mese)'}
                 </button>
 
-                <button
-                  type="button"
-                  onClick={() => handleChoosePlan('free')}
-                  disabled={isUpgrading}
-                  className="w-full py-2.5 rounded-full hover:bg-neutral-200/70 text-neutral-700 font-semibold text-xs transition-colors"
-                >
-                  Or continue for free
-                </button>
+                {!isMcpMode && (
+                  <button
+                    type="button"
+                    onClick={() => handleChoosePlan('free')}
+                    disabled={isUpgrading}
+                    className="w-full py-2.5 rounded-full hover:bg-neutral-200/70 text-neutral-700 font-semibold text-xs transition-colors"
+                  >
+                    Or continue for free
+                  </button>
+                )}
               </div>
             </div>
 

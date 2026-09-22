@@ -80,7 +80,7 @@ export async function verifyMcpKeyHash(presentedKey: string): Promise<VerifyKeyR
   }
 }
 
-/** Get the live plan for a user. Prioritizes server-controlled app_metadata to prevent client tampering. Defaults to 'free'. */
+/** Get the live plan for a user. Prioritizes server-controlled app_metadata and user_metadata/Stripe sync. Defaults to 'free'. */
 export async function getLiveUserPlan(
   userId: string
 ): Promise<{ plan: 'free' | 'pro'; email?: string; status?: string }> {
@@ -91,12 +91,29 @@ export async function getLiveUserPlan(
     const appMeta = (data.user.app_metadata || {}) as Record<string, unknown>;
     const userMeta = (data.user.user_metadata || {}) as Record<string, unknown>;
 
-    // 1. Strict server-only app_metadata check (tamper-proof)
-    const status = (appMeta.subscription_status as string) || 'active';
-    if (appMeta.plan === 'pro') {
-      if (['canceled', 'incomplete_expired', 'incomplete', 'unpaid'].includes(status)) {
+    const isAdmin = appMeta.role === 'admin' || userMeta.role === 'admin';
+    const status = (appMeta.subscription_status as string) || (userMeta.subscription_status as string) || 'active';
+
+    // 1. Check Pro status from server app_metadata, user_metadata, or admin role
+    const isMarkedPro = appMeta.plan === 'pro' || userMeta.plan === 'pro' || userMeta.is_pro === true || isAdmin;
+
+    if (isMarkedPro) {
+      // Check if subscription was explicitly cancelled (unless admin)
+      if (!isAdmin && ['canceled', 'incomplete_expired', 'incomplete', 'unpaid'].includes(status)) {
         return { plan: 'free', email: data.user.email, status };
       }
+
+      // Auto-heal / promote into app_metadata so both metadata remain consistently synced
+      if (appMeta.plan !== 'pro') {
+        try {
+          await supabaseAdmin.auth.admin.updateUserById(userId, {
+            app_metadata: { ...appMeta, plan: 'pro', subscription_status: status },
+          });
+        } catch {
+          /* best-effort heal */
+        }
+      }
+
       return {
         plan: 'pro',
         email: data.user.email,
@@ -104,18 +121,26 @@ export async function getLiveUserPlan(
       };
     }
 
-    // 2. If app_metadata.plan is not set, cross-check Stripe if customer id exists
-    const customerId = (appMeta.stripe_customer_id || userMeta.stripe_customer_id) as string | undefined;
-    if (customerId) {
-      try {
-        const { getStripe, findActiveSubscription } = await import('@/lib/stripeServer');
-        const stripe = getStripe();
-        if (stripe) {
+    // 2. Cross-check Stripe live subscriptions if customer exists or by email
+    try {
+      const { getStripe, findActiveSubscription, findStripeCustomer, resolveBillingUser } = await import('@/lib/stripeServer');
+      const stripe = getStripe();
+      if (stripe) {
+        let customerId = (appMeta.stripe_customer_id || userMeta.stripe_customer_id) as string | undefined;
+        if (!customerId) {
+          const billingUser = await resolveBillingUser(userId);
+          if (billingUser) {
+            customerId = (await findStripeCustomer(stripe, billingUser)) || undefined;
+          }
+        }
+
+        if (customerId) {
           const sub = await findActiveSubscription(stripe, customerId);
-          if (sub && (sub.status === 'active' || sub.status === 'trialing')) {
-            // Auto-heal / promote into app_metadata so subsequent checks are instant
+          if (sub && (sub.status === 'active' || sub.status === 'trialing' || sub.status === 'past_due')) {
+            // Auto-heal / promote into app_metadata and user_metadata
             await supabaseAdmin.auth.admin.updateUserById(userId, {
-              app_metadata: { ...appMeta, plan: 'pro', subscription_status: sub.status },
+              app_metadata: { ...appMeta, plan: 'pro', subscription_status: sub.status, stripe_customer_id: customerId },
+              user_metadata: { ...userMeta, plan: 'pro', subscription_status: sub.status, stripe_customer_id: customerId },
             });
             return {
               plan: 'pro',
@@ -124,9 +149,9 @@ export async function getLiveUserPlan(
             };
           }
         }
-      } catch {
-        /* Stripe check failed — fallback to free */
       }
+    } catch {
+      /* Stripe check failed — fallback to free */
     }
 
     return {
