@@ -233,18 +233,36 @@ export function generateEditPlan(
       }
       cur.words.push(w);
     }
+    const keepRanges = cuts.filter((c) => !c.reason.startsWith("CUT")).map((c) => ({
+      s: timecodeToSec(c.start),
+      e: timecodeToSec(c.end),
+    }));
+    const srcToTlSec = (src: number): number => {
+      let tl = 0;
+      for (const k of keepRanges) {
+        if (src >= k.s && src <= k.e) {
+          return tl + (src - k.s);
+        }
+        tl += k.e - k.s;
+      }
+      return tl;
+    };
     const GAP = 0.08;
     rawCards.forEach((card, i) => {
       if (card.words.length === 0) return;
+      const cardTl = srcToTlSec(card.start);
       const lastStart = timecodeToSec(card.words[card.words.length - 1].start);
       const natural = lastStart - card.start + 0.8;
+
+      const currentKeep = keepRanges.find((k) => card.start >= k.s && card.start <= k.e);
+      const keepLimit = currentKeep ? srcToTlSec(currentKeep.e) - cardTl - GAP : (isShort ? 4 : 8);
+
       const nextStart = rawCards[i + 1]?.start;
-      const capped =
-        nextStart !== undefined ? Math.max(0.5, nextStart - card.start - GAP) : natural;
-      // Short-form: snappy cards (1–4s). Long-form: room to breathe (1–8s).
-      const dur = isShort
-        ? Math.min(4, Math.max(1, Math.min(natural, capped)))
-        : Math.min(8, Math.max(1, Math.min(natural, capped)));
+      const nextLimit = nextStart !== undefined ? srcToTlSec(nextStart) - cardTl - GAP : (isShort ? 4 : 8);
+
+      const maxAllowed = Math.max(0.3, Math.min(keepLimit, nextLimit));
+      // Short-form: snappy cards (0.3–4s). Long-form: room to breathe (0.3–8s).
+      const dur = Math.min(maxAllowed, Math.max(0.3, Math.min(isShort ? 4 : 8, natural)));
       animations.push({
         time: secToTimecode(card.start),
         type: "karaoke_caption",
