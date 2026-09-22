@@ -742,7 +742,7 @@ describe("render: HyperFrames project build", () => {
         word: w,
       })))
     );
-    const plan = generateEditPlan(s, { style: "educational" }, flat);
+    const plan = generateEditPlan(s, { style: "educational", disableGraphics: false }, flat);
     const gfx = plan.graphics ?? [];
     expect(gfx.length).toBeGreaterThan(0);
     // every banner: known kind, non-empty transcript text, sane duration

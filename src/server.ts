@@ -218,8 +218,12 @@ server.tool(
       .string()
       .optional()
       .describe("Optional RetentionVolt blueprint JSON (from retentionvolt.com MCP server). Injects proven animations, motion graphics and pattern interrupts directly, bypassing heuristic guesswork."),
+    disableGraphics: z
+      .boolean()
+      .optional()
+      .describe("When true, no TOP graphic banner (act_title/highlight) is generated. Default: true on single_take (restraint), false when RetentionVolt blueprint provides graphics or takesCount ≥2. Pass false to force banners."),
   },
-  async ({ structure, transcript, style, sourcePortrait, takesCount, brollSources, attentionRiskPoints, extraCuts, corrections, retentionvolt_blueprint }) => {
+  async ({ structure, transcript, style, sourcePortrait, takesCount, brollSources, attentionRiskPoints, extraCuts, corrections, retentionvolt_blueprint, disableGraphics }) => {
     let parsedStructure: any;
     try {
       parsedStructure = JSON.parse(structure);
@@ -277,6 +281,7 @@ server.tool(
                   extraCuts,
                   corrections,
                   retentionvoltBlueprint: rvBlueprint,
+                  disableGraphics,
                 },
                 words
               ),

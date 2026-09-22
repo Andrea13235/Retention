@@ -103,6 +103,13 @@ export interface PlanOptions {
   retentionvoltBlueprint?: RetentionVoltBlueprint;
   /** Thumbnail configuration or override */
   thumbnail?: ThumbnailConfig;
+  /**
+   * Disable TOP graphic banners (act_title / highlight / number_stat).
+   * Default: true for single_take/short (restraint), false when blueprint
+   * provides graphics or caller explicitly enables them.
+   * When true, graphics[] is empty — no banner sopra in alto.
+   */
+  disableGraphics?: boolean;
 }
 
 export function generateEditPlan(
@@ -215,6 +222,7 @@ export function generateEditPlan(
     (structure.keywords ?? []).slice(0, 15).map((k) => k.word)
   );
   const animations: EditPlan["animations"] = [];
+  const structure_notes: EditPlan["structure_notes"] = [];
   if (transcriptWords && transcriptWords.length > 0) {
     // Drop CUT words first: only kept words reach captions.
     const kept = transcriptWords
@@ -276,15 +284,12 @@ export function generateEditPlan(
       });
     });
   } else {
-    // Fallback (no word timestamps): captions on highlights as before.
-    for (const h of structure.highlights.slice(0, 10)) {
-      animations.push({
-        time: h.start,
-        type: "caption",
-        content: "KEY INSIGHT",
-        position: "bottom",
-      });
-    }
+    // No word timestamps: do NOT invent captions. Produce a caption-free
+    // plan and tell the agent the exact fix (pass transcript with words).
+    structure_notes.push({
+      time: secToTimecode(0),
+      note: "captions disabled: transcript has no word timestamps — re-run transcribe_media with word_timestamps=true and pass transcript to generate_edit_plan",
+    });
   }
 
   // ——— Motion follows acts, not a metronome ———
@@ -313,9 +318,6 @@ export function generateEditPlan(
   const cutStarts = mergedCuts.map((c) => c.s); // cuts start here
   const nearCutStart = (t: number): boolean =>
     cutStarts.some((cs) => t >= cs - CUT_MASK_S && t < cs);
-  // Downgrade is never silent: the agent reads WHY the rhythm changed.
-  // (declared early: motion relocation below also writes here.)
-  const structure_notes: EditPlan["structure_notes"] = [];
   // Cuts-first placement helper. Tries, in order:
   // 1. place at `wanted` when the full span is CUT-clear;
   // 2. relocate the start within ±6s (prefer the nearest CUT-clear second,
@@ -567,9 +569,13 @@ export function generateEditPlan(
   //    AND media >8min. Title = hook_moment.text (≤90 chars).
   // ALL beats are dropped when: inside a CUT range, inside the 0.8s
   // pre-cut mask, overlapping another banner, or shorter than 1s of KEEP.
+  const disableGraphics =
+    opts.disableGraphics ??
+    (!rv?.graphics || rv.graphics.length === 0 ? footageMode(opts.takesCount) === "single_take" : false);
   const graphics: GraphicBeat[] = [];
   const graphicSpans: Array<{ s: number; e: number }> = [];
   const claimGraphic = (t: number, dur: number): boolean => {
+    if (disableGraphics) return false;
     if (!isKept(t) || nearCutStart(t)) return false;
     if (t + 1 > mediaEnd) return false;
     if (graphicSpans.some((g) => t < g.e && t + dur > g.s)) return false;
@@ -661,6 +667,12 @@ export function generateEditPlan(
     }
   }
   graphics.sort((a, b) => timecodeToSec(a.time) - timecodeToSec(b.time));
+  if (disableGraphics && graphics.length === 0) {
+    structure_notes.push({
+      time: secToTimecode(0),
+      note: "graphics disabled (single_take restraint): no TOP banner — pass disableGraphics:false or takesCount ≥2 to enable",
+    });
+  }
 
   // (structure_notes was declared up in the motion block: downgrade +
   // relocation + skip notes all land there.)
