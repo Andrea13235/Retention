@@ -328,7 +328,7 @@ export async function buildHyperframesProject(
         const from = dir === "out" ? 1 + rate * dur : 1;
         const to = dir === "out" ? 1 : 1 + rate * dur;
         zoomTweens.push(
-          `      tl.fromTo("${target}", { scale: ${from.toFixed(3)} }, { scale: ${to.toFixed(3)}, duration: ${dur}, ease: "none" }, ${t});`
+          `      tl.fromTo("${target}", { scale: ${from.toFixed(3)} }, { scale: ${to.toFixed(3)}, duration: ${dur}, ease: "none", immediateRender: false }, ${t});`
         );
       } else {
         // Punch-cut zoom: hard cut feel — fast push with a settle frame,
@@ -337,7 +337,7 @@ export async function buildHyperframesProject(
         const dir = i % 2 === 0 ? 1 : -1;
         const peak = a.type === "zoom_in" ? 1 + 0.09 * dir : 1 - 0.07 * dir;
         zoomTweens.push(
-          `      tl.fromTo("${target}", { scale: 1 }, { scale: ${peak.toFixed(3)}, duration: 0.18, ease: "power3.out" }, ${t});`
+          `      tl.fromTo("${target}", { scale: 1 }, { scale: ${peak.toFixed(3)}, duration: 0.18, ease: "power3.out", immediateRender: false }, ${t});`
         );
         zoomTweens.push(
           `      tl.to("${target}", { scale: 1, duration: 0.5, ease: "power2.inOut" }, ${t}+0.18);`
@@ -375,7 +375,7 @@ export async function buildHyperframesProject(
       );
     }
     overlayTimelines.push(
-      `      tl.fromTo("#gfx-${gi}", { y: -26, opacity: 0, scale: 0.92 }, { y: 0, opacity: 1, scale: 1, duration: 0.42, ease: "back.out(1.8)" }, ${t});`
+      `      tl.fromTo("#gfx-${gi}", { y: -26, opacity: 0, scale: 0.92 }, { y: 0, opacity: 1, scale: 1, duration: 0.42, ease: "back.out(1.8)", immediateRender: false }, ${t});`
     );
     overlayTimelines.push(
       `      tl.to("#gfx-${gi}", { y: -16, opacity: 0, scale: 0.95, duration: 0.32, ease: "power2.in" }, ${t + dur - 0.32});`
