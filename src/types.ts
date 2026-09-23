@@ -338,23 +338,25 @@ export function resolveRegister(
 export type GraphicKind = "act_title" | "number_stat" | "highlight" | "quote";
 
 /**
- * One content-aware graphic banner (planner output, renderer input).
+ * One content-aware graphic banner or motion design card (planner output, renderer input).
  * Times are SOURCE timecodes (same clock as cuts/animations); the
  * renderer remaps them and drops beats inside CUT ranges.
- * Rendered as a TOP banner (below nothing, above the face is free
- * space on talking-heads) so it NEVER covers the bottom karaoke
- * captions — "max 1 graphic at a time, never over captions" holds
- * by construction, no cross-check needed.
  */
 export interface GraphicBeat {
   time: Timecode;
   kind: GraphicKind;
-  /** Main line: section words / number / keyword / quote (transcript-verbatim). */
+  /** Main line: section words / number / keyword / quote / tool name. */
   title: string;
-  /** Optional second line (act_title only). */
+  /** Optional second line (act_title, tool_badge, concept_card). */
   subtitle?: string;
+  /** Category badge or tag (e.g. "AI TOOL", "SKILL", "AUTOMATION") */
+  tag?: string;
+  /** Optional icon/emoji (e.g. "⚡", "🤖", "📱", "✂️") */
+  icon?: string;
   /** Visible seconds (act 2.5, number 3.5, highlight 3, quote 4). */
   duration: number;
+  /** Position on screen: "top" | "center" | "bottom" (default: "top") */
+  position?: "top" | "center" | "bottom";
 }
 
 /** Target canvas presets. short = 9:16 vertical, long = 16:9 landscape. */

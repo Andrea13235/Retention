@@ -642,7 +642,7 @@ export function generateEditPlan(
 
   const disableGraphics =
     opts.disableGraphics ??
-    (!hasRvGraphics ? footageMode(opts.takesCount) === "single_take" : false);
+    (!hasRvGraphics ? (isShort ? false : footageMode(opts.takesCount) === "single_take") : false);
   const graphics: GraphicBeat[] = [];
   const graphicSpans: Array<{ s: number; e: number }> = [];
   const claimGraphic = (t: number, dur: number): boolean => {
@@ -658,7 +658,23 @@ export function generateEditPlan(
       const c = w.toLowerCase().replace(/[.,!?;:]+$/, "");
       return c.length > 0 && !CONTENT_STOP.has(c);
     });
-  // 1. act titles / RetentionVolt graphics (v2 events or legacy v1)
+
+  // Patterns for auto-detecting tools, software, skills, and tech concepts
+  const CONTEXT_VISUAL_PATTERNS = [
+    { match: /\b(codex)\b/i, title: "CODEX AI", tag: "AI AGENT", icon: "⚡", subtitle: "Autonomous Coding", isScreen: true },
+    { match: /\b(claude)\b/i, title: "CLAUDE", tag: "ANTHROPIC LLM", icon: "🤖", subtitle: "Context & Reasoning", isScreen: true },
+    { match: /\b(hermes)\b/i, title: "HERMES", tag: "AI SYSTEM", icon: "🏛️", subtitle: "Autonomous Execution", isScreen: true },
+    { match: /\b(rawcut|retention)\b/i, title: "RAWCUT SKILL", tag: "VIDEO AI", icon: "✂️", subtitle: "High-Retention Editor", isScreen: true },
+    { match: /\b(short|shorts|reel|reels|tiktok)\b/i, title: "VIRAL SHORTS", tag: "FORMAT", icon: "📱", subtitle: "9:16 High Retention", isScreen: true },
+    { match: /\b(social|socials)\b/i, title: "SOCIAL MEDIA", tag: "DISTRIBUTION", icon: "🚀", subtitle: "Multi-Platform Reach" },
+    { match: /\b(video|editare|editing)\b/i, title: "VIDEO EDITING", tag: "TIMELINE", icon: "🎬", subtitle: "Smart Cut & Motion" },
+    { match: /\b(skill|skills)\b/i, title: "AI SKILL", tag: "CAPABILITY", icon: "🧩", subtitle: "Workflow Automation" },
+    { match: /\b(python)\b/i, title: "PYTHON", tag: "LANGUAGE", icon: "🐍", subtitle: "Backend Engine" },
+    { match: /\b(whisper)\b/i, title: "WHISPER AI", tag: "ASR", icon: "🎙️", subtitle: "Millisecond Timings" },
+    { match: /\b(terminal|command|cli)\b/i, title: "CLI / TERMINAL", tag: "TERMINAL", icon: "💻", subtitle: "Developer Environment", isScreen: true },
+  ];
+
+  // 1. RetentionVolt Blueprint Graphics (Priority 1)
   const rvGraphicEvents = rv?.events?.filter((e) => e.type === "graphic" && e.graphic_kind !== "caption_pop") ?? [];
   if (rvGraphicEvents.length > 0) {
     const refDuration = Math.max(...(rv?.events?.map((e) => e.at_sec || 0) ?? [60]), 60);
@@ -724,70 +740,68 @@ export function generateEditPlan(
         /* skip invalid timecode */
       }
     }
-  } else {
-    let actCount = 0;
-    for (let i = 1; i < structure.sections.length && actCount < 3; i++) {
-      const sec = structure.sections[i];
-      const sStart = timecodeToSec(sec.start);
-      const words = contentWords(fixWord(sec.summary)).slice(0, 6);
-      if (words.length === 0) continue;
-      const t = sStart + 0.5;
-      const dur = 2.5;
-      if (!claimGraphic(t, dur)) continue;
-      graphics.push({
-        time: secToTimecode(t),
-        kind: "act_title",
-        title: words.join(" ").toUpperCase().slice(0, 48),
-        subtitle: sec.title,
-        duration: dur,
-      });
-      actCount++;
+  }
+
+  // 2. Contextual Screen Overlays & Tool Badges based on transcript words
+  // Identifies key tools, skills, platforms and concepts mentioned in the speech
+  for (const pat of CONTEXT_VISUAL_PATTERNS) {
+    const matchWord = transcriptWords?.find((w) => pat.match.test(w.word));
+    if (matchWord) {
+      const t = timecodeToSec(matchWord.start);
+      const dur = pat.isScreen ? 3.2 : 2.5;
+      if (claimGraphic(t, dur)) {
+        graphics.push({
+          time: secToTimecode(t),
+          kind: pat.isScreen ? "quote" : "highlight",
+          title: pat.title,
+          subtitle: pat.subtitle,
+          tag: pat.tag,
+          icon: pat.icon,
+          duration: dur,
+          position: isShort ? "center" : "top",
+        });
+      }
     }
-    // 2. number stats (top-10 digit keywords, max 2)
-    const numKws = (structure.keywords ?? [])
-      .filter((k, i) => i < 10 && /\d/.test(k.word))
-      .slice(0, 2);
-    for (const k of numKws) {
-      const t = timecodeToSec(k.start);
-      const dur = 3.5;
-      if (!claimGraphic(t, dur)) continue;
+  }
+
+  // 3. Spoken numbers & statistics (high-retention hooks)
+  const numKws = (structure.keywords ?? [])
+    .filter((k) => /\d/.test(k.word))
+    .slice(0, 3);
+  for (const k of numKws) {
+    const t = timecodeToSec(k.start);
+    const dur = 3.0;
+    if (claimGraphic(t, dur)) {
       graphics.push({
         time: secToTimecode(t),
         kind: "number_stat",
         title: fixWord(k.word).slice(0, 48),
         duration: dur,
+        tag: "STAT",
+        icon: "📊",
       });
     }
-    // 3. highlights (top-5 non-numeric, clear of numbers ±20s, max 2)
-    const numTimes = numKws.map((k) => timecodeToSec(k.start));
-    let hlCount = 0;
-    for (const k of (structure.keywords ?? []).slice(0, 5)) {
-      if (hlCount >= 2) break;
-      if (/\d/.test(k.word)) continue;
-      const t = timecodeToSec(k.start);
-      if (numTimes.some((n) => Math.abs(n - t) < 20)) continue;
-      const dur = 3;
-      if (!claimGraphic(t, dur)) continue;
+  }
+
+  // 4. Section openings (act titles)
+  let actCount = 0;
+  for (let i = 0; i < structure.sections.length && actCount < 3; i++) {
+    const sec = structure.sections[i];
+    const sStart = timecodeToSec(sec.start);
+    const words = contentWords(fixWord(sec.summary)).slice(0, 6);
+    if (words.length === 0) continue;
+    const t = sStart + 0.3;
+    const dur = 2.5;
+    if (claimGraphic(t, dur)) {
       graphics.push({
         time: secToTimecode(t),
-        kind: "highlight",
-        title: fixWord(k.word).toUpperCase().slice(0, 40),
+        kind: "act_title",
+        title: words.join(" ").toUpperCase().slice(0, 48) || sec.title,
+        subtitle: sec.title !== sec.summary ? sec.title : undefined,
         duration: dur,
+        tag: `PARTE ${i + 1}`,
       });
-      hlCount++;
-    }
-    // 4. quote recap (hook replay past midpoint, >8min media only)
-    if (structure.hook_moment && mediaEnd > 8 * 60) {
-      const t = mediaEnd / 2;
-      const dur = 4;
-      if (claimGraphic(t, dur)) {
-        graphics.push({
-          time: secToTimecode(t),
-          kind: "quote",
-          title: fixWord(structure.hook_moment.text).slice(0, 90),
-          duration: dur,
-        });
-      }
+      actCount++;
     }
   }
   graphics.sort((a, b) => timecodeToSec(a.time) - timecodeToSec(b.time));

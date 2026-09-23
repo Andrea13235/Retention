@@ -361,18 +361,58 @@ export async function buildHyperframesProject(
     const t = srcToTl(timecodeToSec(g.time));
     if (t === null) return;
     const dur = Math.max(1, Math.min(g.duration, 8));
-    graphicDivs.push(
-      `      <div id="gfx-${gi}" class="clip overlay gfx gfx-${g.kind}" data-start="${t}" data-duration="${dur}" style="top:${portrait ? "6%" : "8%"}">\n        <span class="gfx-title">${escHtml(g.title)}</span>${g.subtitle ? `\n        <span class="gfx-sub">${escHtml(g.subtitle)}</span>` : ""}\n      </div>`
+    const isScreen = Boolean(g.tag && (g.tag.includes("TERMINAL") || g.tag.includes("WORKSPACE") || g.tag.includes("AI SYSTEM") || g.tag.includes("AI AGENT") || g.tag.includes("AGENT TOOL") || g.tag.includes("CLI") || g.tag.includes("VIDEO AI")));
+    const pos = g.position ?? (isScreen ? "center" : (portrait ? "top" : "top"));
+    const posStyle = pos === "center" ? "top:35%;" : pos === "bottom" ? "bottom:28%;" : `top:${portrait ? "6%" : "8%"};`;
+
+    if (isScreen) {
+      graphicDivs.push(
+        `      <div id="gfx-${gi}" class="clip overlay gfx gfx-screen_overlay" data-start="${t}" data-duration="${dur}" style="${posStyle}">\n        <div class="gfx-card screen-card">\n          <div class="screen-header">\n            <div class="screen-dot red"></div>\n            <div class="screen-dot yellow"></div>\n            <div class="screen-dot green"></div>\n            <span class="screen-title">${escHtml(g.tag ? `${g.tag} — ` : "")}${escHtml(g.title)}</span>\n          </div>\n          <div class="screen-body">\n            <div class="screen-line"><span class="cmd-prompt">&gt;</span> <span class="cmd-highlight">${escHtml(g.title)}</span> active</div>\n            ${g.subtitle ? `<div class="screen-line sub"><span class="cmd-info">⚡</span> ${escHtml(g.subtitle)}</div>` : ""}\n            <div class="screen-line status"><span class="cmd-ok">✔</span> workflow optimized with RetentionVolt</div>\n          </div>\n        </div>\n      </div>`
+      );
+    } else {
+      graphicDivs.push(
+        `      <div id="gfx-${gi}" class="clip overlay gfx gfx-${g.kind}" data-start="${t}" data-duration="${dur}" style="${posStyle}">\n        <div class="gfx-card">\n          ${g.tag || g.icon ? `<div class="gfx-tag">${g.icon ? `<span class="gfx-icon">${g.icon}</span> ` : ""}${g.tag ? `<span>${escHtml(g.tag)}</span>` : ""}</div>` : ""}\n          <span class="gfx-title">${escHtml(g.title)}</span>${g.subtitle ? `\n          <span class="gfx-sub">${escHtml(g.subtitle)}</span>` : ""}\n        </div>\n      </div>`
+      );
+    }
+    overlayTimelines.push(
+      `      tl.fromTo("#gfx-${gi}", { y: -26, opacity: 0, scale: 0.92 }, { y: 0, opacity: 1, scale: 1, duration: 0.42, ease: "back.out(1.8)" }, ${t});`
     );
     overlayTimelines.push(
-      `      tl.fromTo("#gfx-${gi}", { y: -22, opacity: 0 }, { y: 0, opacity: 1, duration: 0.45, ease: "power2.out" }, ${t});`
+      `      tl.to("#gfx-${gi}", { y: -16, opacity: 0, scale: 0.95, duration: 0.32, ease: "power2.in" }, ${t + dur - 0.32});`
     );
   });
   const graphicsHtml = graphicDivs.join("\n");
 
+  // Camera framing shifts & directorial setups (shots)
+  const shotTweens: string[] = [];
+  (plan.shots ?? []).forEach((shot) => {
+    const sTl = srcToTl(timecodeToSec(shot.start));
+    const eTl = srcToTl(timecodeToSec(shot.end));
+    if (sTl === null || eTl === null || eTl <= sTl) return;
+    const idx = cutAt(sTl);
+    const target = idx >= 0 ? `#clip-${idx}` : ".fullbleed";
+
+    if (shot.shot_type === "pip_talking_head_on_screen") {
+      shotTweens.push(
+        `      tl.to("${target}", { scale: 0.38, transformOrigin: "bottom right", x: -40, y: -180, borderRadius: "24px", duration: 0.45, ease: "power3.out" }, ${sTl});`
+      );
+      shotTweens.push(
+        `      tl.to("${target}", { scale: 1, x: 0, y: 0, borderRadius: "0px", duration: 0.45, ease: "power3.inOut" }, ${eTl - 0.45});`
+      );
+    } else if (shot.shot_type === "talking_head_fullscreen") {
+      shotTweens.push(
+        `      tl.to("${target}", { scale: 1.18, transformOrigin: "center 30%", duration: 0.15, ease: "power2.out" }, ${sTl});`
+      );
+      shotTweens.push(
+        `      tl.to("${target}", { scale: 1, duration: 0.2, ease: "power2.in" }, ${eTl});`
+      );
+    }
+  });
+
   const beats = [
     ...overlayTimelines,
     ...zoomTweens,
+    ...shotTweens,
     ...plan.pattern_interrupts.flatMap((p, i) => {
       const t = srcToTl(timecodeToSec(p.time));
       if (t === null) return []; // interrupt inside a CUT range — gone
@@ -449,40 +489,110 @@ export async function buildHyperframesProject(
       }
       /* keyword pop: accent color set by GSAP at speech onset */
       .overlay.karaoke .kw.hl { font-weight: 800; }
-      /* graphic banners (v1.3): TOP, Apple restraint — white type, no
-         boxes. Kind accents: number_stat = money/attention color. */
-      .overlay.gfx { background: none; }
-      .overlay.gfx span { background: none; padding: 0; border-radius: 0; }
+      /* Modern motion graphics & visual cards */
+      .overlay.gfx {
+        background: none;
+        left: 4%;
+        right: 4%;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        pointer-events: none;
+        z-index: 15;
+      }
+      .gfx-card {
+        background: rgba(13, 17, 23, 0.94);
+        border: 1.5px solid rgba(255, 255, 255, 0.18);
+        border-radius: 20px;
+        padding: 16px 32px;
+        box-shadow: 0 16px 45px rgba(0, 0, 0, 0.75), 0 0 28px rgba(56, 189, 248, 0.25);
+        text-align: center;
+        display: inline-flex;
+        flex-direction: column;
+        align-items: center;
+        max-width: 92%;
+      }
+      .gfx-tag {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 20px;
+        font-weight: 700;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: #38bdf8;
+        margin-bottom: 6px;
+      }
+      .gfx-icon { font-size: 24px; }
       .overlay.gfx .gfx-title {
         display: block;
-        font-size: 40px;
+        font-size: 44px;
         font-weight: 800;
-        letter-spacing: 0.06em;
+        letter-spacing: 0.02em;
         color: #fff;
-        /* same legibility system as karaoke: layered shadow + hairline
-           stroke, so banners survive bright ceilings / skies */
-        text-shadow:
-          0 2px 18px rgba(0,0,0,0.65),
-          0 1px 4px rgba(0,0,0,0.8),
-          0 0 2px rgba(0,0,0,0.9);
-        -webkit-text-stroke: 1px rgba(0,0,0,0.35);
-        paint-order: stroke fill;
-      }
-      .overlay.gfx.gfx-number_stat .gfx-title { color: #ffd60a; }
-      .overlay.gfx.gfx-quote .gfx-title {
-        font-size: 32px;
-        font-weight: 600;
-        letter-spacing: 0.01em;
-        font-style: italic;
+        text-shadow: 0 2px 14px rgba(0,0,0,0.8);
+        line-height: 1.25;
       }
       .overlay.gfx .gfx-sub {
         display: block;
         margin-top: 6px;
-        font-size: 24px;
+        font-size: 22px;
         font-weight: 500;
-        letter-spacing: 0.12em;
-        opacity: 0.75;
+        color: #cbd5e1;
+        letter-spacing: 0.04em;
       }
+      .overlay.gfx.gfx-number_stat .gfx-card {
+        border-color: rgba(255, 214, 10, 0.55);
+        box-shadow: 0 16px 45px rgba(0,0,0,0.8), 0 0 35px rgba(255, 214, 10, 0.35);
+      }
+      .overlay.gfx.gfx-number_stat .gfx-title { color: #ffd60a; font-size: 58px; }
+      .overlay.gfx.gfx-tool_badge .gfx-card {
+        border-color: rgba(168, 85, 247, 0.55);
+        box-shadow: 0 16px 45px rgba(0,0,0,0.8), 0 0 35px rgba(168, 85, 247, 0.35);
+      }
+      .overlay.gfx.gfx-tool_badge .gfx-tag { color: #c084fc; }
+      .overlay.gfx.gfx-concept_card .gfx-card {
+        border-color: rgba(56, 189, 248, 0.55);
+        box-shadow: 0 16px 45px rgba(0,0,0,0.8), 0 0 35px rgba(56, 189, 248, 0.35);
+      }
+      .overlay.gfx.gfx-screen_overlay .gfx-card.screen-card {
+        width: 94%;
+        border-color: rgba(56, 189, 248, 0.7);
+        background: rgba(15, 23, 42, 0.95);
+        box-shadow: 0 20px 55px rgba(0,0,0,0.85), 0 0 45px rgba(56, 189, 248, 0.35);
+        padding: 22px;
+      }
+      .screen-header {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        width: 100%;
+        margin-bottom: 12px;
+        border-bottom: 1px solid rgba(255,255,255,0.14);
+        padding-bottom: 10px;
+      }
+      .screen-dot { width: 14px; height: 14px; border-radius: 50%; }
+      .screen-dot.red { background: #ff5f56; }
+      .screen-dot.yellow { background: #ffbd2e; }
+      .screen-dot.green { background: #27c93f; }
+      .screen-title { font-size: 19px; color: #94a3b8; font-family: monospace; margin-left: 8px; font-weight: 600; }
+      .screen-body {
+        width: 100%;
+        font-family: monospace;
+        font-size: 24px;
+        color: #e2e8f0;
+        text-align: left;
+        background: rgba(0,0,0,0.55);
+        border-radius: 12px;
+        padding: 18px;
+        line-height: 1.6;
+        box-sizing: border-box;
+      }
+      .screen-line { margin: 4px 0; }
+      .cmd-prompt { color: #4ade80; font-weight: 700; margin-right: 6px; }
+      .cmd-highlight { color: #38bdf8; font-weight: 700; }
+      .cmd-info { color: #ffd60a; margin-right: 6px; }
+      .cmd-ok { color: #4ade80; font-weight: 700; margin-right: 6px; }
       .punch { position: absolute; inset: 0; z-index: 5; pointer-events: none; }
     </style>
   </head>
