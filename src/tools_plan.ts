@@ -43,6 +43,8 @@ import {
   type NarrativeStructure,
   type RegisterName,
   type RetentionVoltBlueprint,
+  type BlueprintEvent,
+  type BlueprintShotType,
   type StylePreset,
   type ThumbnailConfig,
 } from "./types.js";
@@ -378,6 +380,7 @@ export function generateEditPlan(
     );
 
   const rv = opts.retentionvoltBlueprint;
+  const shots: NonNullable<EditPlan["shots"]> = [];
   if (rv) {
     structure_notes.push({
       time: secToTimecode(0),
@@ -389,9 +392,42 @@ export function generateEditPlan(
   }
 
   // Motion & visual animations:
-  // If RetentionVolt blueprint is provided, bypass heuristic guesswork:
-  // the database already provides the tested, high-retention animations and motion graphics!
-  if (rv?.animations && rv.animations.length > 0) {
+  // Priority 1: v2 Blueprint events (timeline-level events with semantic anchors)
+  if (rv?.events && rv.events.length > 0) {
+    const refDuration = Math.max(...rv.events.map((e) => e.at_sec || 0), 60);
+    for (const ev of rv.events) {
+      try {
+        let targetSec = (ev.at_sec / refDuration) * mediaEnd;
+        if (ev.section_index && structure.sections[ev.section_index - 1]) {
+          targetSec = timecodeToSec(structure.sections[ev.section_index - 1].start) + 0.3;
+        }
+        targetSec = Math.max(0, Math.min(mediaEnd - 1, targetSec));
+
+        if (ev.type === "shot" && ev.shot_type) {
+          const shotDur = Math.max(2, Math.min(ev.duration_sec ?? 8, mediaEnd - targetSec));
+          shots.push({
+            start: secToTimecode(targetSec),
+            end: secToTimecode(targetSec + shotDur),
+            shot_type: ev.shot_type,
+            pip_position: ev.pip_position,
+            pip_size_pct: ev.pip_size_pct,
+            split_ratio: ev.split_ratio,
+          });
+        } else if (ev.type === "zoom") {
+          const kind: MotionKind = ev.kind === "slow_zoom" ? "slow_zoom" : ev.kind === "zoom_out" ? "zoom_out" : "zoom_in";
+          const dur = ev.kind === "slow_zoom" ? (ev.duration_sec ?? 8) : undefined;
+          const placed = pushMotion(targetSec, kind, dur, `RetentionVolt ${kind}`);
+          if (placed !== null && kind === "slow_zoom" && ev.direction) {
+            const last = animations[animations.length - 1];
+            if (last && last.type === "slow_zoom") last.direction = ev.direction;
+          }
+        }
+      } catch {
+        /* skip invalid event */
+      }
+    }
+  } else if (rv?.animations && rv.animations.length > 0) {
+    // Priority 2: v1 Legacy blueprint animations
     for (const anim of rv.animations) {
       try {
         const t = timecodeToSec(anim.time);
@@ -726,11 +762,12 @@ export function generateEditPlan(
     graphics: graphics.length > 0 ? graphics : undefined,
     structure_notes: structure_notes.length > 0 ? structure_notes : undefined,
     review_cuts: reviewCuts.length > 0 ? reviewCuts : undefined,
+    shots: shots.length > 0 ? shots : undefined,
     retentionvolt_applied: Boolean(
       rv &&
-        ((rv.animations?.length ?? 0) +
-          (rv.pattern_interrupts?.length ?? 0) +
-          (rv.graphics?.length ?? 0) >
+        ((rv.events?.length ?? 0) +
+          (rv.animations?.length ?? 0) +
+          (rv.pattern_interrupts?.length ?? 0) >
           0)
     ),
     thumbnail,

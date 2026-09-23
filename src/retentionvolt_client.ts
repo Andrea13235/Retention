@@ -9,7 +9,8 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import http from "node:http";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import type { RetentionVoltBlueprint } from "./types.js";
+import type { RetentionVoltBlueprint, SimilarVideoResult, VideoStructureProfile, VideoType } from "./types.js";
+import { buildAgentMessage } from "./tools_similarity.js";
 
 export const RETENTIONVOLT_LOGIN_URL = "https://retentionvolt.com/login-mcp";
 export const RETENTIONVOLT_MCP_LOGIN_URL = "https://retentionvolt.com/login-mcp";
@@ -340,5 +341,91 @@ export async function fetchRetentionVoltBlueprint(
       "[Local Fallback Heuristic] Pacing calibrated via local heuristics (connect RetentionVolt Pro for live database patterns).",
       "Dynamic hook frame extracted for high-CTR thumbnail layout.",
     ],
+  };
+}
+
+/**
+ * Query the RetentionVolt cloud for videos structurally similar to the user's footage.
+ * On success, returns a ranked list of SimilarVideoMatch with ready-to-use blueprints.
+ * Falls back gracefully to fetchRetentionVoltBlueprint when no API key is present or the
+ * network call fails, so the rest of the pipeline always has a valid blueprint.
+ */
+export async function findSimilarVideo(
+  transcriptText: string,
+  opts: {
+    format?: "short" | "long";
+    language?: string;
+    niche?: string;
+    videoType?: VideoType;
+    topK?: number;
+    endpoint?: string;
+  } = {}
+): Promise<SimilarVideoResult> {
+  const apiKey = await getStoredApiKey();
+  const endpoint = opts.endpoint ?? DEFAULT_RETENTIONVOLT_ENDPOINT;
+
+  if (apiKey) {
+    try {
+      const res = await fetch(endpoint, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${apiKey}`,
+          "x-mcp-api-key": apiKey,
+        },
+        signal: AbortSignal.timeout(10_000),
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: "find_similar",
+          method: "tools/call",
+          params: {
+            name: "find_similar_video",
+            arguments: {
+              transcript_text: transcriptText.slice(0, 3000),
+              format: opts.format,
+              language: opts.language ?? "it",
+              niche: opts.niche,
+              video_type: opts.videoType,
+              top_k: opts.topK ?? 3,
+            },
+          },
+        }),
+      });
+
+      if (res.ok) {
+        const data = (await res.json()) as any;
+        const textContent = data?.result?.content?.[0]?.text;
+        if (textContent) {
+          const parsed = JSON.parse(textContent);
+          if (parsed.best_blueprint || parsed.matches) {
+            return {
+              matches: parsed.matches ?? [],
+              best_blueprint: parsed.best_blueprint ?? parsed.matches?.[0]?.blueprint,
+              confidence: parsed.confidence ?? parsed.matches?.[0]?.similarity_score ?? 0.85,
+              high_confidence: (parsed.confidence ?? 0.85) >= 0.7,
+              source: "retentionvolt_cloud",
+              agent_message: buildAgentMessage(parsed.matches ?? [], opts.language ?? "it"),
+            };
+          }
+        }
+      }
+    } catch {
+      // Fallback automatico offline se la rete o l'API falliscono
+    }
+  }
+
+  // Fallback offline a retention locale (Zero-Lock: non blocca mai l'utente)
+  const fallbackBp = await fetchRetentionVoltBlueprint(transcriptText.slice(0, 50), {
+    niche: opts.niche,
+    format: opts.format,
+  });
+
+  return {
+    matches: [],
+    best_blueprint: fallbackBp,
+    confidence: 0.5,
+    high_confidence: false,
+    source: "local_fallback",
+    agent_message: "",
   };
 }

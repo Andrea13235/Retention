@@ -144,15 +144,93 @@ Workflow: run once, confirm `needs_review` words, re-run with `corrections`, onl
 
 ---
 
+### 3b. Similarity Search — `find_similar_video(transcript_text, structure_json, ...)` *(RetentionVolt Enhanced only)*
+
+> ⚠️ **CONDIZIONE FONDAMENTALE**: Questo passaggio si attiva ed esiste **SOLO SE** l'utente ha scelto di usare e si è registrato/connesso al server MCP RetentionVolt allo Step 0 (`connected: true`).  
+> Se l'utente ha scelto di non connettersi o preferisce la modalità locale, **NON eseguire questo step**: procedi direttamente allo Step 4 (Branch B: Standalone Local Mode) senza interpellare il cloud.
+
+Disponibile esclusivamente con RetentionVolt MCP connesso. Interroga il database RetentionVolt per trovare il video top-performer più simile su 4 dimensioni di matching.
+
+**Quando chiamarlo**: Dopo `analyze_transcript`, prima di `generate_edit_plan` (solo per utenti RetentionVolt connessi).
+
+#### 4 Matching Dimensions
+
+| Dimension | Source | Note |
+|---|---|---|
+| **Niche** | Agent infers from topic/context | tech, productivity, entertainment, finance, fitness, storytelling, lifestyle… |
+| **Video Type** | Auto-inferred from transcript signals | talking_head, talking_head_with_screen_share, vlog, tutorial_screencast, podcast, cinematic_branded |
+| **Topic** | Semantic embedding of transcript text | Cosine similarity on topic_embedding vector |
+| **Format** | From import_raw_media (short/long) | short < 90s, long > 90s |
+
+#### Video Type Inference Signals
+
+The server auto-infers `video_type` from transcript keywords. You can also pass it explicitly:
+- **screen_share signals**: "vedi qui", "apro", "vi mostro lo schermo", "on screen", "i'll show you", "let me open"
+- **vlog signals**: "siamo qui", "andiamo", "we're here", "behind me", "let's go"
+- **screencast signals**: "in this tutorial", "step by step", "open your terminal" (+ duration ≥ 5min)
+- **podcast signals**: "ospite", "welcome to the show", "today I have with me" (+ duration ≥ 10min)
+- **default**: `talking_head`
+
+**Inputs**:
+- `transcript_text`: the full spoken words (from `segments[].text` joined, NOT the JSON)
+- `structure_json`: the full NarrativeStructure JSON from `analyze_transcript`
+- `format`: "short" or "long"
+- `language`: BCP-47 code from the transcript
+- `niche`: optional hint (tech, productivity, entertainment, finance, storytelling, fitness, lifestyle)
+- `video_type`: optional — auto-inferred if omitted
+
+**Output** (`SimilarVideoResult`):
+- `matches[]`: ranked list of similar videos with `similarity_score`, `creator`, `title`, `video_type`, and `blueprint`
+- `best_blueprint`: the top-match blueprint, ready to pass to `generate_edit_plan`
+- `confidence`: similarity score of the best match (0–1)
+- `high_confidence`: true if `confidence >= 0.70`
+- `agent_message`: human-readable message to show the user about the match
+
+**Blueprint Structure (events only — NO cuts)**:
+```
+events[]
+  type: shot        → cambio inquadratura (talking_head_fullscreen, screen_share, split_screen, pip)
+  type: zoom        → qualsiasi zoom (slow_zoom, zoom_punch, zoom_in, zoom_out)
+  type: graphic     → motion graphics (act_title_banner, caption_pop, number_stat, callout_arrow…)
+  type: caption     → stile sottotitoli (karaoke_bold, accent_color, posizione)
+  type: animation   → animazioni UI / overlay
+  type: section_start → marcatore sezione (section_index per semantic mapping)
+```
+
+> ⚠️ **Il blueprint NON contiene mai eventi di tipo `cut`.**
+> I cut vengono decisi esclusivamente da `analyze_transcript` → `cut_candidates`.
+> Il blueprint definisce solo **cosa aggiungere visivamente**, non dove tagliare.
+
+**How the agent adapts the blueprint**:
+- `at_sec` in the blueprint = timecode nel video di RIFERIMENTO (non copiare direttamente)
+- `section_index: 1` → mappa sulla sezione 1 del video dell'utente
+- `text_source: "keyword_from_transcript"` → usa parole chiave del transcript dell'UTENTE
+- `text_source: "spoken_number_from_transcript"` → usa il numero detto dall'utente
+- Mai copiare testo dal video di riferimento — sempre dal transcript dell'utente
+
+**Agent behavior**:
+- If `high_confidence: true` → show `agent_message` to user, proceed with `best_blueprint`
+- If `high_confidence: false` → silently fall back to `fetch_retentionvolt_blueprint`
+- Never invent or guess animations: always wait for blueprint data
+
+Completion: `SimilarVideoResult` with at least `best_blueprint` set (fallback ensures this).
+
+---
+
 ### 4. Plan — `generate_edit_plan(structure, transcript?, style?, ...)`
 
 Build the machine-actionable Edit Plan v1.3.
 
 #### Branch A: When Connected to RetentionVolt MCP (`retentionvolt_blueprint`)
-1. **Database Query**: Query RetentionVolt for the closest reference video / retention curve matching the topic and format.
-2. **Bypass Heuristic Animation Guesswork**: Do NOT try to guess or invent generic zoom placements or animations. RetentionVolt already contains the exact, tested animation cues, motion graphics, and visual accents!
-3. **Inject Blueprint**: Pass the blueprint as `retentionvolt_blueprint` to `generate_edit_plan`. The planner injects proven animations, pattern interrupts, and graphic banners while still enforcing the safety rule (*"Cuts First"*: no motion starts within 0.8s before a cut or 2.0s after).
-4. **Thumbnail Blueprint**: RetentionVolt provides the high-CTR cover concept (title, badge, hook timestamp).
+1. **Video Similarity Search (NEW — Step 3b)**: After `analyze_transcript`, call `find_similar_video` with:
+   - `transcript_text`: the full spoken text from the transcript
+   - `structure_json`: the NarrativeStructure JSON from `analyze_transcript`
+   - `format`, `language`, `niche` (if known)
+   This queries the RetentionVolt database using multi-dimensional embedding similarity to find the most similar top-performing video.
+2. **Show the User the Match**: If `confidence >= 0.70` (high_confidence: true), show the `agent_message` from the result to the user, presenting the matched creator/title and similarity score. Ask if they want to proceed with that reference.
+3. **Inject Blueprint**: Pass `result.best_blueprint` as `retentionvolt_blueprint` to `generate_edit_plan`. The planner injects proven animations, pattern interrupts, and graphic banners while still enforcing the safety rule (*"Cuts First"*: no motion starts within 0.8s before a cut or 2.0s after).
+4. **Low-Confidence Fallback**: If `confidence < 0.70`, fall back to `fetch_retentionvolt_blueprint(query, { niche, format })` as before.
+5. **Thumbnail Blueprint**: RetentionVolt provides the high-CTR cover concept via `result.best_blueprint.thumbnail`.
 
 #### Branch B: Standalone Local Mode
 1. **Rhythm Register**: `educational` (~5s), `show` (~2s, needs takesCount ≥2), `tutorial` (~20s), `podcast` (~60s), `short_form` (~4s).

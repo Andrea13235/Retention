@@ -453,19 +453,52 @@ export interface EditPlan {
   retentionvolt_applied?: boolean;
   /** Thumbnail configuration (generated or suggested by RetentionVolt) */
   thumbnail?: ThumbnailConfig;
+  /** Directorial shot setups (fullscreen, screen share, PiP, split screen) adapted from RetentionVolt */
+  shots?: Array<{
+    start: Timecode;
+    end: Timecode;
+    shot_type: BlueprintShotType;
+    pip_position?: "bottom_right" | "bottom_left" | "top_right" | "top_left";
+    pip_size_pct?: number;
+    split_ratio?: string;
+  }>;
 }
 
 /**
  * RetentionVolt Blueprint (from retentionvolt.com MCP server).
- * Contains proven patterns, animations, motion graphics, and thumbnail guidance
- * derived from database analysis of top-performing videos.
+ * Contains the full per-second visual event timeline of a top-performing reference video.
+ *
+ * IMPORTANT: This blueprint contains NO cuts. Cuts are determined exclusively
+ * by analyze_transcript on the user's own content. The blueprint only defines
+ * what to ADD visually (shots, zooms, motion graphics, captions).
+ *
+ * The agent adapts `at_sec` timecodes using semantic triggers:
+ * - `section_index` → maps to equivalent section in the user's video
+ * - `text_source` → text pulled from the USER's transcript (never copied from reference)
  */
 export interface RetentionVoltBlueprint {
-  /** Video reference pattern or archetype ID from RetentionVolt */
+  /** Video reference pattern ID from RetentionVolt database */
   pattern_id?: string;
-  /** Provenance of the blueprint: cloud database or local fallback */
+  /** Provenance: cloud database query or local fallback heuristics */
   source?: "retentionvolt_cloud" | "local_fallback";
-  /** Proven animations/motion graphics mapped to source timecodes */
+  /**
+   * Full per-second visual event timeline of the reference video.
+   * Events are ordered by at_sec ascending.
+   * Types: shot | zoom | graphic | caption | animation | section_start
+   * NEVER includes 'cut' events.
+   */
+  events?: BlueprintEvent[];
+  /** Summary of shot types used (for quick agent reference) */
+  shot_types_summary?: BlueprintShotType[];
+  /** Summary of graphic types used (for quick agent reference) */
+  graphic_types_summary?: BlueprintGraphicKind[];
+  /** High-CTR thumbnail configuration */
+  thumbnail?: ThumbnailConfig;
+  /** Free-form retention notes from reference video analysis */
+  retention_notes?: string[];
+
+  // ── Legacy fields (kept for backward compatibility with v1 blueprints) ──
+  /** @deprecated Use events[] instead */
   animations?: Array<{
     time: Timecode;
     type: AnimationType;
@@ -476,18 +509,93 @@ export interface RetentionVoltBlueprint {
     direction?: "in" | "out";
     intensity?: number;
   }>;
-  /** Proven pattern interrupts (e.g. caption pops, visual jolts) */
+  /** @deprecated Use events[] instead */
   pattern_interrupts?: Array<{
     time: Timecode;
     kind: "caption_pop" | "zoom_punch" | "visual_glitch" | string;
     detail?: string;
   }>;
-  /** Graphic banners / lower thirds from proven retention structures */
+  /** @deprecated Use events[] instead */
   graphics?: GraphicBeat[];
-  /** Recommended thumbnail / cover configuration for high CTR */
-  thumbnail?: ThumbnailConfig;
-  /** Free-form notes or retention tips from the reference video */
-  retention_notes?: string[];
+}
+
+/**
+ * Profile della struttura narrativa di un video utente, usato per il similarity matching.
+ * Derivato dall'output di analyze_transcript.
+ */
+export interface VideoStructureProfile {
+  /** Durata del hook in secondi */
+  hook_duration_sec: number;
+  /** Numero di sezioni narrative */
+  sections_count: number;
+  /** Durata media di ogni sezione (secondi) */
+  avg_section_length_sec: number;
+  /** Rapporto parole filler su totale (0-1) */
+  filler_ratio: number;
+  /** Numero di zone di calo attenzione */
+  attention_dips_count: number;
+  /** Densità dei momenti highlight (highlights/min) */
+  highlight_density: number;
+  /** Presenza di una call-to-action finale */
+  cta_present: boolean;
+  /** Parole al minuto (over kept words) */
+  speech_wpm?: number;
+  /** Tipo di video inferito automaticamente da inferVideoType() */
+  inferred_video_type?: VideoType;
+}
+
+/** Un singolo video simile trovato nel database RetentionVolt */
+export interface SimilarVideoMatch {
+  /** UUID del video nel database RetentionVolt */
+  video_id: string;
+  /** Nome del creator (es: 'Ali Abdaal', 'MrBeast') */
+  creator: string;
+  /** Titolo del video di riferimento */
+  title: string;
+  /** Niche del video */
+  niche: string;
+  /** Tipologia di video (talking_head, vlog, tutorial_screencast, ecc.) */
+  video_type: VideoType;
+  /** Format: short o long */
+  format: "short" | "long";
+  /** Lingua del video */
+  language: string;
+  /** Durata in secondi */
+  duration_sec: number;
+  /** % media di retention del pubblico */
+  avg_retention_pct?: number;
+  /** Click-Through Rate % */
+  ctr_pct?: number;
+  /** Numero di views */
+  views_count?: number;
+  /** Score virale normalizzato 0-1 */
+  viral_score?: number;
+  /** Score di similarità composito 0-1 */
+  similarity_score: number;
+  /** Posizione nel ranking (1 = migliore match) */
+  rank: number;
+  /** Blueprint da iniettare in generate_edit_plan */
+  blueprint: RetentionVoltBlueprint;
+  /** Ricetta thumbnail high-CTR */
+  thumbnail_recipe?: ThumbnailConfig;
+  /** Pattern interrupts con timestamp */
+  pattern_interrupts?: Array<{ time: Timecode; kind: string; detail?: string }>;
+}
+
+/** Risultato completo di find_similar_video */
+export interface SimilarVideoResult {
+  /** Lista ordinata dei video più simili (rank 1 = migliore match) */
+  matches: SimilarVideoMatch[];
+  /** Blueprint del rank-1 già pronto per generate_edit_plan */
+  best_blueprint: RetentionVoltBlueprint;
+  /** Confidence del match migliore (0-1) */
+  confidence: number;
+  /** Se true, il match supera la soglia consigliata (0.70) */
+  high_confidence: boolean;
+  /** Provenance: cloud o fallback */
+  source: "retentionvolt_cloud" | "local_fallback";
+  /** Messaggio human-readable per l'agente da mostrare all'utente */
+  agent_message: string;
 }
 
 /** Configuration for high-CTR video thumbnail / cover generation. */
@@ -532,3 +640,109 @@ export const RENDER_PRESETS = {
 } as const;
 
 export type RenderPreset = keyof typeof RENDER_PRESETS;
+
+/**
+ * Tipologia di video — usata come dimensione di matching nel Video Similarity Engine.
+ * Rilevata automaticamente dal transcript e dai metadata del video.
+ */
+export type VideoType =
+  | "talking_head"                    // Singola persona in camera, sfondo fisso
+  | "talking_head_with_screen_share"  // Viso + schermo computer
+  | "vlog"                            // On the go, location varie, molto B-roll
+  | "tutorial_screencast"             // Schermo prevalente, voce over
+  | "podcast"                         // 2+ persone, ambiente fisso
+  | "cinematic_branded";              // Camera professionale, footage curato
+
+/**
+ * Tipo di un singolo evento visivo nel blueprint RetentionVolt.
+ * I CUT non sono inclusi: i cut dipendono dal contenuto dell'utente
+ * e vengono decisi da analyze_transcript, non dal blueprint.
+ */
+export type BlueprintEventType =
+  | "shot"          // Cambio di inquadratura (talking_head → screen_share → split_screen)
+  | "zoom"          // Qualsiasi zoom (slow_zoom, zoom_punch, zoom_in, zoom_out)
+  | "graphic"       // Motion graphics (banner, caption_pop, stat, callout, highlight_box)
+  | "caption"       // Configurazione stile sottotitoli
+  | "animation"     // Animazioni UI / overlay effects
+  | "section_start"; // Marcatore inizio sezione (per semantic mapping)
+
+/**
+ * Shot types supported in blueprints.
+ */
+export type BlueprintShotType =
+  | "talking_head_fullscreen"
+  | "screen_share_fullscreen"
+  | "pip_talking_head_on_screen"   // Picture-in-picture: creator su schermo
+  | "split_screen"                 // Creator a sinistra, schermo a destra
+  | "talking_head_pip"             // Talking head piccolo su sfondo
+  | "b_roll_fullscreen";           // B-roll clip a schermo intero
+
+/**
+ * Graphic kinds in the blueprint.
+ */
+export type BlueprintGraphicKind =
+  | "act_title_banner"      // Banner sezione in alto
+  | "caption_pop"           // Keyword pop a schermo
+  | "number_stat"           // Numero/stat grande a schermo
+  | "screen_callout_arrow"  // Freccia + label su elemento schermo
+  | "screen_highlight_box"  // Box evidenziatore su area schermo
+  | "lower_third"           // Lower third con nome/info
+  | "end_screen_cta";       // CTA end screen
+
+/**
+ * Un singolo evento visivo nel blueprint di un video top-performer.
+ * Il campo `at_sec` è relativo al video di riferimento analizzato.
+ * L'agente NON copia `at_sec` direttamente — usa `section_index` e
+ * `text_source` come trigger semantici da mappare sul video dell'utente.
+ */
+export interface BlueprintEvent {
+  /** Timecode (secondi) nel video di riferimento. Solo per ispirazione — non copiare direttamente. */
+  at_sec: number;
+  /** Tipo di evento visivo. Mai 'cut' — i cut non fanno parte del blueprint. */
+  type: BlueprintEventType;
+
+  // ── SHOT fields (type === 'shot') ────────────────────────────────────────
+  shot_type?: BlueprintShotType;
+  framing?: "wide" | "medium" | "medium_close_up" | "close_up" | "extreme_close_up";
+  transition?: "instant_cut" | "fade" | "slide";
+  /** Split screen ratio (e.g. '40/60') */
+  split_ratio?: string;
+  left?: string;
+  right?: string;
+  pip_position?: "bottom_right" | "bottom_left" | "top_right" | "top_left";
+  pip_size_pct?: number;
+
+  // ── ZOOM fields (type === 'zoom') ────────────────────────────────────────
+  kind?: "slow_zoom" | "zoom_punch" | "zoom_in" | "zoom_out";
+  direction?: "in" | "out";
+  target?: "face" | "screen_region" | "full_frame";
+  scale?: number;              // Scale multiplier (e.g. 1.12)
+  intensity_pct_per_sec?: number; // For slow_zoom
+  duration_sec?: number;
+
+  // ── GRAPHIC fields (type === 'graphic') ──────────────────────────────────
+  graphic_kind?: BlueprintGraphicKind;
+  /**
+   * Source of text content. Never hardcoded — always references the user's transcript.
+   * Values: 'keyword_from_transcript' | 'section_title_from_transcript' |
+   *         'spoken_number_from_transcript' | 'creator_name' | 'hook_strongest_phrase'
+   */
+  text_source?: string;
+  position?: "top" | "bottom" | "center" | "bottom_left" | "bottom_right" | "top_left";
+  style?: string;
+  color?: string;
+  region?: string;             // For screen_callout_arrow / screen_highlight_box
+  points_to?: string;          // For callout arrows
+
+  // ── CAPTION fields (type === 'caption') ──────────────────────────────────
+  caption_style?: "karaoke" | "karaoke_bold" | "static" | "word_by_word";
+  accent_color?: string;
+  active?: boolean;
+
+  // ── SECTION_START fields (type === 'section_start') ──────────────────────
+  /** 1-based section index — used for semantic mapping onto user's video */
+  section_index?: number;
+
+  // ── Common optional ──────────────────────────────────────────────────────
+  note?: string;
+}

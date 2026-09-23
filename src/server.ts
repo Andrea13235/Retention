@@ -25,7 +25,9 @@ import {
 import {
   connectRetentionVolt,
   fetchRetentionVoltBlueprint,
+  findSimilarVideo,
 } from "./retentionvolt_client.js";
+import { extractStructureProfile, profileToVector, buildAgentMessage, inferVideoType } from "./tools_similarity.js";
 import { RENDER_PRESETS } from "./types.js";
 
 const server = new McpServer({
@@ -79,6 +81,55 @@ server.tool(
       return {
         isError: true,
         content: [{ type: "text", text: `fetch_retentionvolt_blueprint failed: ${(err as Error).message}` }],
+      };
+    }
+  }
+);
+
+server.tool(
+  "find_similar_video",
+  "Step 3b (RetentionVolt Enhanced) — Trova il video top-performer più simile nel database RetentionVolt usando 4 dimensioni (niche, video_type, topic, format). Da chiamare DOPO analyze_transcript e PRIMA di generate_edit_plan.",
+  {
+    transcript_text: z.string().min(1).describe("Testo completo delle parole parlate"),
+    structure_json: z.string().describe("NarrativeStructure JSON restituito da analyze_transcript"),
+    format: z.enum(["short", "long"]).optional(),
+    language: z.string().optional(),
+    niche: z.enum(["tech", "productivity", "entertainment", "finance", "fitness", "storytelling", "lifestyle", "gaming", "food", "travel", "fashion", "education", "science", "news", "comedy"]).optional(),
+    video_type: z.enum(["talking_head", "talking_head_with_screen_share", "vlog", "tutorial_screencast", "podcast", "cinematic_branded"]).optional().describe("Tipologia video: se omessa, viene dedotta automaticamente dal transcript."),
+    top_k: z.number().int().min(1).max(10).optional(),
+  },
+  async ({ transcript_text, structure_json, format, language, niche, video_type, top_k }) => {
+    let structure: any;
+    try {
+      structure = JSON.parse(structure_json);
+    } catch {
+      return {
+        isError: true,
+        content: [{ type: "text", text: "structure_json deve essere un JSON valido da analyze_transcript" }],
+      };
+    }
+
+    try {
+      const resolvedType = video_type ?? inferVideoType(transcript_text, {
+        isPortrait: structure.is_portrait,
+        durationSec: structure.duration_sec,
+      });
+
+      const result = await findSimilarVideo(transcript_text, {
+        format,
+        language,
+        niche,
+        videoType: resolvedType,
+        topK: top_k,
+      });
+
+      return {
+        content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+      };
+    } catch (err) {
+      return {
+        isError: true,
+        content: [{ type: "text", text: `find_similar_video error: ${(err as Error).message}` }],
       };
     }
   }
