@@ -484,7 +484,7 @@ export function generateEditPlan(
         pushMotion(t, "zoom_in", undefined, `zoom_in (slow spot: ${spot.reason})`);
       }
     }
-    for (const d of structure.attention_dips.slice(0, 10)) {
+    for (const d of (structure.attention_dips ?? []).slice(0, 10)) {
       const t = timecodeToSec(d.start);
       if (isSceneChange(t)) {
         pushMotion(t, "zoom_in", undefined, `zoom_in (attention dip: ${d.reason})`);
