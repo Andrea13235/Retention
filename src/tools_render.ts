@@ -392,9 +392,13 @@ export async function buildHyperframesProject(
     const idx = cutAt(sTl);
     const target = idx >= 0 ? `#clip-${idx}` : ".fullbleed";
 
-    if (shot.shot_type === "pip_talking_head_on_screen") {
+    if (shot.shot_type === "pip_talking_head_on_screen" || shot.shot_type === "talking_head_pip") {
+      const pipPos = shot.pip_position ?? "bottom_right";
+      const xOffset = pipPos.includes("right") ? -40 : 40;
+      const yOffset = pipPos.includes("bottom") ? -180 : 180;
+      const origin = pipPos.replace("_", " ");
       shotTweens.push(
-        `      tl.to("${target}", { scale: 0.38, transformOrigin: "bottom right", x: -40, y: -180, borderRadius: "24px", duration: 0.45, ease: "power3.out" }, ${sTl});`
+        `      tl.to("${target}", { scale: 0.38, transformOrigin: "${origin}", x: ${xOffset}, y: ${yOffset}, borderRadius: "24px", duration: 0.45, ease: "power3.out" }, ${sTl});`
       );
       shotTweens.push(
         `      tl.to("${target}", { scale: 1, x: 0, y: 0, borderRadius: "0px", duration: 0.45, ease: "power3.inOut" }, ${eTl - 0.45});`
@@ -406,8 +410,47 @@ export async function buildHyperframesProject(
       shotTweens.push(
         `      tl.to("${target}", { scale: 1, duration: 0.2, ease: "power2.in" }, ${eTl});`
       );
+    } else if (shot.shot_type === "screen_share_fullscreen" || shot.shot_type === "b_roll_fullscreen") {
+      shotTweens.push(
+        `      tl.to("${target}", { opacity: 0.18, scale: 0.96, duration: 0.35, ease: "power2.out" }, ${sTl});`
+      );
+      shotTweens.push(
+        `      tl.to("${target}", { opacity: 1, scale: 1, duration: 0.35, ease: "power2.inOut" }, ${eTl - 0.35});`
+      );
+    } else if (shot.shot_type === "split_screen") {
+      const splitY = portrait ? -360 : 0;
+      const splitX = portrait ? 0 : -320;
+      shotTweens.push(
+        `      tl.to("${target}", { x: ${splitX}, y: ${splitY}, scale: 0.65, borderRadius: "20px", duration: 0.45, ease: "power3.out" }, ${sTl});`
+      );
+      shotTweens.push(
+        `      tl.to("${target}", { x: 0, y: 0, scale: 1, borderRadius: "0px", duration: 0.45, ease: "power3.inOut" }, ${eTl - 0.45});`
+      );
     }
   });
+
+  // B-roll video & image overlays
+  const brollDivs: string[] = [];
+  (plan.broll ?? []).forEach((b, bi) => {
+    const sTl = srcToTl(timecodeToSec(b.start));
+    const eTl = srcToTl(timecodeToSec(b.end));
+    if (sTl === null || eTl === null || eTl <= sTl) return;
+    const dur = eTl - sTl;
+    const isImage = /\.(jpg|jpeg|png|webp|gif)$/i.test(b.source);
+    const mediaEl = isImage
+      ? `<img src="${escHtml(b.source)}" style="width:100%;height:100%;object-fit:cover;border-radius:18px;" />`
+      : `<video src="${escHtml(b.source)}" style="width:100%;height:100%;object-fit:cover;border-radius:18px;" autoplay muted loop></video>`;
+    brollDivs.push(
+      `      <div id="broll-${bi}" class="clip overlay broll-overlay" data-start="${sTl}" data-duration="${dur}">\n        ${mediaEl}\n      </div>`
+    );
+    overlayTimelines.push(
+      `      tl.fromTo("#broll-${bi}", { opacity: 0, scale: 0.95 }, { opacity: 1, scale: 1, duration: 0.35, ease: "power2.out", immediateRender: false }, ${sTl});`
+    );
+    overlayTimelines.push(
+      `      tl.to("#broll-${bi}", { opacity: 0, scale: 0.98, duration: 0.3, ease: "power2.in" }, ${eTl - 0.3});`
+    );
+  });
+  const brollHtml = brollDivs.join("\n");
 
   const beats = [
     ...overlayTimelines,
@@ -592,7 +635,19 @@ export async function buildHyperframesProject(
       .cmd-prompt { color: #4ade80; font-weight: 700; margin-right: 6px; }
       .cmd-highlight { color: #38bdf8; font-weight: 700; }
       .cmd-info { color: #ffd60a; margin-right: 6px; }
-      .cmd-ok { color: #4ade80; font-weight: 700; margin-right: 6px; }
+      .overlay.broll-overlay {
+        position: absolute;
+        inset: 4%;
+        z-index: 12;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        border-radius: 20px;
+        overflow: hidden;
+        box-shadow: 0 20px 50px rgba(0,0,0,0.85);
+        border: 1px solid rgba(255,255,255,0.18);
+        pointer-events: none;
+      }
       .punch { position: absolute; inset: 0; z-index: 5; pointer-events: none; }
     </style>
   </head>
@@ -601,6 +656,7 @@ export async function buildHyperframesProject(
 ${clips}
 ${overlays}
 ${graphicsHtml}
+${brollHtml}
 ${punchDivs}
     </div>
     <script>

@@ -115,8 +115,14 @@ server.tool(
         durationSec: structure.duration_sec,
       });
 
+      const resolvedFormat: "short" | "long" =
+        format ??
+        (structure.is_portrait || (structure.duration_sec && structure.duration_sec <= 60)
+          ? "short"
+          : "long");
+
       const result = await findSimilarVideo(transcript_text, {
-        format,
+        format: resolvedFormat,
         language,
         niche,
         videoType: resolvedType,
