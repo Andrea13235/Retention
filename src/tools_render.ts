@@ -178,17 +178,46 @@ export async function buildHyperframesProject(
       .filter((t) => t >= 0)
   );
 
-  // Asset: copy the RAW into the project (never external paths).
+  // Asset management: copy RAW footage, B-roll media, and demonstrative shot visuals into ./assets/
+  const { copyFile, stat: statFile } = await import("node:fs/promises");
+  await mkdir(join(outDir, "assets"), { recursive: true });
+
   let videoSrc: string | null = null;
   if (opts.rawVideoPath) {
-    const { copyFile, stat: statFile } = await import("node:fs/promises");
     const st = await statFile(opts.rawVideoPath).catch(() => null);
     if (!st || !st.isFile())
       throw new Error(`build: RAW not found: ${opts.rawVideoPath}`);
-    await mkdir(join(outDir, "assets"), { recursive: true });
     const fileName = opts.rawVideoPath.split("/").pop() ?? "raw.mp4";
     await copyFile(opts.rawVideoPath, join(outDir, "assets", fileName));
     videoSrc = `./assets/${fileName}`;
+  }
+
+  // Copy local B-roll files
+  for (let bi = 0; bi < (plan.broll ?? []).length; bi++) {
+    const b = plan.broll![bi];
+    if (b.source && !b.source.startsWith("http") && !b.source.startsWith("./assets/")) {
+      const st = await statFile(b.source).catch(() => null);
+      if (st && st.isFile()) {
+        const ext = b.source.split(".").pop() ?? "png";
+        const fname = `broll_${bi}.${ext}`;
+        await copyFile(b.source, join(outDir, "assets", fname));
+        b.source = `./assets/${fname}`;
+      }
+    }
+  }
+
+  // Copy local shot media files (demonstrative images & slides)
+  for (let si = 0; si < (plan.shots ?? []).length; si++) {
+    const s = plan.shots![si];
+    if (s.media_url && !s.media_url.startsWith("http") && !s.media_url.startsWith("./assets/")) {
+      const st = await statFile(s.media_url).catch(() => null);
+      if (st && st.isFile()) {
+        const ext = s.media_url.split(".").pop() ?? "png";
+        const fname = `shot_${si}.${ext}`;
+        await copyFile(s.media_url, join(outDir, "assets", fname));
+        s.media_url = `./assets/${fname}`;
+      }
+    }
   }
 
   // HyperFrames media contract (verified on CLI 0.8.40 + editing recipes):
@@ -383,25 +412,63 @@ export async function buildHyperframesProject(
   });
   const graphicsHtml = graphicDivs.join("\n");
 
-  // Camera framing shifts & directorial setups (shots)
+  // Demonstrative screens and background slides (for screen share, PiP, and B-roll visuals)
+  const demoScreenDivs: string[] = [];
   const shotTweens: string[] = [];
-  (plan.shots ?? []).forEach((shot) => {
+
+  (plan.shots ?? []).forEach((shot, si) => {
     const sTl = srcToTl(timecodeToSec(shot.start));
     const eTl = srcToTl(timecodeToSec(shot.end));
     if (sTl === null || eTl === null || eTl <= sTl) return;
+    const dur = eTl - sTl;
     const idx = cutAt(sTl);
     const target = idx >= 0 ? `#clip-${idx}` : ".fullbleed";
+
+    const isScreenOrPip =
+      shot.shot_type === "pip_talking_head_on_screen" ||
+      shot.shot_type === "talking_head_pip" ||
+      shot.shot_type === "screen_share_fullscreen" ||
+      shot.shot_type === "b_roll_fullscreen" ||
+      Boolean(shot.media_url);
+
+    if (isScreenOrPip) {
+      let contentHtml = "";
+      if (shot.media_url) {
+        const isImg = /\.(jpg|jpeg|png|webp|gif|svg)$/i.test(shot.media_url);
+        if (isImg) {
+          contentHtml = `        <div class="demo-img-box">\n          <img id="shot-img-${si}" src="${escHtml(shot.media_url)}" class="demo-bg-img" alt="${escHtml(shot.title ?? "Demonstration")}" />\n        </div>`;
+          shotTweens.push(
+            `      tl.fromTo("#shot-img-${si}", { scale: 1.0, y: 0 }, { scale: 1.12, y: -20, duration: ${dur}, ease: "none", immediateRender: false }, ${sTl});`
+          );
+        } else {
+          contentHtml = `        <div class="demo-img-box">\n          <video src="${escHtml(shot.media_url)}" class="demo-bg-img" autoplay muted loop></video>\n        </div>`;
+        }
+      } else {
+        contentHtml = `        <div class="demo-workspace">\n          <div class="workspace-header">\n            <div class="screen-dot red"></div>\n            <div class="screen-dot yellow"></div>\n            <div class="screen-dot green"></div>\n            <span class="workspace-title">${escHtml(shot.title ?? "DEMONSTRATIVE WORKSPACE")}</span>\n          </div>\n          <div class="workspace-body">\n            <div class="workspace-code"><span class="line-num">01</span> <span class="tok-kw">import</span> { RetentionVolt } <span class="tok-kw">from</span> <span class="tok-str">"@retention/ai"</span>;</div>\n            <div class="workspace-code"><span class="line-num">02</span> <span class="tok-kw">const</span> engine = <span class="tok-kw">await</span> RetentionVolt.loadModel();</div>\n            <div class="workspace-code"><span class="line-num">03</span> <span class="tok-comment">// ${escHtml(shot.subtitle ?? "Demonstrative Visual Pacing & Dynamic Framing")}</span></div>\n            <div class="workspace-code"><span class="line-num">04</span> <span class="tok-kw">const</span> optimized = <span class="tok-kw">await</span> engine.synthesize();</div>\n            <div class="workspace-code"><span class="line-num">05</span> <span class="tok-prompt">&gt;</span> <span class="tok-success">High-retention visual demonstrator active</span></div>\n          </div>\n        </div>`;
+        shotTweens.push(
+          `      tl.fromTo("#shot-bg-${si} .demo-workspace", { scale: 0.96, opacity: 0.8 }, { scale: 1.02, opacity: 1, duration: ${dur}, ease: "none", immediateRender: false }, ${sTl});`
+        );
+      }
+
+      if (shot.title || shot.subtitle) {
+        contentHtml += `\n        <div class="demo-caption-bar">\n          ${shot.title ? `<span class="demo-caption-title">${escHtml(shot.title)}</span>` : ""}${shot.subtitle ? `\n          <span class="demo-caption-sub">${escHtml(shot.subtitle)}</span>` : ""}\n        </div>`;
+      }
+
+      demoScreenDivs.push(
+        `      <div id="shot-bg-${si}" class="clip demo-screen" data-start="${sTl}" data-duration="${dur}">\n${contentHtml}\n      </div>`
+      );
+    }
 
     if (shot.shot_type === "pip_talking_head_on_screen" || shot.shot_type === "talking_head_pip") {
       const pipPos = shot.pip_position ?? "bottom_right";
       const xOffset = pipPos.includes("right") ? -40 : 40;
-      const yOffset = pipPos.includes("bottom") ? -180 : 180;
+      const yOffset = pipPos.includes("bottom") ? -160 : 160;
       const origin = pipPos.replace("_", " ");
       shotTweens.push(
-        `      tl.to("${target}", { scale: 0.38, transformOrigin: "${origin}", x: ${xOffset}, y: ${yOffset}, borderRadius: "24px", duration: 0.45, ease: "power3.out" }, ${sTl});`
+        `      tl.to("${target}", { scale: 0.36, transformOrigin: "${origin}", x: ${xOffset}, y: ${yOffset}, borderRadius: "28px", boxShadow: "0 25px 60px rgba(0,0,0,0.85), 0 0 0 3px rgba(255,255,255,0.25)", duration: 0.45, ease: "power3.out" }, ${sTl});`
       );
       shotTweens.push(
-        `      tl.to("${target}", { scale: 1, x: 0, y: 0, borderRadius: "0px", duration: 0.45, ease: "power3.inOut" }, ${eTl - 0.45});`
+        `      tl.to("${target}", { scale: 1, x: 0, y: 0, borderRadius: "0px", boxShadow: "none", duration: 0.45, ease: "power3.inOut" }, ${eTl - 0.45});`
       );
     } else if (shot.shot_type === "talking_head_fullscreen") {
       shotTweens.push(
@@ -412,7 +479,7 @@ export async function buildHyperframesProject(
       );
     } else if (shot.shot_type === "screen_share_fullscreen" || shot.shot_type === "b_roll_fullscreen") {
       shotTweens.push(
-        `      tl.to("${target}", { opacity: 0.18, scale: 0.96, duration: 0.35, ease: "power2.out" }, ${sTl});`
+        `      tl.to("${target}", { opacity: 0, scale: 0.95, duration: 0.35, ease: "power2.out" }, ${sTl});`
       );
       shotTweens.push(
         `      tl.to("${target}", { opacity: 1, scale: 1, duration: 0.35, ease: "power2.inOut" }, ${eTl - 0.35});`
@@ -428,6 +495,7 @@ export async function buildHyperframesProject(
       );
     }
   });
+  const demoScreensHtml = demoScreenDivs.join("\n");
 
   // B-roll video & image overlays
   const brollDivs: string[] = [];
@@ -436,9 +504,9 @@ export async function buildHyperframesProject(
     const eTl = srcToTl(timecodeToSec(b.end));
     if (sTl === null || eTl === null || eTl <= sTl) return;
     const dur = eTl - sTl;
-    const isImage = /\.(jpg|jpeg|png|webp|gif)$/i.test(b.source);
+    const isImage = /\.(jpg|jpeg|png|webp|gif|svg)$/i.test(b.source);
     const mediaEl = isImage
-      ? `<img src="${escHtml(b.source)}" style="width:100%;height:100%;object-fit:cover;border-radius:18px;" />`
+      ? `<img id="broll-img-${bi}" src="${escHtml(b.source)}" style="width:100%;height:100%;object-fit:cover;border-radius:18px;" />`
       : `<video src="${escHtml(b.source)}" style="width:100%;height:100%;object-fit:cover;border-radius:18px;" autoplay muted loop></video>`;
     brollDivs.push(
       `      <div id="broll-${bi}" class="clip overlay broll-overlay" data-start="${sTl}" data-duration="${dur}">\n        ${mediaEl}\n      </div>`
@@ -446,6 +514,11 @@ export async function buildHyperframesProject(
     overlayTimelines.push(
       `      tl.fromTo("#broll-${bi}", { opacity: 0, scale: 0.95 }, { opacity: 1, scale: 1, duration: 0.35, ease: "power2.out", immediateRender: false }, ${sTl});`
     );
+    if (isImage) {
+      overlayTimelines.push(
+        `      tl.fromTo("#broll-img-${bi}", { scale: 1.0 }, { scale: 1.12, duration: ${dur}, ease: "none", immediateRender: false }, ${sTl});`
+      );
+    }
     overlayTimelines.push(
       `      tl.to("#broll-${bi}", { opacity: 0, scale: 0.98, duration: 0.3, ease: "power2.in" }, ${eTl - 0.3});`
     );
@@ -484,7 +557,98 @@ export async function buildHyperframesProject(
     <style>
       body { margin: 0; background: #000; color: #fff; font-family: Inter, system-ui, sans-serif; }
       #root { position: relative; width: ${width}px; height: ${height}px; overflow: hidden; background: #0b0f14; }
-      .fullbleed { position: absolute; inset: 0; }
+      #demo-layer { position: absolute; inset: 0; z-index: 2; pointer-events: none; }
+      .demo-screen {
+        position: absolute;
+        inset: 0;
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        background: radial-gradient(circle at 50% 35%, #1e293b 0%, #070a0f 100%);
+        z-index: 2;
+      }
+      .demo-img-box {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+      }
+      .demo-bg-img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        will-change: transform;
+        display: block;
+      }
+      .demo-caption-bar {
+        position: absolute;
+        top: ${portrait ? "10%" : "8%"};
+        left: 6%;
+        right: 6%;
+        background: rgba(15, 23, 42, 0.96);
+        border: 1.5px solid rgba(255, 255, 255, 0.22);
+        border-radius: 20px;
+        padding: 16px 28px;
+        box-shadow: 0 20px 45px rgba(0,0,0,0.8), 0 0 30px rgba(56, 189, 248, 0.25);
+        z-index: 6;
+        text-align: center;
+      }
+      .demo-caption-title {
+        display: block;
+        font-size: ${portrait ? "40px" : "48px"};
+        font-weight: 800;
+        color: #fff;
+        letter-spacing: 0.02em;
+        text-shadow: 0 2px 10px rgba(0,0,0,0.8);
+      }
+      .demo-caption-sub {
+        display: block;
+        margin-top: 6px;
+        font-size: ${portrait ? "22px" : "24px"};
+        font-weight: 600;
+        color: #38bdf8;
+        letter-spacing: 0.04em;
+      }
+      .demo-workspace {
+        width: 90%;
+        max-width: 960px;
+        background: rgba(13, 17, 23, 0.95);
+        border: 1.5px solid rgba(56, 189, 248, 0.5);
+        border-radius: 24px;
+        box-shadow: 0 25px 60px rgba(0,0,0,0.85), 0 0 40px rgba(56, 189, 248, 0.3);
+        padding: 24px;
+        font-family: monospace;
+      }
+      .workspace-header {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        border-bottom: 1px solid rgba(255,255,255,0.12);
+        padding-bottom: 12px;
+        margin-bottom: 16px;
+      }
+      .workspace-title {
+        font-size: 20px;
+        color: #94a3b8;
+        font-weight: 600;
+        margin-left: 8px;
+      }
+      .workspace-body {
+        font-size: ${portrait ? "22px" : "24px"};
+        line-height: 1.7;
+        color: #e2e8f0;
+      }
+      .workspace-code { margin: 4px 0; }
+      .line-num { color: #64748b; margin-right: 12px; user-select: none; }
+      .tok-kw { color: #f43f5e; font-weight: 700; }
+      .tok-str { color: #38bdf8; }
+      .tok-comment { color: #94a3b8; font-style: italic; }
+      .tok-prompt { color: #4ade80; font-weight: 700; margin-right: 6px; }
+      .tok-success { color: #4ade80; font-weight: 600; }
+      .fullbleed { position: absolute; inset: 0; z-index: 4; overflow: hidden; will-change: transform, opacity, border-radius; }
       .fullbleed video { width: 100%; height: 100%; object-fit: cover; display: block; }
       .clip.placeholder { position: absolute; inset: 0; display: grid; place-items: center; }
       .placeholder { text-align: center; font-size: 64px; font-weight: 800; }
@@ -653,6 +817,9 @@ export async function buildHyperframesProject(
   </head>
   <body>
     <div id="root" data-composition-id="${compositionId}" data-start="0" data-width="${width}" data-height="${height}" data-duration="${durationSec}">
+      <div id="demo-layer">
+${demoScreensHtml}
+      </div>
 ${clips}
 ${overlays}
 ${graphicsHtml}

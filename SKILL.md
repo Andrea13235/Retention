@@ -237,7 +237,20 @@ Build the machine-actionable Edit Plan v1.3.
 2. **Cuts First Splice**: Complement of cut candidates (confidence-gated).
 3. **Local Heuristics**: Slow zoom on section boundaries, zoom punches on scene changes, content-aware banners in TOP position.
 
-Completion: valid `EditPlan v1.3` with KEEP cuts, karaoke captions, animations, and thumbnail configuration.
+#### Demonstrative Visuals, Screen Shares & Image Inserts (Governed by RetentionVolt)
+1. **Retention-Driven Visual Demonstrations**:
+   - Continuous talking-head footage suffers from audience drop-off. Top creators (Marques Brownlee, Ali Abdaal, MrBeast) break monotony with visual demonstrations, screen shares, and B-roll.
+   - When RetentionVolt emits `shot` events (`pip_talking_head_on_screen`, `screen_share_fullscreen`, `b_roll_fullscreen`) or when technical concepts/tools are explained in the transcript:
+     - The AI Agent can generate demonstrative images (using `generate_image` or high-resolution graphic slides) corresponding to what the speaker is discussing.
+     - Supply these image paths to `brollSources` or `shots[].media_url`.
+2. **HyperFrames Ken Burns & PiP Execution**:
+   - In HyperFrames, demonstrative images and workspace slides sit in `#demo-layer` (layer 2) behind the talking head clips (layer 4).
+   - For `pip_talking_head_on_screen`: The talking head scales smoothly to a webcam window in the bottom-right corner (`scale: 0.36`), while the demonstrative image fills the screen with a subtle Ken Burns zoom (`scale: 1.0` → `1.12`).
+   - For `screen_share_fullscreen`: The talking head fades out (`opacity: 0`), giving 100% full-screen focus to the demonstrative slide/image.
+   - For `plan.broll`: Image overlays automatically receive a smooth Ken Burns scale and drift.
+   - Subtitles remain floating at bottom 18% in clean white Apple-style font with karaoke highlight over all layers.
+
+Completion: valid `EditPlan v1.3` with KEEP cuts, karaoke captions, animations, demonstrative shots/broll, and thumbnail configuration.
 
 ---
 

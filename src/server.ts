@@ -279,8 +279,31 @@ server.tool(
       .boolean()
       .optional()
       .describe("When true, no TOP graphic banner (act_title/highlight) is generated. Default: true on single_take (restraint), false when RetentionVolt blueprint provides graphics or takesCount ≥2. Pass false to force banners."),
+    shots: z
+      .array(
+        z.object({
+          start: z.string().describe("Start timecode HH:MM:SS.mmm"),
+          end: z.string().describe("End timecode HH:MM:SS.mmm"),
+          shot_type: z.enum([
+            "talking_head_fullscreen",
+            "screen_share_fullscreen",
+            "pip_talking_head_on_screen",
+            "split_screen",
+            "talking_head_pip",
+            "b_roll_fullscreen",
+          ]),
+          pip_position: z.enum(["bottom_right", "bottom_left", "top_right", "top_left"]).optional(),
+          pip_size_pct: z.number().optional(),
+          split_ratio: z.string().optional(),
+          media_url: z.string().optional(),
+          title: z.string().optional(),
+          subtitle: z.string().optional(),
+        })
+      )
+      .optional()
+      .describe("Directorial camera and visual setups (screen share, PiP, demonstrative slides/images)"),
   },
-  async ({ structure, transcript, style, sourcePortrait, takesCount, brollSources, attentionRiskPoints, extraCuts, corrections, retentionvolt_blueprint, disableGraphics }) => {
+  async ({ structure, transcript, style, sourcePortrait, takesCount, brollSources, attentionRiskPoints, extraCuts, corrections, retentionvolt_blueprint, disableGraphics, shots }) => {
     let parsedStructure: any;
     try {
       parsedStructure = JSON.parse(structure);
@@ -339,6 +362,7 @@ server.tool(
                   corrections,
                   retentionvoltBlueprint: rvBlueprint,
                   disableGraphics,
+                  shots,
                 },
                 words
               ),

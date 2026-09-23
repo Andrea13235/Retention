@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -514,6 +514,53 @@ describe("render: HyperFrames project build", () => {
         ],
       };
       await expect(buildHyperframesProject(bad, dir)).rejects.toThrow(/banners overlap/);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+  it("renders demonstrative screens, Ken Burns zoom, and PiP webcam layout for shots", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "retention-shots-"));
+    const dummyImg = join(dir, "dummy_visual.png");
+    writeFileSync(dummyImg, "fake png content");
+    try {
+      const plan = {
+        version: "1.3" as const,
+        style: "short_form",
+        format: "short" as const,
+        media_id: "shot-media",
+        cuts: [{ start: "00:00:00.000", end: "00:00:15.000", reason: "keep" }],
+        animations: [],
+        broll: [],
+        pattern_interrupts: [],
+        shots: [
+          {
+            start: "00:00:02.000",
+            end: "00:00:08.000",
+            shot_type: "pip_talking_head_on_screen" as const,
+            pip_position: "bottom_right" as const,
+            title: "CODEX AI AGENT",
+            subtitle: "Autonomous Coding Engine",
+            media_url: dummyImg,
+          },
+        ],
+      };
+      const proj = await buildHyperframesProject(plan, dir);
+      expect(proj.durationSec).toBeCloseTo(15, 3);
+      const { readFileSync, existsSync } = await import("node:fs");
+      const html = readFileSync(join(dir, "index.html"), "utf8");
+      // Asset copied into ./assets/
+      expect(existsSync(join(dir, "assets", "shot_0.png"))).toBe(true);
+      // Demo layer and shot screen created
+      expect(html).toContain('id="demo-layer"');
+      expect(html).toContain('id="shot-bg-0"');
+      expect(html).toContain('src="./assets/shot_0.png"');
+      expect(html).toContain("CODEX AI AGENT");
+      expect(html).toContain("Autonomous Coding Engine");
+      // Ken Burns GSAP tween generated
+      expect(html).toContain('tl.fromTo("#shot-img-0"');
+      // PiP webcam scaling tween generated
+      expect(html).toContain("scale: 0.36");
+      expect(html).toContain('transformOrigin: "bottom right"');
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

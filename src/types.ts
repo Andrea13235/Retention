@@ -463,6 +463,12 @@ export interface EditPlan {
     pip_position?: "bottom_right" | "bottom_left" | "top_right" | "top_left";
     pip_size_pct?: number;
     split_ratio?: string;
+    /** Image or video media path for full screen background / b-roll / screen share */
+    media_url?: string;
+    /** Title / header for demonstrative screen */
+    title?: string;
+    /** Subtitle / description for demonstrative screen */
+    subtitle?: string;
   }>;
 }
 

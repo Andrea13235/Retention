@@ -115,6 +115,8 @@ export interface PlanOptions {
   disableGraphics?: boolean;
   /** Raw transcript object or JSON string from transcribeMedia */
   transcript?: Transcript | string;
+  /** Explicit or manual shot directorial setups (screen share, PiP, demonstrative visual slides) */
+  shots?: EditPlan["shots"];
 }
 
 export function generateEditPlan(
@@ -444,6 +446,10 @@ export function generateEditPlan(
 
         if (ev.type === "shot" && ev.shot_type) {
           const shotDur = Math.max(2, Math.min(ev.duration_sec ?? 8, mediaEnd - targetSec));
+          const secObj = ev.section_index ? structure.sections[ev.section_index - 1] : undefined;
+          const shotTitle = ev.text_source ?? secObj?.title ?? "Demonstration";
+          const shotSub = ev.note ?? secObj?.summary;
+          const nextImage = opts.brollSources?.find((src) => /\.(jpg|jpeg|png|webp|gif|svg)$/i.test(src));
           shots.push({
             start: secToTimecode(targetSec),
             end: secToTimecode(targetSec + shotDur),
@@ -451,6 +457,9 @@ export function generateEditPlan(
             pip_position: ev.pip_position,
             pip_size_pct: ev.pip_size_pct,
             split_ratio: ev.split_ratio,
+            title: shotTitle,
+            subtitle: shotSub,
+            media_url: nextImage,
           });
         } else if (ev.type === "zoom") {
           const kind: MotionKind = ev.kind === "slow_zoom" ? "slow_zoom" : ev.kind === "zoom_out" ? "zoom_out" : "zoom_in";
@@ -884,6 +893,11 @@ export function generateEditPlan(
             style: "bold" as const,
           }
         : undefined;
+
+  if (opts.shots && opts.shots.length > 0) {
+    shots.push(...opts.shots);
+  }
+  shots.sort((a, b) => timecodeToSec(a.start) - timecodeToSec(b.start));
 
   return {
     version: "1.3",
