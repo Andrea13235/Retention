@@ -47,6 +47,7 @@ import {
   type BlueprintShotType,
   type StylePreset,
   type ThumbnailConfig,
+  type Transcript,
 } from "./types.js";
 
 export type { StylePreset };
@@ -112,6 +113,8 @@ export interface PlanOptions {
    * When true, graphics[] is empty — no banner sopra in alto.
    */
   disableGraphics?: boolean;
+  /** Raw transcript object or JSON string from transcribeMedia */
+  transcript?: Transcript | string;
 }
 
 export function generateEditPlan(
@@ -219,17 +222,53 @@ export function generateEditPlan(
     return out;
   };
 
+  // Helper to extract seconds from any time representation (number, "00:00:01.000", "1.5")
+  const getWordSec = (start: any): number => {
+    if (typeof start === "number") return start;
+    if (typeof start === "string") {
+      if (start.includes(":")) {
+        try {
+          return timecodeToSec(start);
+        } catch {
+          return 0;
+        }
+      }
+      const n = parseFloat(start);
+      if (!isNaN(n)) return n;
+    }
+    return 0;
+  };
+
+  let rawWords = transcriptWords;
+  if ((!rawWords || rawWords.length === 0) && opts.transcript) {
+    try {
+      const t = typeof opts.transcript === "string" ? JSON.parse(opts.transcript) : opts.transcript;
+      rawWords = (t.segments ?? []).flatMap((s: any) =>
+        (s.words ?? []).map((w: any) => ({
+          start: typeof w.start === "number" ? secToTimecode(w.start) : String(w.start),
+          word: w.word,
+        }))
+      );
+    } catch {
+      // ignore
+    }
+  }
+
   // ——— Karaoke captions with keyword emphasis ———
   const kwSet = new Set(
     (structure.keywords ?? []).slice(0, 15).map((k) => k.word)
   );
   const animations: EditPlan["animations"] = [];
   const structure_notes: EditPlan["structure_notes"] = [];
-  if (transcriptWords && transcriptWords.length > 0) {
+  if (rawWords && rawWords.length > 0) {
     // Drop CUT words first: only kept words reach captions.
-    const kept = transcriptWords
-      .map((w) => ({ ...w, word: fixWord(w.word) }))
-      .filter((w) => isKept(timecodeToSec(w.start)));
+    const kept = rawWords
+      .map((w) => ({
+        ...w,
+        sec: getWordSec(w.start),
+        word: fixWord(w.word),
+      }))
+      .filter((w) => isKept(w.sec));
     // Build raw cards first (maxWords each), then assign durations so
     // cards NEVER overlap: each card ends when the next begins (minus a
     // breath gap). One caption alive at a time — guaranteed by
@@ -238,7 +277,7 @@ export function generateEditPlan(
     let cur: (typeof rawCards)[number] | null = null;
     for (const w of kept) {
       if (!cur || cur.words.length >= maxWords) {
-        cur = { start: timecodeToSec(w.start), words: [] };
+        cur = { start: w.sec, words: [] };
         rawCards.push(cur);
       }
       cur.words.push(w);
@@ -261,7 +300,7 @@ export function generateEditPlan(
     rawCards.forEach((card, i) => {
       if (card.words.length === 0) return;
       const cardTl = srcToTlSec(card.start);
-      const lastStart = timecodeToSec(card.words[card.words.length - 1].start);
+      const lastStart = card.words[card.words.length - 1].sec;
       const natural = lastStart - card.start + 0.8;
 
       const currentKeep = keepRanges.find((k) => card.start >= k.s && card.start <= k.e);
@@ -279,7 +318,7 @@ export function generateEditPlan(
         position: "bottom",
         duration: dur,
         words: card.words.map((w) => ({
-          start: w.start,
+          start: secToTimecode(w.sec),
           word: w.word.trim(),
           emphasis: kwSet.has(w.word.trim().toLowerCase().replace(/[.,!?;:]+$/, "")),
         })),
@@ -747,9 +786,9 @@ export function generateEditPlan(
   // 2. Contextual Screen Overlays & Tool Badges based on transcript words
   // Identifies key tools, skills, platforms and concepts mentioned in the speech
   for (const pat of CONTEXT_VISUAL_PATTERNS) {
-    const matchWord = transcriptWords?.find((w) => pat.match.test(w.word));
+    const matchWord = rawWords?.find((w) => pat.match.test(w.word));
     if (matchWord) {
-      const t = timecodeToSec(matchWord.start);
+      const t = getWordSec(matchWord.start);
       const dur = pat.isScreen ? 3.2 : 2.5;
       if (claimGraphic(t, dur)) {
         graphics.push({
@@ -828,8 +867,8 @@ export function generateEditPlan(
     });
   }
 
-  const keptWords = transcriptWords
-    ? transcriptWords.filter((w) => isKept(timecodeToSec(w.start))).length
+  const keptWords = rawWords
+    ? rawWords.filter((w) => isKept(getWordSec(w.start))).length
     : undefined;
 
   const thumbnail = opts.thumbnail
