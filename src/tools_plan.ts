@@ -209,8 +209,8 @@ export function generateEditPlan(
   const isKept = (t: number): boolean =>
     mergedCuts.every((c) => t < c.s || t >= c.e);
 
-  // ——— Karaoke captions: ONLY kept words, corrected text ———
-  const fixWord = (w: string): string => {
+  const fixWord = (w?: string): string => {
+    if (!w) return "";
     let out = w;
     for (const c of opts.corrections ?? []) {
       const esc = c.misheard.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -653,8 +653,8 @@ export function generateEditPlan(
     graphicSpans.push({ s: t, e: t + dur });
     return true;
   };
-  const contentWords = (text: string): string[] =>
-    text.split(/\s+/).filter((w) => {
+  const contentWords = (text?: string): string[] =>
+    (text ?? "").split(/\s+/).filter((w) => {
       const c = w.toLowerCase().replace(/[.,!?;:]+$/, "");
       return c.length > 0 && !CONTENT_STOP.has(c);
     });
@@ -694,11 +694,13 @@ export function generateEditPlan(
           kind = "act_title";
           if (ge.section_index && structure.sections[ge.section_index - 1]) {
             const sec = structure.sections[ge.section_index - 1];
-            const words = contentWords(fixWord(sec.summary)).slice(0, 6);
+            const sumText = sec.summary || sec.title || "";
+            const words = contentWords(fixWord(sumText)).slice(0, 6);
             title = words.join(" ").toUpperCase().slice(0, 48) || sec.title;
           } else {
             const sec = structure.sections.find((s) => timecodeToSec(s.start) <= t && t <= timecodeToSec(s.end));
-            title = sec ? contentWords(fixWord(sec.summary)).slice(0, 6).join(" ").toUpperCase() : "CHAPTER";
+            const sumText = sec ? (sec.summary || sec.title || "") : "";
+            title = sumText ? contentWords(fixWord(sumText)).slice(0, 6).join(" ").toUpperCase() : "CHAPTER";
           }
         } else if (ge.graphic_kind === "number_stat") {
           kind = "number_stat";
@@ -788,7 +790,8 @@ export function generateEditPlan(
   for (let i = 0; i < structure.sections.length && actCount < 3; i++) {
     const sec = structure.sections[i];
     const sStart = timecodeToSec(sec.start);
-    const words = contentWords(fixWord(sec.summary)).slice(0, 6);
+    const sumText = sec.summary || sec.title || "";
+    const words = contentWords(fixWord(sumText)).slice(0, 6);
     if (words.length === 0) continue;
     const t = sStart + 0.3;
     const dur = 2.5;
