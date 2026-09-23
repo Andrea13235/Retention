@@ -149,4 +149,39 @@ describe("generateEditPlan with Blueprint events", () => {
     expect(plan.shots?.length).toBeGreaterThan(0);
     expect(plan.shots?.[0].shot_type).toBe("screen_share_fullscreen");
   });
+
+  it("injects contextual graphics and animations from blueprint events", () => {
+    const bp: RetentionVoltBlueprint = {
+      pattern_id: "viral-tech-02",
+      events: [
+        {
+          at_sec: 5,
+          type: "animation",
+          text_source: "Intro Context",
+          duration_sec: 3,
+        },
+        {
+          at_sec: 32,
+          type: "graphic",
+          graphic_kind: "act_title_banner",
+          section_index: 2,
+          duration_sec: 3,
+        },
+        {
+          at_sec: 45,
+          type: "graphic",
+          graphic_kind: "caption_pop",
+        },
+      ],
+    };
+
+    const plan = generateEditPlan(dummyStructure, {
+      retentionvoltBlueprint: bp,
+    });
+
+    expect(plan.retentionvolt_applied).toBe(true);
+    expect(plan.animations.some((a) => a.type === "lower_third")).toBe(true);
+    expect(plan.graphics?.some((g) => g.kind === "act_title")).toBe(true);
+    expect(plan.pattern_interrupts.some((p) => p.kind === "caption_pop")).toBe(true);
+  });
 });

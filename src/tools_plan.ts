@@ -421,6 +421,16 @@ export function generateEditPlan(
             const last = animations[animations.length - 1];
             if (last && last.type === "slow_zoom") last.direction = ev.direction;
           }
+        } else if (ev.type === "animation") {
+          if (isKept(targetSec) && !nearCutStart(targetSec)) {
+            animations.push({
+              time: secToTimecode(targetSec),
+              type: "lower_third",
+              duration: ev.duration_sec ?? 3,
+              content: ev.text_source ?? structure.hook?.summary,
+              position: ev.position === "top" ? "top" : "bottom",
+            });
+          }
         }
       } catch {
         /* skip invalid event */
@@ -511,7 +521,28 @@ export function generateEditPlan(
   const mode = footageMode(opts.takesCount);
   const pattern_interrupts: EditPlan["pattern_interrupts"] = [];
 
-  if (rv?.pattern_interrupts && rv.pattern_interrupts.length > 0) {
+  const rvPopEvents = rv?.events?.filter((e) => e.type === "graphic" && e.graphic_kind === "caption_pop") ?? [];
+  if (rvPopEvents.length > 0) {
+    const refDuration = Math.max(...(rv?.events?.map((e) => e.at_sec || 0) ?? [60]), 60);
+    for (const pop of rvPopEvents) {
+      try {
+        let t = (pop.at_sec / refDuration) * mediaEnd;
+        if (pop.section_index && structure.sections[pop.section_index - 1]) {
+          t = timecodeToSec(structure.sections[pop.section_index - 1].start) + 0.3;
+        }
+        t = Math.max(0, Math.min(mediaEnd - 1, t));
+        if (isKept(t) && !nearCutStart(t)) {
+          pattern_interrupts.push({
+            time: secToTimecode(t),
+            kind: "caption_pop",
+            detail: "RetentionVolt caption pop",
+          });
+        }
+      } catch {
+        /* skip invalid pop event */
+      }
+    }
+  } else if (rv?.pattern_interrupts && rv.pattern_interrupts.length > 0) {
     for (const pi of rv.pattern_interrupts) {
       try {
         const t = timecodeToSec(pi.time);
@@ -605,9 +636,13 @@ export function generateEditPlan(
   //    AND media >8min. Title = hook_moment.text (≤90 chars).
   // ALL beats are dropped when: inside a CUT range, inside the 0.8s
   // pre-cut mask, overlapping another banner, or shorter than 1s of KEEP.
+  const hasRvGraphics =
+    (rv?.graphics && rv.graphics.length > 0) ||
+    (rv?.events && rv.events.some((e) => e.type === "graphic" && e.graphic_kind !== "caption_pop"));
+
   const disableGraphics =
     opts.disableGraphics ??
-    (!rv?.graphics || rv.graphics.length === 0 ? footageMode(opts.takesCount) === "single_take" : false);
+    (!hasRvGraphics ? footageMode(opts.takesCount) === "single_take" : false);
   const graphics: GraphicBeat[] = [];
   const graphicSpans: Array<{ s: number; e: number }> = [];
   const claimGraphic = (t: number, dur: number): boolean => {
@@ -623,8 +658,61 @@ export function generateEditPlan(
       const c = w.toLowerCase().replace(/[.,!?;:]+$/, "");
       return c.length > 0 && !CONTENT_STOP.has(c);
     });
-  // 1. act titles / RetentionVolt graphics
-  if (rv?.graphics && rv.graphics.length > 0) {
+  // 1. act titles / RetentionVolt graphics (v2 events or legacy v1)
+  const rvGraphicEvents = rv?.events?.filter((e) => e.type === "graphic" && e.graphic_kind !== "caption_pop") ?? [];
+  if (rvGraphicEvents.length > 0) {
+    const refDuration = Math.max(...(rv?.events?.map((e) => e.at_sec || 0) ?? [60]), 60);
+    for (const ge of rvGraphicEvents) {
+      try {
+        let t = (ge.at_sec / refDuration) * mediaEnd;
+        if (ge.section_index && structure.sections[ge.section_index - 1]) {
+          t = timecodeToSec(structure.sections[ge.section_index - 1].start) + 0.3;
+        }
+        t = Math.max(0, Math.min(mediaEnd - 1, t));
+        const dur = Math.max(1, Math.min(8, ge.duration_sec ?? 2.5));
+
+        let title = "";
+        let kind: GraphicBeat["kind"] = "act_title";
+
+        if (ge.graphic_kind === "act_title_banner") {
+          kind = "act_title";
+          if (ge.section_index && structure.sections[ge.section_index - 1]) {
+            const sec = structure.sections[ge.section_index - 1];
+            const words = contentWords(fixWord(sec.summary)).slice(0, 6);
+            title = words.join(" ").toUpperCase().slice(0, 48) || sec.title;
+          } else {
+            const sec = structure.sections.find((s) => timecodeToSec(s.start) <= t && t <= timecodeToSec(s.end));
+            title = sec ? contentWords(fixWord(sec.summary)).slice(0, 6).join(" ").toUpperCase() : "CHAPTER";
+          }
+        } else if (ge.graphic_kind === "number_stat") {
+          kind = "number_stat";
+          const numKw = (structure.keywords ?? [])
+            .filter((k) => /\d/.test(k.word))
+            .sort((a, b) => Math.abs(timecodeToSec(a.start) - t) - Math.abs(timecodeToSec(b.start) - t))[0];
+          title = numKw ? fixWord(numKw.word).slice(0, 48) : "1";
+        } else if (ge.graphic_kind === "lower_third") {
+          kind = "quote";
+          title = fixWord(ge.text_source ?? structure.sections[0]?.summary ?? "").slice(0, 48);
+        } else {
+          kind = "highlight";
+          const nearestKw = (structure.keywords ?? [])
+            .sort((a, b) => Math.abs(timecodeToSec(a.start) - t) - Math.abs(timecodeToSec(b.start) - t))[0];
+          title = nearestKw ? fixWord(nearestKw.word).toUpperCase().slice(0, 40) : "HIGHLIGHT";
+        }
+
+        if (title && claimGraphic(t, dur)) {
+          graphics.push({
+            time: secToTimecode(t),
+            kind,
+            title,
+            duration: dur,
+          });
+        }
+      } catch {
+        /* skip invalid graphic event */
+      }
+    }
+  } else if (rv?.graphics && rv.graphics.length > 0) {
     for (const g of rv.graphics) {
       try {
         const t = timecodeToSec(g.time);
