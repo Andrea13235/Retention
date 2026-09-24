@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 /**
  * server.ts — MCP server for retention.
- * Exposes 6 tools: import_raw_media, transcribe_media, analyze_transcript,
- * generate_edit_plan, render_video, generate_thumbnail.
+ * Exposes core tools: import_raw_media, transcribe_media, analyze_transcript,
+ * generate_edit_plan, render_video, generate_thumbnail, verify_render.
  * Transport: stdio (standard for Codex / Claude Code / MCP clients).
  * Supports RetentionVolt (retentionvolt.com) blueprints for high-retention editing.
  *
@@ -19,6 +19,7 @@ import { generateEditPlan } from "./tools_plan.js";
 import { REGISTER_CADENCE, type StylePreset } from "./types.js";
 import {
   buildHyperframesProject,
+  extractVerificationFrames,
   renderThumbnail,
   renderVideo,
 } from "./tools_render.js";
@@ -450,6 +451,34 @@ server.tool(
       return {
         isError: true,
         content: [{ type: "text", text: `render_video failed: ${(err as Error).message}` }],
+      };
+    }
+  }
+);
+
+server.tool(
+  "verify_render",
+  "Step 6 — Mandatory Frame-by-Frame Quality Gate: extract screenshots across all key beats (hook, cuts, graphic entrances, keyword emphasis, shot transitions) to inspect audio-visual sync, in-bounds safe areas, and publish-ready broadcast quality before delivery.",
+  {
+    video_path: z.string().describe("Path to rendered MP4 video to verify"),
+    edit_plan: z.string().optional().describe("EditPlan JSON string used to identify exact beat timestamps"),
+    output_dir: z.string().optional().describe("Directory where PNG screenshots will be stored (defaults to <video_dir>/review_frames)"),
+    custom_timestamps: z.array(z.string()).optional().describe("Optional list of specific timecodes to extract (HH:MM:SS.mmm)"),
+  },
+  async ({ video_path, edit_plan, output_dir, custom_timestamps }) => {
+    try {
+      const result = await extractVerificationFrames(video_path, {
+        editPlan: edit_plan,
+        outputDir: output_dir,
+        customTimestamps: custom_timestamps,
+      });
+      return {
+        content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+      };
+    } catch (err) {
+      return {
+        isError: true,
+        content: [{ type: "text", text: `verify_render failed: ${(err as Error).message}` }],
       };
     }
   }

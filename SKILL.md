@@ -274,20 +274,65 @@ Completion: valid `EditPlan v1.3` with KEEP cuts, karaoke captions, animations, 
 
 ---
 
-### 6. Review — check the render BEFORE delivering
+### 6. Review & The Test — Frame-by-Frame Quality Gate (MANDATORY BEFORE DELIVERY)
 
-Extract key frames (`ffmpeg -ss <t> -i output.mp4 -frames:v 1 check-<t>.png`):
-- Hook (first 3s)
-- Mid-video KEEP section
-- Every banner timestamp
-- Thumbnail (`thumbnail.png`)
+⚠️ **CRITICAL DIRECTIVE FOR THE AI AGENT — THE TEST**:
+The last step of this skill is **the test**:
+> *"You have then done all of that. I just want you to make sure it looks good. I want you to verify it (frame by frame) by taking some screenshots and looking through, making sure that the beats actually sync to the text that I'm reading out. Make sure that everything's in bounds, everything looks professional, and it's giving off the quality that you want it to. I'm not looking for a POC or a version 1. I'm looking for a finished product ready to go here."*
 
-Verify:
-- Face free from bottom captions
-- Captions legible with good background contrast
-- Banners separated at the TOP
-- Cuts clean and invisible
-- Thumbnail clear, bold, and high-impact
+You CANNOT skip this step, declare victory upon render completion, or deliver an uninspected video. You are not building a prototype (POC) or a "version 1 draft"; you are delivering a **finished, broadcast-ready product**.
+
+#### 6a. Extract Verification Frames (`verify_render` / `ffmpeg`)
+Extract high-resolution screenshots at all critical timeline events across the video:
+1. **The Hook (First 1–3s)**: Verify intro branding pill/card, speaker presence, and opening title.
+2. **Every Cut Boundary**: Inspect frames immediately before and after each cut (e.g. `cut.start - 0.1s` and `cut.end + 0.1s` mapped to output time) to verify seamless continuity, zero audio/video glitching, and invisible jump-cut pacing.
+3. **Every Graphic Card Entrance**: Capture the exact frame where motion cards appear (`graphic.time + 0.3s`, after entrance ease completes) to verify visual impact, contrast, and alignment.
+4. **Every Spoken Beat & Keyword Pop**: Capture frames during karaoke subtitle emphasis (`words.filter(w => w.emphasis)` or prominent keywords) to ensure the visual lighting hits on the exact syllable.
+5. **Pattern Interrupts & Camera Setup Shifts**: Capture shots (PiP, screen share demonstrations, zoom punches) to verify smooth transitions and clear hierarchy.
+6. **The Thumbnail / Cover**: Inspect `thumbnail.jpg` / `thumbnail.png` for facial expression, eye contact, headline readability, and CTR magnetism.
+
+*Execution*:
+- Call `verify_render({ video_path, edit_plan })` to automatically calculate every beat timestamp and extract all verification frames into `./review_frames/`, OR
+- Run `ffmpeg -ss <timestamp> -i <output.mp4> -frames:v 1 -q:v 2 <output_path>.png` for each key timecode.
+
+#### 6b. Frame-by-Frame Visual Inspection Checklist (The 5 Pillars)
+The agent must actively examine each extracted frame (using `view_file` or visual inspection tools) against the following strict quality gate:
+
+1. 🎯 **Audio-Visual Beat Sync**:
+   - Does the highlighted keyword glow/pop at the exact millisecond the speaker pronounces the word?
+   - Do motion graphic cards enter exactly when the topic is introduced in the spoken dialogue?
+   - Are pattern interrupts placed on natural cadence resets rather than cutting off active thoughts?
+
+2. 📐 **Safe Areas & In-Bounds Geometry**:
+   - **Vertical (9:16 Shorts/Reels/TikTok)**:
+     - **Bottom Safe Area**: Captions parked strictly at **18% from the bottom**. TikTok/Reels draw the progress bar, username, audio track, and like/comment buttons over the bottom 12–15%. Captions below 18% get blocked; captions at 18% remain 100% visible on every device.
+     - **Top Safe Area**: Top cards must stay at least **8–10% from the top** to clear smartphone status bars, camera cutouts, and platform headers.
+     - **Lateral Margins**: Cards and subtitles must maintain a minimum **6% margin** on left and right borders. Zero text clipping or overflowing text lines.
+   - **Horizontal (16:9 YouTube/Podcast)**:
+     - 10% title-safe margin on all four edges.
+
+3. 💎 **Professional Aesthetics (Not a POC)**:
+   - **Typography**: Clean, premium fonts (`Inter`, `SF Pro Display`, `Outfit`). No blurry or default browser serif fonts.
+   - **Legibility System**: High contrast on every background. Subtitles use layered text shadows plus subtle dark strokes (`-webkit-text-stroke: 1px rgba(0,0,0,0.35)`) so white text is crystal clear even over bright skin or white walls.
+   - **Card Design**: Modern frosted glassmorphism (`rgba(15,23,42,0.88)` + `backdrop-filter: blur(24px)` + subtle colored border glow + gradient icon boxes). No crude flat solid boxes.
+   - **No Visual Collisions**: Top graphic cards and bottom subtitles never occupy the same space or overlap.
+
+4. 👤 **Subject Framing & Facial Clearance**:
+   - The creator's face and eyes must remain clear and unobstructed.
+   - In talking-head shots, motion cards sit in the top third or side quadrants.
+   - In PiP setups, the camera bubble is neatly positioned in a corner with rounded corners and subtle drop shadow, leaving the demonstration screen readable.
+
+5. 🖼️ **High-CTR Cover / Thumbnail Quality**:
+   - The thumbnail frame captures an engaging facial expression (open eyes, smiling or expressive mouth, direct eye contact with the viewer).
+   - High-contrast, bold title and category badge with instant topic comprehension in mobile feeds.
+
+#### 6c. The Autonomous Iterative Polish Loop
+- If **ANY** frame fails the checklist (e.g. text clipped at edge, a subtitle word desynced by 0.5s from the audio cut, a card covering the face, or an unrefined aesthetic):
+  1. **Do NOT deliver** or ask the user to fix it.
+  2. Modify the underlying project/timeline (adjust timing in `index.html` or `plan`, tweak CSS safe margins, correct transcript typos).
+  3. Re-render the affected section or project.
+  4. Re-extract and re-verify the failed frames until all 5 pillars are 100% satisfied.
+- Only proceed to **Step 7 (Deliver)** when the video is a true **finished product ready to go**.
 
 ---
 

@@ -19,6 +19,8 @@ import {
   type MotionKind,
   type RenderPreset,
   type ThumbnailConfig,
+  type VerificationFrame,
+  type VerificationResult,
 } from "./types.js";
 
 const execFileAsync = promisify(execFile);
@@ -1035,6 +1037,196 @@ export async function renderThumbnail(
   }
 
   return finalOut;
+}
+
+export interface VerificationOptions {
+  editPlan?: EditPlan | string;
+  outputDir?: string;
+  customTimestamps?: string[];
+}
+
+/**
+ * Step 6: Mandatory Frame-by-Frame Verification Quality Gate.
+ * Automatically samples screenshots at key timeline events:
+ * - Hook moment
+ * - All graphic card appearances
+ * - All camera shots (PiP, screen shares)
+ * - All pattern interrupts
+ * - Key keyword emphasis pops
+ * - User-specified custom timestamps
+ *
+ * Each frame is saved to the review directory as a full-resolution PNG.
+ * Returns the list of extracted frames with their associated beat metadata
+ * and the 5-pillar verification checklist for agent inspection.
+ */
+export async function extractVerificationFrames(
+  videoPath: string,
+  options: VerificationOptions = {}
+): Promise<VerificationResult> {
+  const st = await stat(videoPath).catch(() => null);
+  if (!st || st.size === 0) {
+    throw new Error(`extractVerificationFrames: video file not found or empty: ${videoPath}`);
+  }
+
+  const outDir = options.outputDir ?? join(dirname(videoPath), "review_frames");
+  await mkdir(outDir, { recursive: true });
+
+  let parsedPlan: EditPlan | undefined;
+  if (typeof options.editPlan === "string") {
+    try {
+      parsedPlan = JSON.parse(options.editPlan);
+    } catch {
+      // Non-fatal parse failure
+    }
+  } else if (options.editPlan && typeof options.editPlan === "object") {
+    parsedPlan = options.editPlan;
+  }
+
+  const targetBeats: Array<{ sec: number; label: string; beat: string }> = [];
+
+  if (parsedPlan) {
+    // 1. Hook / Intro
+    const hookSec = parsedPlan.thumbnail?.frame_time
+      ? timecodeToSec(parsedPlan.thumbnail.frame_time)
+      : 1.0;
+    targetBeats.push({
+      sec: Math.max(0.5, hookSec),
+      label: "hook_intro",
+      beat: "Opening hook, speaker presence, and intro branding card",
+    });
+
+    // 2. Graphic Cards
+    for (const g of parsedPlan.graphics ?? []) {
+      const gSec = timecodeToSec(g.time);
+      targetBeats.push({
+        sec: gSec + 0.3,
+        label: `graphic_${g.kind}`,
+        beat: `Graphic card '${g.title ?? g.kind}' appearance (synced to spoken beat)`,
+      });
+    }
+
+    // 3. Shots / Demonstrative screens / PiP
+    for (const s of parsedPlan.shots ?? []) {
+      const sSec = timecodeToSec(s.start);
+      targetBeats.push({
+        sec: sSec + 0.4,
+        label: `shot_${s.shot_type}`,
+        beat: `Shot transition '${s.shot_type}' (${s.title ?? "Demonstration"})`,
+      });
+    }
+
+    // 4. Pattern Interrupts
+    for (const p of parsedPlan.pattern_interrupts ?? []) {
+      const pSec = timecodeToSec(p.time);
+      targetBeats.push({
+        sec: pSec,
+        label: `interrupt_${p.kind}`,
+        beat: `Pattern interrupt '${p.kind}' cadence reset`,
+      });
+    }
+
+    // 5. Keyword emphasis in karaoke captions
+    for (const a of parsedPlan.animations ?? []) {
+      if (a.words) {
+        for (const w of a.words) {
+          if (w.emphasis) {
+            targetBeats.push({
+              sec: timecodeToSec(w.start),
+              label: `keyword_${w.word.replace(/[^a-zA-Z0-9]/g, "")}`,
+              beat: `Keyword pop on beat: '${w.word}'`,
+            });
+          }
+        }
+      }
+    }
+  }
+
+  // 6. Custom timestamps if provided
+  if (options.customTimestamps && options.customTimestamps.length > 0) {
+    for (const ct of options.customTimestamps) {
+      try {
+        const sec = timecodeToSec(ct);
+        targetBeats.push({
+          sec,
+          label: "custom_timestamp",
+          beat: `User-specified audit timestamp ${ct}`,
+        });
+      } catch {
+        // Skip malformed timecode
+      }
+    }
+  }
+
+  // Fallback: sample across video if no beats were registered
+  if (targetBeats.length === 0) {
+    targetBeats.push(
+      { sec: 1.0, label: "sample_early", beat: "Early video frame (1.0s)" },
+      { sec: 4.0, label: "sample_mid1", beat: "Mid video frame (4.0s)" },
+      { sec: 8.0, label: "sample_mid2", beat: "Mid video frame (8.0s)" },
+      { sec: 12.0, label: "sample_late", beat: "Late video frame (12.0s)" }
+    );
+  }
+
+  // Deduplicate timestamps closer than 0.35s and sort chronologically
+  targetBeats.sort((a, b) => a.sec - b.sec);
+  const deduped: Array<{ sec: number; label: string; beat: string }> = [];
+  for (const b of targetBeats) {
+    if (b.sec < 0) continue;
+    const exists = deduped.some((d) => Math.abs(d.sec - b.sec) < 0.35);
+    if (!exists) {
+      deduped.push(b);
+    }
+  }
+
+  const frames: VerificationFrame[] = [];
+  for (let i = 0; i < deduped.length; i++) {
+    const item = deduped[i];
+    const tc = secToTimecode(item.sec);
+    const filename = `frame_${String(i + 1).padStart(2, "0")}_${item.sec.toFixed(1)}s_${item.label.slice(0, 30)}.png`;
+    const framePath = join(outDir, filename);
+
+    try {
+      await execFileAsync("ffmpeg", [
+        "-y",
+        "-ss",
+        tc,
+        "-i",
+        videoPath,
+        "-frames:v",
+        "1",
+        "-q:v",
+        "2",
+        framePath,
+      ]);
+
+      const frameStat = await stat(framePath).catch(() => null);
+      if (frameStat && frameStat.size > 0) {
+        frames.push({
+          timestamp: tc,
+          seconds: item.sec,
+          label: item.label,
+          beat_description: item.beat,
+          image_path: framePath,
+        });
+      }
+    } catch {
+      // Continue gracefully on non-fatal frame extraction error
+    }
+  }
+
+  return {
+    video_path: videoPath,
+    output_dir: outDir,
+    total_frames: frames.length,
+    frames,
+    verification_checklist: {
+      audio_visual_sync: "Verify highlighted keyword / card appears on the exact spoken syllable without lag or pre-firing.",
+      in_bounds_safe_area: "Verify vertical 9:16 safe areas: bottom 18% reserved for platform UI, top 10% clear of notches/status bars, side margins >= 6%.",
+      aesthetic_quality: "Verify glassmorphism styling, clean typography, layered text stroke, and professional broadcast-grade contrast.",
+      face_unobstructed: "Verify the creator's face and eyes remain unobstructed by banners or subtitles.",
+      finished_product_ready: "Verify that this looks like a finished product ready to go, not a POC or version 1 draft.",
+    },
+  };
 }
 
 

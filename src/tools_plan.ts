@@ -420,6 +420,21 @@ export function generateEditPlan(
       (sec, i) => i > 0 && Math.abs(timecodeToSec(sec.start) - t) < 0.5
     );
 
+  // Patterns for detecting tools, software, skills, and tech concepts spoken in speech
+  const CONTEXT_VISUAL_PATTERNS = [
+    { match: /\b(codex)\b/i, title: "CODEX AI", tag: "AI AGENT", icon: "⚡", subtitle: "Autonomous Coding", isScreen: true },
+    { match: /\b(claude)\b/i, title: "CLAUDE", tag: "ANTHROPIC LLM", icon: "🤖", subtitle: "Context & Reasoning", isScreen: true },
+    { match: /\b(hermes)\b/i, title: "HERMES", tag: "AI SYSTEM", icon: "🏛️", subtitle: "Autonomous Execution", isScreen: true },
+    { match: /\b(rawcut|retention)\b/i, title: "RAWCUT SKILL", tag: "VIDEO AI", icon: "✂️", subtitle: "High-Retention Editor", isScreen: true },
+    { match: /\b(short|shorts|reel|reels|tiktok)\b/i, title: "VIRAL SHORTS", tag: "FORMAT", icon: "📱", subtitle: "9:16 High Retention", isScreen: true },
+    { match: /\b(social|socials)\b/i, title: "SOCIAL MEDIA", tag: "DISTRIBUTION", icon: "🚀", subtitle: "Multi-Platform Reach" },
+    { match: /\b(video|editare|editing)\b/i, title: "VIDEO EDITING", tag: "TIMELINE", icon: "🎬", subtitle: "Smart Cut & Motion" },
+    { match: /\b(skill|skills)\b/i, title: "AI SKILL", tag: "CAPABILITY", icon: "🧩", subtitle: "Workflow Automation" },
+    { match: /\b(python)\b/i, title: "PYTHON", tag: "LANGUAGE", icon: "🐍", subtitle: "Backend Engine" },
+    { match: /\b(whisper)\b/i, title: "WHISPER AI", tag: "ASR", icon: "🎙️", subtitle: "Millisecond Timings" },
+    { match: /\b(terminal|command|cli)\b/i, title: "CLI / TERMINAL", tag: "TERMINAL", icon: "💻", subtitle: "Developer Environment", isScreen: true },
+  ];
+
   const rv = opts.retentionvoltBlueprint;
   const shots: NonNullable<EditPlan["shots"]> = [];
   if (rv) {
@@ -447,8 +462,21 @@ export function generateEditPlan(
         if (ev.type === "shot" && ev.shot_type) {
           const shotDur = Math.max(2, Math.min(ev.duration_sec ?? 8, mediaEnd - targetSec));
           const secObj = ev.section_index ? structure.sections[ev.section_index - 1] : undefined;
-          const shotTitle = ev.text_source ?? secObj?.title ?? "Demonstration";
-          const shotSub = ev.note ?? secObj?.summary;
+          let shotTitle = ev.text_source ?? secObj?.title ?? "Demonstration";
+          let shotSub = ev.note ?? secObj?.summary;
+
+          // Semantic anchoring: if user spoke of a specific concept/tool around targetSec
+          const matchedPat = CONTEXT_VISUAL_PATTERNS.find((pat) =>
+            rawWords?.some((w) => {
+              const wt = getWordSec(w.start);
+              return wt >= targetSec - 1.5 && wt <= targetSec + shotDur + 1.5 && pat.match.test(w.word);
+            })
+          );
+          if (matchedPat) {
+            shotTitle = matchedPat.title;
+            shotSub = matchedPat.subtitle ?? shotSub;
+          }
+
           const nextImage = opts.brollSources?.find((src) => /\.(jpg|jpeg|png|webp|gif|svg)$/i.test(src));
           shots.push({
             start: secToTimecode(targetSec),
@@ -707,21 +735,6 @@ export function generateEditPlan(
       return c.length > 0 && !CONTENT_STOP.has(c);
     });
 
-  // Patterns for auto-detecting tools, software, skills, and tech concepts
-  const CONTEXT_VISUAL_PATTERNS = [
-    { match: /\b(codex)\b/i, title: "CODEX AI", tag: "AI AGENT", icon: "⚡", subtitle: "Autonomous Coding", isScreen: true },
-    { match: /\b(claude)\b/i, title: "CLAUDE", tag: "ANTHROPIC LLM", icon: "🤖", subtitle: "Context & Reasoning", isScreen: true },
-    { match: /\b(hermes)\b/i, title: "HERMES", tag: "AI SYSTEM", icon: "🏛️", subtitle: "Autonomous Execution", isScreen: true },
-    { match: /\b(rawcut|retention)\b/i, title: "RAWCUT SKILL", tag: "VIDEO AI", icon: "✂️", subtitle: "High-Retention Editor", isScreen: true },
-    { match: /\b(short|shorts|reel|reels|tiktok)\b/i, title: "VIRAL SHORTS", tag: "FORMAT", icon: "📱", subtitle: "9:16 High Retention", isScreen: true },
-    { match: /\b(social|socials)\b/i, title: "SOCIAL MEDIA", tag: "DISTRIBUTION", icon: "🚀", subtitle: "Multi-Platform Reach" },
-    { match: /\b(video|editare|editing)\b/i, title: "VIDEO EDITING", tag: "TIMELINE", icon: "🎬", subtitle: "Smart Cut & Motion" },
-    { match: /\b(skill|skills)\b/i, title: "AI SKILL", tag: "CAPABILITY", icon: "🧩", subtitle: "Workflow Automation" },
-    { match: /\b(python)\b/i, title: "PYTHON", tag: "LANGUAGE", icon: "🐍", subtitle: "Backend Engine" },
-    { match: /\b(whisper)\b/i, title: "WHISPER AI", tag: "ASR", icon: "🎙️", subtitle: "Millisecond Timings" },
-    { match: /\b(terminal|command|cli)\b/i, title: "CLI / TERMINAL", tag: "TERMINAL", icon: "💻", subtitle: "Developer Environment", isScreen: true },
-  ];
-
   // 1. RetentionVolt Blueprint Graphics (Priority 1)
   const rvGraphicEvents = rv?.events?.filter((e) => e.type === "graphic" && e.graphic_kind !== "caption_pop") ?? [];
   if (rvGraphicEvents.length > 0) {
@@ -766,11 +779,33 @@ export function generateEditPlan(
           title = nearestKw ? fixWord(nearestKw.word).toUpperCase().slice(0, 40) : "HIGHLIGHT";
         }
 
+        // Semantic anchoring: enrich with context if user is speaking of a key tool/concept at t
+        let tag = ge.graphic_kind === "act_title_banner" ? (ge.section_index ? `PARTE ${ge.section_index}` : undefined) : undefined;
+        let icon: string | undefined = undefined;
+        let subtitle: string | undefined = undefined;
+
+        const matchedPat = CONTEXT_VISUAL_PATTERNS.find((pat) =>
+          rawWords?.some((w) => {
+            const wt = getWordSec(w.start);
+            return wt >= t - 1.5 && wt <= t + dur + 1.5 && pat.match.test(w.word);
+          })
+        );
+        if (matchedPat && ge.graphic_kind !== "act_title_banner" && ge.graphic_kind !== "number_stat") {
+          title = matchedPat.title;
+          subtitle = matchedPat.subtitle;
+          tag = matchedPat.tag;
+          icon = matchedPat.icon;
+          kind = matchedPat.isScreen ? "quote" : "highlight";
+        }
+
         if (title && claimGraphic(t, dur)) {
           graphics.push({
             time: secToTimecode(t),
             kind,
             title,
+            subtitle,
+            tag,
+            icon,
             duration: dur,
           });
         }
@@ -792,67 +827,74 @@ export function generateEditPlan(
     }
   }
 
-  // 2. Contextual Screen Overlays & Tool Badges based on transcript words
-  // Identifies key tools, skills, platforms and concepts mentioned in the speech
-  for (const pat of CONTEXT_VISUAL_PATTERNS) {
-    const matchWord = rawWords?.find((w) => pat.match.test(w.word));
-    if (matchWord) {
-      const t = getWordSec(matchWord.start);
-      const dur = pat.isScreen ? 3.2 : 2.5;
+  const hasRvBlueprintEvents = Boolean(
+    (rv?.events && rv.events.some((e) => e.type === "graphic" || e.type === "shot")) ||
+    (rv?.graphics && rv.graphics.length > 0)
+  );
+
+  // Local fallback heuristics ONLY when NO RetentionVolt blueprint events exist:
+  if (!hasRvBlueprintEvents) {
+    // 2. Contextual Screen Overlays & Tool Badges based on transcript words
+    for (const pat of CONTEXT_VISUAL_PATTERNS) {
+      const matchWord = rawWords?.find((w) => pat.match.test(w.word));
+      if (matchWord) {
+        const t = getWordSec(matchWord.start);
+        const dur = pat.isScreen ? 3.2 : 2.5;
+        if (claimGraphic(t, dur)) {
+          graphics.push({
+            time: secToTimecode(t),
+            kind: pat.isScreen ? "quote" : "highlight",
+            title: pat.title,
+            subtitle: pat.subtitle,
+            tag: pat.tag,
+            icon: pat.icon,
+            duration: dur,
+            position: isShort ? "center" : "top",
+          });
+        }
+      }
+    }
+
+    // 3. Spoken numbers & statistics (high-retention hooks)
+    const numKws = (structure.keywords ?? [])
+      .filter((k) => /\d/.test(k.word))
+      .slice(0, 3);
+    for (const k of numKws) {
+      const t = timecodeToSec(k.start);
+      const dur = 3.0;
       if (claimGraphic(t, dur)) {
         graphics.push({
           time: secToTimecode(t),
-          kind: pat.isScreen ? "quote" : "highlight",
-          title: pat.title,
-          subtitle: pat.subtitle,
-          tag: pat.tag,
-          icon: pat.icon,
+          kind: "number_stat",
+          title: fixWord(k.word).slice(0, 48),
           duration: dur,
-          position: isShort ? "center" : "top",
+          tag: "STAT",
+          icon: "📊",
         });
       }
     }
-  }
 
-  // 3. Spoken numbers & statistics (high-retention hooks)
-  const numKws = (structure.keywords ?? [])
-    .filter((k) => /\d/.test(k.word))
-    .slice(0, 3);
-  for (const k of numKws) {
-    const t = timecodeToSec(k.start);
-    const dur = 3.0;
-    if (claimGraphic(t, dur)) {
-      graphics.push({
-        time: secToTimecode(t),
-        kind: "number_stat",
-        title: fixWord(k.word).slice(0, 48),
-        duration: dur,
-        tag: "STAT",
-        icon: "📊",
-      });
-    }
-  }
-
-  // 4. Section openings (act titles)
-  let actCount = 0;
-  for (let i = 0; i < structure.sections.length && actCount < 3; i++) {
-    const sec = structure.sections[i];
-    const sStart = timecodeToSec(sec.start);
-    const sumText = sec.summary || sec.title || "";
-    const words = contentWords(fixWord(sumText)).slice(0, 6);
-    if (words.length === 0) continue;
-    const t = sStart + 0.3;
-    const dur = 2.5;
-    if (claimGraphic(t, dur)) {
-      graphics.push({
-        time: secToTimecode(t),
-        kind: "act_title",
-        title: words.join(" ").toUpperCase().slice(0, 48) || sec.title,
-        subtitle: sec.title !== sec.summary ? sec.title : undefined,
-        duration: dur,
-        tag: `PARTE ${i + 1}`,
-      });
-      actCount++;
+    // 4. Section openings (act titles)
+    let actCount = 0;
+    for (let i = 0; i < structure.sections.length && actCount < 3; i++) {
+      const sec = structure.sections[i];
+      const sStart = timecodeToSec(sec.start);
+      const sumText = sec.summary || sec.title || "";
+      const words = contentWords(fixWord(sumText)).slice(0, 6);
+      if (words.length === 0) continue;
+      const t = sStart + 0.3;
+      const dur = 2.5;
+      if (claimGraphic(t, dur)) {
+        graphics.push({
+          time: secToTimecode(t),
+          kind: "act_title",
+          title: words.join(" ").toUpperCase().slice(0, 48) || sec.title,
+          subtitle: sec.title !== sec.summary ? sec.title : undefined,
+          duration: dur,
+          tag: `PARTE ${i + 1}`,
+        });
+        actCount++;
+      }
     }
   }
   graphics.sort((a, b) => timecodeToSec(a.time) - timecodeToSec(b.time));

@@ -185,7 +185,8 @@ Open your AI assistant (Google Antigravity, Claude Code, Codex) and type:
 | `analyze_transcript` | Step 3 | Narrative analysis: hook, sections, filler words, attention dips, and cut candidates |
 | `generate_edit_plan` | Step 4 | Generate Action Plan v1.3 with confidence-gated cuts, karaoke captions, and motion graphics |
 | `generate_thumbnail` | Step 4b | Extract hook base frame and export high-CTR companion metadata (title, badge, style) |
-| `render_video` | Step 5+6 | Build HyperFrames composition and render final MP4 (draft/standard/high presets) |
+| `render_video` | Step 5 | Build HyperFrames composition and render final MP4 (draft/standard/high presets) |
+| `verify_render` | Step 6 | Mandatory Frame-by-Frame Quality Gate: extract screenshots across key beats & audit sync/safety |
 
 ---
 

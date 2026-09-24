@@ -754,3 +754,27 @@ export interface BlueprintEvent {
   // ── Common optional ──────────────────────────────────────────────────────
   note?: string;
 }
+
+/** A single screenshot extracted during the Step 6 verification quality gate. */
+export interface VerificationFrame {
+  timestamp: string;
+  seconds: number;
+  label: string;
+  beat_description: string;
+  image_path: string;
+}
+
+/** Result of the Step 6 frame-by-frame verification inspection. */
+export interface VerificationResult {
+  video_path: string;
+  output_dir: string;
+  total_frames: number;
+  frames: VerificationFrame[];
+  verification_checklist: {
+    audio_visual_sync: string;
+    in_bounds_safe_area: string;
+    aesthetic_quality: string;
+    face_unobstructed: string;
+    finished_product_ready: string;
+  };
+}

@@ -6,7 +6,7 @@ import { describe, expect, it } from "vitest";
 import { analyzeTranscript } from "../src/tools_analyze.js";
 import { importRawMedia } from "../src/tools_ingest.js";
 import { generateEditPlan } from "../src/tools_plan.js";
-import { buildHyperframesProject, renderThumbnail } from "../src/tools_render.js";
+import { buildHyperframesProject, extractVerificationFrames, renderThumbnail } from "../src/tools_render.js";
 import { connectRetentionVolt, fetchRetentionVoltBlueprint, startLocalAuthServer } from "../src/retentionvolt_client.js";
 import { detectHardware, selectModel } from "../src/tools_transcribe.js";
 import {
@@ -953,6 +953,72 @@ describe("render: HyperFrames project build", () => {
       expect(bp.pattern_id).toBeDefined();
       expect(bp.animations?.length).toBeGreaterThan(0);
       expect(bp.thumbnail?.title).toBeDefined();
+    });
+  });
+
+  describe("step 6: extractVerificationFrames quality gate", () => {
+    it("extracts verification frames at key beats and provides 5-pillar checklist", async () => {
+      const dir = mkdtempSync(join(tmpdir(), "retention-verify-"));
+      try {
+        const mp4 = join(dir, "test.mp4");
+        execFileSync("ffmpeg", [
+          "-hide_banner",
+          "-loglevel",
+          "error",
+          "-f",
+          "lavfi",
+          "-i",
+          "testsrc=duration=3:size=360x640:rate=30",
+          "-f",
+          "lavfi",
+          "-i",
+          "sine=frequency=440:duration=3",
+          "-shortest",
+          "-y",
+          mp4,
+        ]);
+
+        const dummyPlan = {
+          version: "1.3",
+          style: "short_form",
+          cuts: [],
+          animations: [
+            {
+              time: "00:00:01.000",
+              type: "karaoke_caption",
+              position: "bottom",
+              duration: 1.5,
+              words: [
+                { start: "00:00:01.000", word: "Sync", emphasis: true },
+                { start: "00:00:01.800", word: "Beat" },
+              ],
+            },
+          ],
+          graphics: [
+            {
+              time: "00:00:01.200",
+              kind: "act_title",
+              title: "VERIFY TEST",
+              duration: 1.0,
+            },
+          ],
+          pattern_interrupts: [],
+        };
+
+        const result = await extractVerificationFrames(mp4, {
+          editPlan: dummyPlan as any,
+          outputDir: join(dir, "frames"),
+        });
+
+        expect(result.total_frames).toBeGreaterThan(0);
+        expect(result.frames[0].image_path).toBeDefined();
+        expect(result.verification_checklist.audio_visual_sync).toContain("syllable");
+        expect(result.verification_checklist.in_bounds_safe_area).toContain("18%");
+        expect(result.verification_checklist.aesthetic_quality).toContain("glassmorphism");
+        expect(result.verification_checklist.finished_product_ready).toContain("finished");
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
     });
   });
 });
