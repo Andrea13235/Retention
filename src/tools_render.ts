@@ -304,7 +304,10 @@ export async function buildHyperframesProject(
       );
       // Entrance: gentle fade with a soft rise (no spring — restraint).
       overlayTimelines.push(
-        `      tl.fromTo("#ov-${i} .clean", { y: 18, opacity: 0 }, { y: 0, opacity: 1, duration: 0.5, ease: "power2.out" }, ${t});`
+        `      tl.fromTo("#ov-${i} .clean", { y: 18, opacity: 0 }, { y: 0, opacity: 1, duration: 0.35, ease: "power2.out" }, ${t});`
+      );
+      overlayTimelines.push(
+        `      tl.to("#ov-${i} .clean", { opacity: 0, duration: 0.2, ease: "power2.in" }, ${t + dur - 0.2});`
       );
       // Per-word highlight: 40% → 100% opacity with a whisper of scale;
       // keyword pops get accent color + springy overshoot.
@@ -457,6 +460,12 @@ export async function buildHyperframesProject(
       demoScreenDivs.push(
         `      <div id="shot-bg-${si}" class="clip demo-screen" data-start="${sTl}" data-duration="${dur}">\n${contentHtml}\n      </div>`
       );
+      shotTweens.push(
+        `      tl.fromTo("#shot-bg-${si}", { opacity: 0 }, { opacity: 1, duration: 0.35, ease: "power2.out", immediateRender: false }, ${sTl});`
+      );
+      shotTweens.push(
+        `      tl.to("#shot-bg-${si}", { opacity: 0, duration: 0.3, ease: "power2.in" }, ${eTl - 0.3});`
+      );
     }
 
     if (shot.shot_type === "pip_talking_head_on_screen" || shot.shot_type === "talking_head_pip") {
@@ -562,6 +571,8 @@ export async function buildHyperframesProject(
         position: absolute;
         inset: 0;
         overflow: hidden;
+        opacity: 0;
+        pointer-events: none;
         display: flex;
         flex-direction: column;
         justify-content: center;
