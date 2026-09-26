@@ -3,7 +3,7 @@ import { getSecret } from "./vault-store";
 
 /**
  * Meta Muse Voice Speech-to-Text API Client
- * Replaces legacy Whisper with Meta Muse Voice (billed at ~$0.18/hour of audio).
+ * Meta MMS / Muse Voice Speech-to-Text transcription.
  * Delivers millisecond-accurate word timestamps, pauses, and diarization.
  */
 export class MetaMuseClient {

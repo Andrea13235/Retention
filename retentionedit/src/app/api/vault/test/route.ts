@@ -51,22 +51,22 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    if (provider === "elevenlabs") {
+    if (provider === "meta_mms") {
       const started = Date.now();
       const ctrl = new AbortController();
       const timer = setTimeout(() => ctrl.abort(), 10000);
       try {
-        const res = await fetch("https://api.elevenlabs.io/v1/user", {
-          headers: { "xi-api-key": secret },
+        const res = await fetch("https://api-inference.huggingface.co/models/facebook/mms-1b-all", {
+          headers: { Authorization: `Bearer ${secret}` },
           signal: ctrl.signal,
         });
         return NextResponse.json({
           provider,
-          ok: res.ok,
+          ok: res.status !== 401 && res.status !== 403,
           testable: true,
           latencyMs: Date.now() - started,
           source,
-          ...(res.ok ? {} : { error: `ElevenLabs rejected the key (HTTP ${res.status})` }),
+          ...(res.status === 401 || res.status === 403 ? { error: `Meta MMS rejected the key (HTTP ${res.status})` } : {}),
         });
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : "Network error";

@@ -238,8 +238,10 @@ export default function HomePage() {
         },
         logs: [`Pipeline initialized for ${(params.format || "short").toUpperCase()} format`],
       } as PipelineJob);
-      setActiveJobId(data.jobId);
-      setActiveTab("home");
+      // Immediately navigate to "My projects" tab so the user sees the card
+      // with loading animation, percentage, and time remaining!
+      setActiveJobId(null);
+      setActiveTab("projects");
     } catch (err: any) {
       alert(`Errore avvio job: ${err.message}`);
     } finally {
@@ -381,7 +383,9 @@ export default function HomePage() {
                 const { loadProjectEntries } = await import("@/lib/projects-store");
                 const existing = loadProjectEntries().find((p) => p.id === jobId);
                 try {
-                  const r = await fetch(`/api/pipeline/result?jobId=${encodeURIComponent(jobId)}`);
+                  const r = await fetch(`/api/pipeline/result?jobId=${encodeURIComponent(jobId)}`, {
+                    headers: { "x-retentionedit-session": user?.id || "active" },
+                  });
                   if (r.ok) {
                     const j = (await r.json()) as PipelineJob;
                     setActiveJobId(jobId);

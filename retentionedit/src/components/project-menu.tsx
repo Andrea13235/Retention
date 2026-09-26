@@ -30,9 +30,23 @@ interface ProjectMenuProps {
 
 export function ProjectMenu({ project, onClearCover, onShowToast }: ProjectMenuProps) {
   const [isOpen, setIsOpen] = useState(false);
+  const [openUpwards, setOpenUpwards] = useState(true);
   const [collectionModalOpen, setCollectionModalOpen] = useState(false);
   const [newCollectionName, setNewCollectionName] = useState("");
   const menuRef = useRef<HTMLDivElement>(null);
+
+  const handleToggle = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!isOpen && menuRef.current) {
+      const rect = menuRef.current.getBoundingClientRect();
+      if (rect.top < 260 && window.innerHeight - rect.bottom > 260) {
+        setOpenUpwards(false);
+      } else {
+        setOpenUpwards(true);
+      }
+    }
+    setIsOpen((prev) => !prev);
+  };
 
   // Close when clicking outside
   useEffect(() => {
@@ -186,10 +200,7 @@ export function ProjectMenu({ project, onClearCover, onShowToast }: ProjectMenuP
         }`}
         title="Options"
         aria-label="Opzioni progetto"
-        onClick={(e) => {
-          e.stopPropagation();
-          setIsOpen((prev) => !prev);
-        }}
+        onClick={handleToggle}
       >
         <MoreHorizontal size={17} />
       </button>
@@ -198,8 +209,8 @@ export function ProjectMenu({ project, onClearCover, onShowToast }: ProjectMenuP
       {isOpen && (
         <div
           role="menu"
-          className="absolute right-0 bottom-full mb-2 w-[230px] rounded-2xl bg-[#24252a] border border-white/10 shadow-2xl shadow-black/80 p-1.5 backdrop-blur-xl z-50 text-[#f0f0f2] animate-in fade-in zoom-in-95 duration-100"
-          style={{ transformOrigin: "bottom right" }}
+          className={`absolute right-0 ${openUpwards ? "bottom-full mb-2" : "top-full mt-2"} w-[230px] rounded-2xl bg-[#24252a] border border-white/10 shadow-2xl shadow-black/80 p-1.5 backdrop-blur-xl z-50 text-[#f0f0f2] animate-in fade-in zoom-in-95 duration-100`}
+          style={{ transformOrigin: openUpwards ? "bottom right" : "top right" }}
         >
           {/* 1. Save to storage */}
           <button

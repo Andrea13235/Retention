@@ -70,8 +70,7 @@ export function middleware(req: NextRequest) {
     pathname.startsWith("/api/pipeline/") ||
     pathname.startsWith("/api/r2/") ||
     pathname.startsWith("/api/upload") ||
-    pathname.startsWith("/api/vault/") ||
-    pathname.startsWith("/api/voiceover");
+    pathname.startsWith("/api/vault/");
 
   if (isSensitiveApi && !hasSessionCookie(req)) {
     return NextResponse.json({ error: "Unauthorized — please sign in." }, { status: 401 });

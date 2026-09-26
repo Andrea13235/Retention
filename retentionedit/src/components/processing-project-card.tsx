@@ -124,23 +124,29 @@ export function ProcessingProjectCard({ project }: { project: ProjectEntry }) {
         {/* Shimmer di base */}
         <div className="absolute inset-0 processing-shimmer" />
         {/* Velo scuro + contenuto */}
-        <div className="absolute inset-0 flex flex-col items-center justify-center gap-2.5 p-4 text-center bg-black/60">
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 p-4 text-center bg-black/65 backdrop-blur-[2px]">
           <span className="relative flex items-center justify-center">
-            <span className="absolute w-11 h-11 rounded-full bg-white/10 animate-ping" />
-            <span className="relative w-11 h-11 rounded-full bg-white text-black flex items-center justify-center shadow-lg">
-              <Loader2 size={20} className="animate-spin" />
+            <span className="absolute w-12 h-12 rounded-full bg-emerald-500/20 animate-ping" />
+            <span className="relative w-11 h-11 rounded-full bg-white text-black flex items-center justify-center shadow-xl">
+              <Loader2 size={22} className="animate-spin text-black" />
             </span>
           </span>
-          <p className="text-[13px] font-semibold text-white">Editing in corso…</p>
-          <p className="text-[11px] text-[#c9c9cf] font-mono">
-            ~{formatEta(eta.remainingSec)} rimanenti
-            <span className="text-[#8c8c90]"> · {eta.pct}%</span>
-          </p>
+          <div>
+            <p className="text-[13px] font-bold text-white tracking-wide">
+              Editing in corso…
+            </p>
+            {/* Pillola percentuale + tempo rimanente */}
+            <div className="mt-1.5 inline-flex items-center gap-2 text-xs text-white font-mono bg-white/10 px-3 py-1 rounded-full border border-white/15 shadow-sm">
+              <span className="font-bold text-emerald-400">{eta.pct}%</span>
+              <span className="text-white/40">&bull;</span>
+              <span className="text-[#e2e3e7]">~{formatEta(eta.remainingSec)} rimanenti</span>
+            </div>
+          </div>
           {/* Progress bar */}
-          <div className="w-3/4 max-w-[220px] h-1.5 rounded-full bg-white/15 overflow-hidden">
+          <div className="w-4/5 max-w-[240px] h-2 rounded-full bg-white/15 overflow-hidden p-[1px] shadow-inner">
             <div
-              className="h-full rounded-full bg-white transition-all duration-700"
-              style={{ width: `${eta.pct}%` }}
+              className="h-full rounded-full bg-gradient-to-r from-emerald-400 via-teal-300 to-white transition-all duration-700 shadow-sm"
+              style={{ width: `${Math.max(4, eta.pct)}%` }}
             />
           </div>
         </div>
@@ -152,8 +158,9 @@ export function ProcessingProjectCard({ project }: { project: ProjectEntry }) {
           <h3 className="text-sm font-semibold text-white truncate leading-snug">
             {project.title}
           </h3>
-          <p className="text-xs text-[#8c8c90] mt-1">
-            Elaborazione · tempo stimato {formatEta(eta.totalSec)}
+          <p className="text-xs text-[#8c8c90] mt-1 flex items-center gap-1.5">
+            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shrink-0" />
+            <span className="truncate">Elaborazione in corso &bull; tempo stimato: {formatEta(eta.totalSec)}</span>
           </p>
         </div>
         <div className="flex items-center gap-1 shrink-0">
