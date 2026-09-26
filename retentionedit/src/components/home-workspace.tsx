@@ -33,6 +33,7 @@ interface HomeWorkspaceProps {
   initialUrl?: string;
   onOpenPricing?: () => void;
   onViewAllProjects?: () => void;
+  onOpenJob?: (jobId: string) => void;
 }
 
 /**
@@ -52,6 +53,7 @@ export function HomeWorkspace({
   initialUrl = "",
   onOpenPricing,
   onViewAllProjects,
+  onOpenJob,
 }: HomeWorkspaceProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const driveInputRef = useRef<HTMLInputElement>(null);
@@ -527,6 +529,7 @@ export function HomeWorkspace({
                   key={project.id}
                   project={project}
                   onClearCover={handleClearCover}
+                  onOpen={onOpenJob ? () => onOpenJob(project.id) : undefined}
                 />
               )
             )}

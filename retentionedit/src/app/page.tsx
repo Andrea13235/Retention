@@ -309,6 +309,18 @@ export default function HomePage() {
                   initialUrl={initialUrl}
                   onOpenPricing={() => setPricingOpen(true)}
                   onViewAllProjects={() => setActiveTab("projects")}
+                  onOpenJob={async (jobId) => {
+                    try {
+                      const r = await fetch(`/api/pipeline/result?jobId=${encodeURIComponent(jobId)}`, {
+                        headers: { "x-retentionedit-session": user?.id || "active" },
+                      });
+                      if (!r.ok) return;
+                      const j = (await r.json()) as PipelineJob;
+                      setActiveJobId(jobId);
+                      setJobData(j);
+                      setActiveTab("home");
+                    } catch {}
+                  }}
                 />
               )}
 
