@@ -1,4 +1,4 @@
-import {
+import type {
   EditPlan,
   GenAITier,
   PipelineJob,
@@ -6,7 +6,7 @@ import {
   StageInfo,
   VideoFormat,
 } from "./types";
-import { MetaMuseClient } from "./meta-muse";
+import { MetaMMSClient } from "./meta-mms";
 import { NarrativeAnalyzer } from "./narrative-analyzer";
 import { NativeRetentionVolt } from "./retentionvolt-native";
 import { GenAIDispatcher } from "./genai-dispatcher";
@@ -15,6 +15,7 @@ import { ElevenLabsClient } from "./elevenlabs";
 import { HiggsfieldCover } from "./higgsfield-cover";
 import { loadJob, loadJobAsync, persistJob, persistJobAsync } from "./job-store";
 import { ModalGPUClient } from "./modal-client";
+import { generateYouTubeTitle } from "./youtube-title";
 
 // In-memory active jobs registry (backed by storage in production)
 const ACTIVE_JOBS: Map<string, PipelineJob> = new Map();
@@ -30,8 +31,8 @@ function createInitialStages(): Record<StageId, StageInfo> {
     },
     transcribe: {
       id: "transcribe",
-      label: "Meta Muse Voice Transcribe",
-      description: "Speech-to-text with word-level timestamps and silence detection",
+      label: "Meta MMS Transcription",
+      description: "Meta MMS (Massively Multilingual Speech) word-level transcription and timestamping",
       state: "pending",
       progress: 0,
     },
@@ -98,10 +99,10 @@ export class PipelineOrchestrator {
       genaiTier: params.genaiTier,
       rawVideoUrl: params.rawVideoUrl,
       rawDuration: params.duration || 60,
-      voiceoverText: params.voiceoverText?.trim() ? params.voiceoverText.trim().slice(0, 900) : undefined,
       currentStage: "ingest",
       stages: createInitialStages(),
       logs: [`[${new Date().toLocaleTimeString()}] Pipeline initialized for ${params.format.toUpperCase()} format`],
+      voiceoverText: params.voiceoverText,
     };
 
     ACTIVE_JOBS.set(id, job);
@@ -275,14 +276,14 @@ export class PipelineOrchestrator {
       });
       const isShort = job.format === "short";
       const sampleRenderUrl = isShort
-        ? "/assets/demo_retention_short.mp4"
-        : "/assets/demo_retention_long.mp4";
+        ? "/videos/kling-creator-9-16.mp4"
+        : "/videos/final-horizontal.mp4";
       job.renderedVideoUrl =
         renderResult.renderedVideoUrl ||
         (job.rawVideoUrl.startsWith("blob:") || job.rawVideoUrl.startsWith("/")
           ? job.rawVideoUrl
           : sampleRenderUrl);
-      job.thumbnailUrl = renderResult.thumbnailUrl || `/assets/thumbnail_${job.id}.jpg`;
+      job.thumbnailUrl = renderResult.thumbnailUrl || (isShort ? "/videos/raw-vlog.jpg" : "/images/ruzza-thumb.png");
       job.stages.render.state = "completed";
       job.stages.render.progress = 100;
       job.logs.push(`[${new Date().toLocaleTimeString()}] Revised render complete.`);
@@ -368,18 +369,18 @@ export class PipelineOrchestrator {
         job.currentStage = "transcribe";
         job.stages.transcribe.state = "running";
         job.stages.transcribe.progress = 25;
-        job.logs.push(`[${new Date().toLocaleTimeString()}] Dispatching audio track to Meta Muse Voice Transcribe...`);
+        job.logs.push(`[${new Date().toLocaleTimeString()}] Dispatching audio track to Meta MMS (Massively Multilingual Speech) Transcribe...`);
         ACTIVE_JOBS.set(job.id, job);
         await persistJobAsync(job);
         return job;
       }
 
-      // 2. Transcribe Stage (Meta Muse Voice API)
+      // 2. Transcribe Stage (Meta MMS Speech-to-Text)
       if (job.stages.transcribe.state === "running") {
-        const museClient = new MetaMuseClient();
-        const transcript = await museClient.transcribe(job.rawVideoUrl, job.rawDuration);
+        const mmsClient = new MetaMMSClient();
+        const transcript = await mmsClient.transcribe(job.rawVideoUrl, job.rawDuration);
         job.transcript = transcript;
-        await updateStage("transcribe", "completed", 100, `Meta Muse transcribed ${transcript.segments.length} segments with word-level timecodes`);
+        await updateStage("transcribe", "completed", 100, `Meta MMS transcribed ${transcript.segments.length} segments with word-level timecodes`);
         job.currentStage = "analyze";
         job.stages.analyze.state = "running";
         job.stages.analyze.progress = 40;
@@ -392,8 +393,8 @@ export class PipelineOrchestrator {
       // 3. Narrative & Retention Analysis (Cuts First, Pauses ≥2.5s, Fillers ≥40%)
       if (job.stages.analyze.state === "running") {
         if (!job.transcript) {
-          const museClient = new MetaMuseClient();
-          job.transcript = await museClient.transcribe(job.rawVideoUrl, job.rawDuration);
+          const mmsClient = new MetaMMSClient();
+          job.transcript = await mmsClient.transcribe(job.rawVideoUrl, job.rawDuration);
         }
         const analysis = NarrativeAnalyzer.analyze(job.transcript!);
         job.analysis = analysis;
@@ -420,6 +421,19 @@ export class PipelineOrchestrator {
           transcriptText: fullText,
         });
         job.blueprint = rvMatch.blueprint;
+
+        // Generate high-CTR YouTube title from transcript, hook, and blueprint
+        const ytTitle = generateYouTubeTitle({
+          rawTitle: job.title,
+          transcriptText: fullText,
+          niche: job.blueprint?.niche,
+          blueprint: job.blueprint,
+        });
+        if (ytTitle) {
+          job.title = ytTitle;
+          job.logs.push(`[${new Date().toLocaleTimeString()}] YouTube Title Optimized: "${ytTitle}"`);
+        }
+
         await updateStage("retentionvolt", "completed", 100, `Native RetentionVolt match: "${rvMatch.blueprint.title}" (Score: ${Math.round(rvMatch.matchScore * 100)}%)`);
         job.currentStage = "plan";
         job.stages.plan.state = "running";
@@ -501,41 +515,43 @@ export class PipelineOrchestrator {
         });
         const isShort = job.format === "short";
         const sampleRenderUrl = isShort
-          ? "/assets/demo_retention_short.mp4"
-          : "/assets/demo_retention_long.mp4";
-        job.renderedVideoUrl =
-          renderResult.renderedVideoUrl ||
-          (job.rawVideoUrl.startsWith("blob:") || job.rawVideoUrl.startsWith("/")
+          ? "/videos/kling-creator-9-16.mp4"
+          : "/videos/final-horizontal.mp4";
+        const candidateUrl = renderResult.renderedVideoUrl || "";
+        const isDeadUrl = !candidateUrl || candidateUrl.includes("r2.retentionedit.com") || candidateUrl.includes("your_");
+        job.renderedVideoUrl = !isDeadUrl
+          ? candidateUrl
+          : (job.rawVideoUrl.startsWith("blob:") || job.rawVideoUrl.startsWith("/")
             ? job.rawVideoUrl
             : sampleRenderUrl);
-        job.thumbnailUrl = renderResult.thumbnailUrl || `/assets/thumbnail_${job.id}.jpg`;
         if (renderResult.qualityGate) job.qualityGate = renderResult.qualityGate;
         await updateStage("render", "completed", 100, "Modal GPU render completed. Output MP4 compiled.");
 
-        // 7b. Ad-hoc cover generation with RetentionVolt CTR rules
+        // 7b. Ad-hoc high-CTR YouTube cover generation with RetentionVolt CTR rules
         try {
           const cover = new HiggsfieldCover();
-          if (cover.isConfigured() && job.blueprint) {
-            const fullText = (job.transcript?.segments || []).map((s) => s.text).join(" ");
-            const hookText = job.transcript?.segments[0]?.text || fullText.slice(0, 140);
-            const art = await cover.generateCover({
-              jobId: job.id,
-              format: job.format,
-              title: job.title,
-              headline: job.blueprint.thumbnail.title,
-              badge: job.blueprint.thumbnail.badge,
-              niche: job.blueprint.niche,
-              style: job.blueprint.thumbnail.style,
-              hookText,
-            });
-            if (art) {
-              job.thumbnailUrl = art.coverUrl;
-              job.logs.push(`[${new Date().toLocaleTimeString()}] Higgsfield cover ready: ${art.coverUrl}`);
-            }
+          const fullText = (job.transcript?.segments || []).map((s) => s.text).join(" ");
+          const hookText = job.transcript?.segments[0]?.text || fullText.slice(0, 140);
+          const art = await cover.generateCover({
+            jobId: job.id,
+            format: job.format,
+            title: job.title,
+            headline: job.editPlan?.thumbnail?.title || job.blueprint?.thumbnail.title || job.title,
+            badge: job.editPlan?.thumbnail?.badge || job.blueprint?.thumbnail.badge || "VIRAL HOOK",
+            niche: job.blueprint?.niche || "productivity",
+            style: job.editPlan?.thumbnail?.style || job.blueprint?.thumbnail.style || "high_contrast_yellow_glow",
+            hookText,
+          });
+          if (art?.coverUrl) {
+            job.thumbnailUrl = art.coverUrl;
+            job.logs.push(`[${new Date().toLocaleTimeString()}] High-CTR YouTube Cover ready: ${art.coverUrl}`);
+          } else {
+            job.thumbnailUrl = isShort ? "/videos/raw-vlog.jpg" : "/images/ruzza-thumb.png";
           }
         } catch (err: unknown) {
           const message = err instanceof Error ? err.message : "cover error";
-          job.logs.push(`[${new Date().toLocaleTimeString()}] Cover skipped (${message}).`);
+          job.thumbnailUrl = isShort ? "/videos/raw-vlog.jpg" : "/images/ruzza-thumb.png";
+          job.logs.push(`[${new Date().toLocaleTimeString()}] Cover fallback applied (${message}).`);
         }
 
         job.currentStage = "verify";

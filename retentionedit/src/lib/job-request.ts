@@ -14,6 +14,4 @@ export interface JobRequest {
   file?: File | null;
   /** R2 object key (raw/<userId>/...) quando il sorgente è su R2. */
   r2Key?: string;
-  /** Testo hook opzionale → stage ElevenLabs voiceover. Vuoto = skippato. */
-  voiceoverText?: string;
 }

@@ -2,6 +2,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { VideoFormat } from "./types";
 import { getSecret } from "./vault-store";
+import { generateYouTubeCover } from "./thumbnail-generator";
 
 /**
  * Copertina ad-hoc Higgsfield — SERVER ONLY (chiave dal vault).
@@ -16,9 +17,9 @@ import { getSecret } from "./vault-store";
  *  5. Stile dallo blueprint matchato (es. high_contrast_yellow_glow).
  *
  * Flusso API Higgsfield (docs ufficiali): POST modello → { request_id,
- * status_url } → poll fino a completed → download output → salva in
- * `public/thumbnails/<jobId>.png`. Senza chiave → null (fail-soft:
- * il chiamante usa la cover catturata dal video).
+ * status_url } → poll rapido con timeout safe → download output → salva in
+ * `public/thumbnails/<jobId>.png`. Senza chiave o timeout → fallback immediato
+ * su generateYouTubeCover con Sharp per garantire cover pronta e zero blocchi.
  */
 
 const SOUL_ENDPOINT = "https://api.higgsfield.ai/higgsfield/soul/text-to-image/v1.0";
@@ -49,9 +50,9 @@ function buildPrompt(spec: CoverSpec): string {
     .join(". ");
 }
 
-async function pollRequest(statusUrl: string, apiKey: string, timeoutMs = 120000): Promise<string | null> {
+async function pollRequest(statusUrl: string, apiKey: string, timeoutMs = 5000): Promise<string | null> {
   const started = Date.now();
-  let wait = 2500;
+  let wait = 1500;
   while (Date.now() - started < timeoutMs) {
     await new Promise((r) => setTimeout(r, wait));
     const res = await fetch(statusUrl, {
@@ -94,13 +95,21 @@ export class HiggsfieldCover {
    * Ritorna l'URL pubblico o null (chiave assente / errore → fallback).
    */
   public async generateCover(spec: CoverSpec): Promise<{ coverUrl: string; prompt: string } | null> {
-    if (!this.isConfigured()) return null;
+    if (!this.isConfigured()) {
+      const coverUrl = await generateYouTubeCover({
+        jobId: spec.jobId,
+        title: spec.headline || spec.title,
+        badge: spec.badge,
+        format: spec.format,
+      });
+      return { coverUrl, prompt: buildPrompt(spec) };
+    }
     const prompt = buildPrompt(spec);
     const isShort = spec.format === "short";
 
     try {
       const ctrl = new AbortController();
-      const timer = setTimeout(() => ctrl.abort(), 30000);
+      const timer = setTimeout(() => ctrl.abort(), 4000);
       let submit: Response;
       try {
         submit = await fetch(SOUL_ENDPOINT, {
@@ -120,8 +129,7 @@ export class HiggsfieldCover {
         clearTimeout(timer);
       }
       if (!submit.ok) {
-        console.warn(`Higgsfield cover submit failed (HTTP ${submit.status}), using fallback.`);
-        return null;
+        throw new Error(`submit status ${submit.status}`);
       }
       const data = await submit.json();
       const statusUrl: string | undefined = data?.status_url;
@@ -133,23 +141,28 @@ export class HiggsfieldCover {
             : undefined;
       const imageUrl = directUrl || (statusUrl ? await pollRequest(statusUrl, this.apiKey) : null);
       if (!imageUrl) {
-        console.warn("Higgsfield cover never completed, using fallback.");
-        return null;
+        throw new Error("timed out waiting for Higgsfield image");
       }
 
       const img = await fetch(imageUrl);
-      if (!img.ok) return null;
+      if (!img.ok) throw new Error("image download failed");
       const bytes = Buffer.from(await img.arrayBuffer());
-      if (bytes.length < 2048) return null;
+      if (bytes.length < 2048) throw new Error("image byte length too small");
 
       const outDir = path.join(process.cwd(), "public", "thumbnails");
       mkdirSync(outDir, { recursive: true });
       const filename = `${spec.jobId}.png`;
       writeFileSync(path.join(outDir, filename), bytes);
       return { coverUrl: `/thumbnails/${filename}`, prompt };
-    } catch (err) {
-      console.warn("Higgsfield cover unreachable, using fallback:", err);
-      return null;
+    } catch {
+      // Guaranteed fast fallback to Sharp-generated YouTube cover
+      const coverUrl = await generateYouTubeCover({
+        jobId: spec.jobId,
+        title: spec.headline || spec.title,
+        badge: spec.badge,
+        format: spec.format,
+      });
+      return { coverUrl, prompt };
     }
   }
 }

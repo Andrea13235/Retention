@@ -16,7 +16,7 @@ import path from "node:path";
 
 export const VAULT_PROVIDERS = [
   "anthropic",
-  "elevenlabs",
+  "meta_mms",
   "higgsfield",
   "modal",
   "meta_muse",
@@ -32,7 +32,7 @@ export type VaultProvider = (typeof VAULT_PROVIDERS)[number];
 /** Canonical env var backing each provider (fallback source). */
 export const VAULT_ENV_MAP: Record<VaultProvider, string> = {
   anthropic: "ANTHROPIC_API_KEY",
-  elevenlabs: "ELEVENLABS_API_KEY",
+  meta_mms: "META_MMS_API_KEY",
   higgsfield: "HIGGSFIELD_API_KEY",
   modal: "MODAL_AUTH_TOKEN",
   meta_muse: "META_MUSE_API_KEY",
@@ -46,7 +46,7 @@ export const VAULT_ENV_MAP: Record<VaultProvider, string> = {
 /** Human label shown in Settings (never the value). */
 export const VAULT_LABELS: Record<VaultProvider, string> = {
   anthropic: "Claude (Anthropic)",
-  elevenlabs: "ElevenLabs (voiceover)",
+  meta_mms: "Meta MMS (STT)",
   higgsfield: "Higgsfield (cover 4K)",
   modal: "Modal GPU (token)",
   meta_muse: "Meta Muse Voice (STT)",

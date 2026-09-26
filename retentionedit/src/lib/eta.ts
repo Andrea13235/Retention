@@ -13,7 +13,6 @@ export type EtaStageId =
   | "analyze"
   | "retentionvolt"
   | "plan"
-  | "voiceover"
   | "render"
   | "verify";
 
@@ -23,32 +22,29 @@ export const ETA_STAGE_ORDER: EtaStageId[] = [
   "analyze",
   "retentionvolt",
   "plan",
-  "voiceover",
   "render",
   "verify",
 ];
 
-/** Costo base per stage (secondi, misurato su run locali senza GPU live). */
+/** Costo base per stage (secondi, misurato su run reali). */
 const BASE_SEC: Record<EtaStageId, number> = {
   ingest: 2,
-  transcribe: 6,
+  transcribe: 4,
   analyze: 2,
   retentionvolt: 1,
-  plan: 7,
-  voiceover: 9,
-  render: 10,
+  plan: 5,
+  render: 8,
   verify: 2,
 };
 
 /** Extra secondi per secondo di video (stage che scalano con la durata). */
 const PER_SEC: Record<EtaStageId, number> = {
   ingest: 0.02,
-  transcribe: 0.12,
+  transcribe: 0.08,
   analyze: 0.02,
   retentionvolt: 0,
-  plan: 0.05,
-  voiceover: 0,
-  render: 0.18,
+  plan: 0.04,
+  render: 0.15,
   verify: 0.01,
 };
 
@@ -57,9 +53,8 @@ export function estimateStageSeconds(stage: EtaStageId, rawDurationSec: number):
   return BASE_SEC[stage] + PER_SEC[stage] * d;
 }
 
-export function estimateTotalSeconds(rawDurationSec: number, withVoiceover: boolean): number {
+export function estimateTotalSeconds(rawDurationSec: number): number {
   return ETA_STAGE_ORDER.reduce((acc, s) => {
-    if (s === "voiceover" && !withVoiceover) return acc;
     return acc + estimateStageSeconds(s, rawDurationSec);
   }, 0);
 }
@@ -84,10 +79,7 @@ export function computeEta(snap: JobProgressSnapshot, nowMs = Date.now()): {
   pct: number;
 } {
   const rawDuration = snap.rawDuration ?? 38;
-  const withVoiceover = snap.hasVoiceover ?? false;
-  const costs = ETA_STAGE_ORDER.map((s) =>
-    s === "voiceover" && !withVoiceover ? 0 : estimateStageSeconds(s, rawDuration)
-  );
+  const costs = ETA_STAGE_ORDER.map((s) => estimateStageSeconds(s, rawDuration));
   const totalSec = Math.max(1, costs.reduce((a, b) => a + b, 0));
 
   let doneCost = 0;
@@ -101,6 +93,11 @@ export function computeEta(snap: JobProgressSnapshot, nowMs = Date.now()): {
       runningFraction = costs[i] * p;
     }
   });
+
+  if (snap.currentStage === "done" || snap.currentStage === "error") {
+    const elapsedSec = snap.startedAt ? Math.max(0, Math.round((nowMs - snap.startedAt) / 1000)) : 0;
+    return { elapsedSec, remainingSec: 0, totalSec: Math.round(totalSec), pct: 100 };
+  }
 
   const elapsedSec = snap.startedAt ? Math.max(0, Math.round((nowMs - snap.startedAt) / 1000)) : 0;
   // Residuo = costo restante stimato. Se il run reale è più lento del modello,

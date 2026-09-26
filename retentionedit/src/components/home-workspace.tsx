@@ -11,10 +11,10 @@ import {
   Music,
   Maximize2,
   Languages,
-  Mic,
   AudioLines,
   FileText,
   ChevronRight,
+  Mic,
 } from "lucide-react";
 import { GenAITier, VideoFormat } from "@/lib/types";
 import { JobRequest } from "@/lib/job-request";
@@ -39,11 +39,11 @@ interface HomeWorkspaceProps {
 /**
  * Authentic OpusClip dashboard hero.
  *
- * - One big pill (760px x 60px) whose content is the two upload sources:
- *   [folder-icon] Upload   [drive-logo] Google Drive
+ * - One big pill (760px x 60px) whose content is the upload source:
+ *   [folder-icon] Upload
  *   ("or Try a sample project?" underneath, exactly like the reference).
  * - No typed link input anywhere: the user always loads the video to edit
- *   via file picker or Google Drive.
+ *   via file picker.
  * - My projects: the user's edited videos with their covers already set,
  *   in large 3-column demo proportions like the reference photo.
  */
@@ -56,7 +56,6 @@ export function HomeWorkspace({
   onOpenJob,
 }: HomeWorkspaceProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const driveInputRef = useRef<HTMLInputElement>(null);
   const [selectedName, setSelectedName] = useState<string>(initialUrl);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [voiceoverOpen, setVoiceoverOpen] = useState(false);
@@ -73,14 +72,6 @@ export function HomeWorkspace({
   const handleFiles = (files: FileList | null) => {
     if (!files || files.length === 0) return;
     const file = files[0];
-    setSelectedFile(file);
-    setSelectedName(file.name);
-  };
-
-  const handleDriveFiles = (files: FileList | null) => {
-    if (!files || files.length === 0) return;
-    const file = files[0];
-    // Drive import = same local bytes; title cleaned like a Drive file name.
     setSelectedFile(file);
     setSelectedName(file.name);
   };
@@ -195,7 +186,6 @@ export function HomeWorkspace({
       duration,
       file: uploadedFile,
       ...(r2Key ? { r2Key } : {}),
-      ...(voiceoverText.trim() ? { voiceoverText: voiceoverText.trim().slice(0, 900) } : {}),
     });
   };
 
@@ -227,7 +217,7 @@ export function HomeWorkspace({
 
       {/* ========================================================================= */}
       {/* 2. THE BIG UPLOAD PILL HERO (DESKTOP PROPORTIONS: 760px x 60px)           */}
-      {/*    Inside the pill: Upload + Google Drive (like the reference crop).      */}
+      {/*    Inside the pill: Upload video file.                                    */}
       {/* ========================================================================= */}
       <div className="w-full max-w-[720px] mx-auto flex flex-col items-center mt-10">
         <form
@@ -247,25 +237,6 @@ export function HomeWorkspace({
                 {selectedFile ? selectedFile.name : "Upload"}
               </span>
             </button>
-
-            {/* Google Drive source */}
-            <button
-              type="button"
-              onClick={() => driveInputRef.current?.click()}
-              className="flex items-center gap-2 hover:opacity-80 transition cursor-pointer bg-transparent border-0 text-white min-w-0"
-              title="Import a video from Google Drive"
-            >
-              {/* Google Drive Official Icon */}
-              <svg className="w-[18px] h-[18px] shrink-0" viewBox="0 0 87.3 78" fill="none">
-                <path d="m6.6 66.85 3.85 6.65c.8 1.4 1.95 2.5 3.3 3.3l13.75-23.8H0c0 1.55.4 3.1 1.2 4.5z" fill="#0066da"/>
-                <path d="m43.65 25-13.75-23.8c-1.35.8-2.5 1.9-3.3 3.3l-25.4 44c-.8 1.4-1.2 2.95-1.2 4.5h27.5z" fill="#00ac47"/>
-                <path d="M73.55 76.8c1.35-.8 2.5-1.9 3.3-3.3l1.6-2.75 7.65-13.25c.8-1.4 1.2-2.95 1.2-4.5H59.8l5.85 10.15z" fill="#ea4335"/>
-                <path d="M43.65 25 57.4 1.2C56.05.4 54.5 0 52.9 0H34.4c-1.6 0-3.15.4-4.5 1.2z" fill="#00832d"/>
-                <path d="M59.8 53H27.5L13.75 76.8c1.35.8 2.9 1.2 4.5 1.2h50.8c1.6 0 3.15-.4 4.5-1.2z" fill="#2684fc"/>
-                <path d="m73.4 26.5-12.7-22c-.8-1.4-1.95-2.5-3.3-3.3L43.65 25 59.8 53h27.5c0-1.55-.4-3.1-1.2-4.5z" fill="#ffba00"/>
-              </svg>
-              <span className="font-medium truncate">Google Drive</span>
-            </button>
           </div>
 
           {/* Hidden pickers */}
@@ -275,13 +246,6 @@ export function HomeWorkspace({
             accept="video/*"
             className="hidden"
             onChange={(e) => handleFiles(e.target.files)}
-          />
-          <input
-            ref={driveInputRef}
-            type="file"
-            accept="video/*"
-            className="hidden"
-            onChange={(e) => handleDriveFiles(e.target.files)}
           />
 
           {/* Submit Button */}
@@ -311,35 +275,6 @@ export function HomeWorkspace({
         >
           or Try a sample project?
         </button>
-
-        {/* Optional ElevenLabs hook voiceover (collapsed by default) */}
-        <div className="w-full mt-3 rounded-2xl border border-[#303033] bg-[#1a1a1a]/60 overflow-hidden">
-          <button
-            type="button"
-            onClick={() => setVoiceoverOpen((v) => !v)}
-            className="w-full flex items-center justify-between px-4 py-2.5 text-xs sm:text-[13px] text-[#e2e3e7] font-medium hover:bg-[#232326] transition cursor-pointer bg-transparent border-0"
-          >
-            <span className="flex items-center gap-2">
-              <Mic size={15} className="text-white" />
-              <span>Voiceover hook (ElevenLabs, opzionale)</span>
-            </span>
-            <span className="text-[#8c8c90] text-xs">{voiceoverOpen ? "−" : "+"}</span>
-          </button>
-          {voiceoverOpen && (
-            <div className="px-4 pb-3.5">
-              <textarea
-                value={voiceoverText}
-                onChange={(e) => setVoiceoverText(e.target.value.slice(0, 900))}
-                rows={2}
-                placeholder="Scrivi l'hook da sintetizzare (es. «In 30 secondi ti mostro…»). Vuoto = nessun voiceover."
-                className="w-full px-3 py-2.5 rounded-xl bg-[#0F0F0F] border border-[#303033] text-xs sm:text-[13px] text-white placeholder-[#5c5c62] focus:outline-none focus:border-white/25 resize-none"
-              />
-              <p className="text-[11px] text-[#8c8c90] mt-1.5">
-                Richiede la chiave ElevenLabs in Settings → API Keys. Senza chiave, lo stage viene skippato.
-              </p>
-            </div>
-          )}
-        </div>
       </div>
 
       {/* ========================================================================= */}
@@ -473,17 +408,7 @@ export function HomeWorkspace({
             <span>Enhance speech</span>
           </button>
 
-          {/* 3. Voiceover hook */}
-          <button
-            type="button"
-            onClick={() => {}}
-            className="flex items-center gap-2 px-3.5 rounded-full bg-[#1a1a1a] hover:bg-[#232326] border border-[#303033] text-xs sm:text-[13px] text-[#e2e3e7] font-medium transition cursor-pointer h-[34px]"
-          >
-            <Mic size={15} className="text-white" />
-            <span>Voiceover hook</span>
-          </button>
-
-          {/* 4. Script to video (Beta) */}
+          {/* 3. Script to video (Beta) */}
           <div className="relative">
             <button
               type="button"

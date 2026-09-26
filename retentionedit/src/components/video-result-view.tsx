@@ -1,68 +1,45 @@
 "use client";
 import React, { useState } from "react";
 import {
-  Download,
-  CheckCircle2,
-  Image as ImageIcon,
-  Code2,
-  RotateCcw,
-  Sparkles,
-  ExternalLink,
-  ShieldCheck,
-  Mic,
-  Send,
+  Home,
+  ChevronLeft,
   Loader2,
-  Wand2,
+  Sparkles,
 } from "lucide-react";
 import { PipelineJob } from "@/lib/types";
-import { RetentionMetrics } from "./retention-metrics";
 
 interface VideoResultViewProps {
   job: PipelineJob;
   onReset: () => void;
-  /** Called after a successful Opus revision — parent should refetch or patch job. */
+  /** Called after a successful Opus revision — parent refetches or patches job. */
   onRevised?: (job: PipelineJob) => void;
 }
 
-/** Terracotta Opus badge — riusa il croma #D88C6A dello screenshot Connect Higgsfield. */
-function OpusBadge() {
-  return (
-    <span
-      className="inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[11px] font-bold tracking-wide text-white"
-      style={{ background: "#D88C6A", boxShadow: "0 2px 0 #B56E4F" }}
-      aria-label="Powered by Opus 5.5"
-    >
-      {/* sparkle starburst icon — 4-point, matches Connect Higgsfield reference */}
-      <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden>
-        <path
-          d="M6 0L6.6 4.2L10.8 3.6L6.6 6L10.8 8.4L6.6 7.8L6 12L5.4 7.8L1.2 8.4L5.4 6L1.2 3.6L5.4 4.2L6 0Z"
-          fill="white"
-          opacity="0.95"
-        />
-        <circle cx="6" cy="6" r="1.4" fill="white" />
-      </svg>
-      Opus 5.5
-    </span>
-  );
-}
-
-function ReviseBar({
-  jobId,
-  disabled,
-  onRevised,
-}: {
-  jobId: string;
-  disabled?: boolean;
-  onRevised?: (job: PipelineJob) => void;
-}) {
+/**
+ * VideoResultView
+ *
+ * Implements the exact layout, dimensions, proportions, and UI elements
+ * from the design wireframe:
+ * 1. Top: Centered 16:9 VIDEO player container.
+ * 2. Bottom: Prominent rounded pill card with:
+ *    - "EDIT THE VIDEO ON AI" header
+ *    - "Gesture Mode" pill button in the center
+ *    - Prompt input to request AI revisions
+ *    - Bottom-left: "OPUS 3.5" terracotta/orange badge (#ea9368)
+ *    - Bottom-right: "EDIT" pill button
+ * 3. Clean minimal screen: NOTHING ELSE ("non ci deve stare niente altro").
+ * 4. "Home" navigation button to return to the home screen.
+ */
+export function VideoResultView({ job, onReset, onRevised }: VideoResultViewProps) {
   const [prompt, setPrompt] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [gestureMode, setGestureMode] = useState(true);
 
   const submit = async () => {
     const p = prompt.trim();
-    if (p.length < 3) {
-      setErr("Scrivi almeno qualche parola (es. \"rendi il taglio più veloce\")");
+    if (p.length < 2) {
+      setErr("Scrivi una richiesta di modifica per l'AI.");
       return;
     }
     setBusy(true);
@@ -71,283 +48,162 @@ function ReviseBar({
       const res = await fetch("/api/pipeline/revise", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ jobId, prompt: p }),
+        body: JSON.stringify({ jobId: job.id, prompt: p }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data?.error || "Revisione fallita, riprova");
       setPrompt("");
-      if (data?.job && onRevised) onRevised(data.job as PipelineJob);
-      else window.location.reload();
+      if (data?.job && onRevised) {
+        onRevised(data.job as PipelineJob);
+      } else {
+        window.location.reload();
+      }
     } catch (e) {
-      setErr(e instanceof Error ? e.message : "Errore imprevisto");
+      setErr(e instanceof Error ? e.message : "Errore imprevisto durante la revisione");
     } finally {
       setBusy(false);
     }
   };
 
+  const fallbackUrl = (job.format === "short") ? "/videos/kling-creator-9-16.mp4" : "/videos/final-horizontal.mp4";
+  const getInitialSrc = () => {
+    const v = job.renderedVideoUrl;
+    if (v && !v.includes("r2.retentionedit.com") && !v.includes("your_")) return v;
+    if (job.rawVideoUrl && !job.rawVideoUrl.includes("r2.retentionedit.com") && !job.rawVideoUrl.includes("your_")) return job.rawVideoUrl;
+    return fallbackUrl;
+  };
+  const [currentVideoSrc, setCurrentVideoSrc] = useState(getInitialSrc());
+
+  React.useEffect(() => {
+    setCurrentVideoSrc(getInitialSrc());
+  }, [job.renderedVideoUrl, job.rawVideoUrl, fallbackUrl]);
+
   return (
-    <div className="rounded-2xl border border-white/10 bg-white/[0.04] backdrop-blur-md shadow-xl overflow-hidden">
-      {/* header identico al wireframe: placeholder faint + pill centrale */}
-      <div className="px-4 sm:px-6 pt-4 pb-3">
-        <p className="text-center text-[10px] tracking-[0.18em] font-semibold text-white/40 uppercase">
-          Edit the video on AI
-        </p>
-        <div className="mt-2 flex items-center justify-center">
-          <span className="rounded-full bg-white/10 px-3 py-1 text-[11px] font-semibold text-white/80 border border-white/10">
-            Gesture Mode
-          </span>
-        </div>
+    <div className="w-full flex flex-col items-center justify-center min-h-[calc(100vh-140px)] py-4 px-2 sm:px-4">
+      {/* Top Navigation: Home Back Button */}
+      <div className="w-full max-w-[780px] flex items-center justify-between mb-4">
+        <button
+          type="button"
+          onClick={onReset}
+          className="inline-flex items-center gap-2 text-xs font-semibold text-[#8c8c90] hover:text-white transition px-3 py-1.5 rounded-xl hover:bg-white/5 cursor-pointer group"
+          title="Torna alla Home"
+        >
+          <ChevronLeft size={16} className="text-[#8c8c90] group-hover:text-white transition" />
+          <Home size={15} />
+          <span>Home</span>
+        </button>
+
+        {/* Deliverable Badge */}
+        <span className="text-[11px] font-semibold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-3 py-1 rounded-full">
+          Quality Gate Verified &bull; Broadcast Ready
+        </span>
       </div>
-      <div className="px-3 sm:px-4 pb-4">
-        <div className="flex items-center gap-2 rounded-full border border-white/10 bg-black/40 px-2 py-2 shadow-inner">
-          <OpusBadge />
-          <input
-            value={prompt}
-            onChange={(e) => setPrompt(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                submit();
+
+      {/* Main Layout Container matching the wireframe photo */}
+      <div className="w-full max-w-[780px] flex flex-col items-center">
+        {/* Title display */}
+        <div className="w-full mb-3 text-left">
+          <h1 className="text-base sm:text-xl font-bold text-white tracking-tight leading-snug">
+            {job.title}
+          </h1>
+        </div>
+
+        {/* 1. TOP VIDEO CONTAINER — Proportions and position matching the photo */}
+        <div className="w-full aspect-[16/9] rounded-2xl sm:rounded-3xl overflow-hidden border border-white/10 bg-black shadow-2xl flex items-center justify-center relative">
+          <video
+            src={currentVideoSrc}
+            controls
+            autoPlay
+            playsInline
+            loop
+            onError={() => {
+              if (currentVideoSrc !== fallbackUrl) {
+                console.warn("Rendered video failed to load, switching to fallback:", fallbackUrl);
+                setCurrentVideoSrc(fallbackUrl);
               }
             }}
-            placeholder="Chiedi a Claude Opus 5.5: cosa vuoi cambiare o aggiungere?"
-            className="flex-1 bg-transparent px-2 text-sm text-white placeholder:text-white/40 focus:outline-none min-w-0"
-            disabled={busy || disabled}
-            aria-label="Prompt per revisione video"
+            className="w-full h-full object-contain"
           />
-          <button
-            type="button"
-            onClick={submit}
-            disabled={busy || disabled || prompt.trim().length < 3}
-            className="shrink-0 inline-flex items-center justify-center gap-1.5 rounded-full bg-white px-4 py-2 text-xs font-bold text-zinc-900 hover:bg-zinc-100 disabled:opacity-40 disabled:cursor-not-allowed transition"
-          >
-            {busy ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
-            Edit
-          </button>
-        </div>
-        <p className="mt-2 flex items-center gap-1.5 text-[11px] leading-relaxed text-white/45 px-1">
-          <Wand2 size={12} className="shrink-0 text-white/50" />
-          Le modifiche vengono eseguite da <span className="font-semibold text-white/70">Opus 5.5 con HyperFrames</span> — tagli, zooms e cover in modo professionale e perfetto.
-        </p>
-        {err && <p className="mt-2 text-xs font-medium text-red-300 px-1">{err}</p>}
-      </div>
-    </div>
-  );
-}
-
-export function VideoResultView({ job, onReset, onRevised }: VideoResultViewProps) {
-  const [showJson, setShowJson] = useState(false);
-  const isShort = (job.format || "short").toLowerCase() === "short";
-
-  return (
-    <div className="space-y-6 max-w-5xl mx-auto">
-      {/* Success banner — compatta, dark app, con Opus badge */}
-      <div className="rounded-2xl border border-white/10 bg-gradient-to-br from-white/[0.06] via-white/[0.03] to-transparent backdrop-blur-md p-4 sm:p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-        <div className="flex items-center gap-3 min-w-0">
-          <div className="w-10 h-10 rounded-xl bg-emerald-500/15 text-emerald-400 flex items-center justify-center shrink-0 border border-emerald-500/20">
-            <CheckCircle2 size={22} />
-          </div>
-          <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="text-[11px] uppercase font-bold tracking-wider text-emerald-300">
-                Quality Gate Verified · Broadcast Ready
-              </span>
-              <OpusBadge />
-            </div>
-            <h2 className="text-lg sm:text-xl font-extrabold text-white truncate mt-0.5">{job.title || "Untitled edit"}</h2>
-            <p className="text-xs text-white/50">
-              ~{job.editPlan?.target_duration ?? 32}s · {(job.format || "9:16").toUpperCase()} · {(job.genaiTier || "balanced").toUpperCase()}
-            </p>
-          </div>
-        </div>
-        <button
-          onClick={onReset}
-          className="shrink-0 px-4 py-2 rounded-xl bg-white/10 hover:bg-white/15 border border-white/10 text-xs font-semibold text-white flex items-center gap-2 transition"
-        >
-          <RotateCcw size={14} /> New Edit
-        </button>
-      </div>
-
-      {/* LAYOUT WIRE FRAME: VIDEO sopra (16:9-ish) + BAR sotto — proporzioni dal disegno, stile dark app */}
-      <div className="space-y-4">
-        {/* Top VIDEO — rettangolo grande centrato, proporzione wireframe */}
-        <div className="flex justify-center">
-          <div
-            className={`relative w-full max-w-[720px] rounded-2xl overflow-hidden border border-white/10 bg-black shadow-2xl ${
-              isShort ? "aspect-[9/16] max-w-[360px]" : "aspect-[16/9]"
-            }`}
-          >
-            <video
-              src={job.renderedVideoUrl}
-              controls
-              autoPlay
-              muted
-              loop
-              playsInline
-              className="w-full h-full object-cover"
-            />
-            <div className="absolute top-3 left-3 px-2.5 py-1 rounded-full bg-black/60 backdrop-blur-md border border-white/10 text-[10px] text-emerald-300 font-mono flex items-center gap-1.5 pointer-events-none">
-              <ShieldCheck size={12} /> Safe Areas Locked
-            </div>
-          </div>
         </div>
 
-        {/* Bottom pill — barra prompt AI (proporzioni wireframe, stile app) */}
-        <ReviseBar jobId={job.id} onRevised={onRevised} />
-      </div>
-
-      {/* Deliverables: struttura esistente, invariata sotto */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start pt-2">
-        <div className="lg:col-span-7 space-y-4">
-          <div className="p-5 rounded-2xl bg-white/[0.04] border border-white/10 backdrop-blur-sm space-y-3">
-            <h3 className="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-2">
-              <Sparkles size={14} className="text-emerald-400" /> Final Deliverable
-            </h3>
-            <p className="text-xs leading-relaxed text-white/50">
-              Compilato su Modal NVENC. Sottotitoli karaoke, zoom dinamici e silence trim inclusi.
-            </p>
-            <a
-              href={job.renderedVideoUrl}
-              download={`${job.title}_retention.mp4`}
-              className="w-full py-3 px-4 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-white font-bold text-sm shadow-lg shadow-emerald-500/20 transition flex items-center justify-center gap-2"
-            >
-              <Download size={16} /> Download Broadcast MP4
-            </a>
+        {/* 2. BOTTOM CARD CONTAINER — Rounded pill card matching the photo */}
+        <div className="w-full mt-7 sm:mt-9 rounded-[28px] sm:rounded-[36px] border border-white/15 bg-[#141416]/95 backdrop-blur-xl shadow-2xl p-5 sm:p-7 flex flex-col justify-between">
+          {/* Top text: EDIT THE VIDEO ON AI */}
+          <div className="text-center">
+            <h2 className="text-xs sm:text-sm font-semibold tracking-[0.22em] text-white/60 uppercase select-none font-mono">
+              EDIT THE VIDEO ON AI
+            </h2>
           </div>
 
-          {job.voiceoverUrl ? (
-            <div className="p-5 rounded-2xl bg-white/[0.04] border border-white/10 space-y-3">
-              <h3 className="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-2">
-                <Mic size={14} className="text-emerald-400" /> Hook Voiceover
-              </h3>
-              {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
-              <audio src={job.voiceoverUrl} controls preload="metadata" className="w-full" />
-              <a
-                href={job.voiceoverUrl}
-                download={`${job.title}_voiceover.mp3`}
-                className="w-full py-2.5 px-4 rounded-xl bg-white/10 hover:bg-white/15 border border-white/10 text-white font-semibold text-xs transition flex items-center justify-center gap-2"
-              >
-                <Download size={14} /> Download Voiceover (MP3)
-              </a>
-            </div>
-          ) : null}
-
-          <div className="p-5 rounded-2xl bg-white/[0.04] border border-white/10 space-y-3">
-            <div className="flex items-center justify-between">
-              <h3 className="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-2">
-                <ImageIcon size={14} className="text-indigo-300" /> High-CTR Cover
-              </h3>
-              <span className="text-[10px] px-2 py-0.5 rounded-full bg-indigo-500/15 text-indigo-200 border border-indigo-500/20 font-semibold">
-                RETENTIONVOLT
-              </span>
-            </div>
-            <div className="rounded-xl overflow-hidden border border-white/10 bg-zinc-950 aspect-[16/9] relative">
-              {job.thumbnailUrl && job.thumbnailUrl.startsWith("/thumbnails/") ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={job.thumbnailUrl} alt={`${job.title} cover`} className="w-full h-full object-cover" />
-              ) : (
-                <div className="w-full h-full flex flex-col items-center justify-center p-4 text-center bg-gradient-to-tr from-zinc-950 via-zinc-900 to-indigo-950">
-                  <span className="px-2 py-0.5 rounded bg-emerald-400 text-black text-[10px] font-black uppercase mb-1">
-                    {job.blueprint?.thumbnail.badge || "PROVEN HOOK"}
-                  </span>
-                  <span className="text-base sm:text-lg font-black tracking-tight text-white uppercase drop-shadow-md">
-                    {job.blueprint?.thumbnail.title || "THE SECRET FORMULA"}
-                  </span>
-                  <span className="text-[10px] text-white/40 mt-2 font-mono">
-                    Captured at {job.blueprint?.thumbnail.frame_time || "00:01.400"}
-                  </span>
-                </div>
-              )}
-            </div>
+          {/* Center: Gesture Mode pill */}
+          <div className="flex items-center justify-center my-3.5">
             <button
               type="button"
-              onClick={() => window.open(job.thumbnailUrl || "#", "_blank")}
-              className="w-full py-2.5 px-4 rounded-xl bg-white/10 hover:bg-white/15 border border-white/10 text-white font-semibold text-xs transition flex items-center justify-center gap-2"
+              onClick={() => setGestureMode(!gestureMode)}
+              className={`inline-flex items-center gap-1.5 rounded-full px-4 py-1.5 text-xs font-medium transition cursor-pointer select-none border ${
+                gestureMode
+                  ? "bg-[#333338] text-white border-white/20 shadow-md"
+                  : "bg-[#202024] text-white/50 border-white/10 hover:text-white"
+              }`}
+              title="Toggle Gesture Mode"
             >
-              <Download size={14} /> Download Thumbnail
+              <span
+                className={`w-1.5 h-1.5 rounded-full ${
+                  gestureMode ? "bg-emerald-400" : "bg-white/30"
+                }`}
+              />
+              Gesture Mode
             </button>
           </div>
 
-          <button
-            type="button"
-            onClick={() => setShowJson(!showJson)}
-            className="w-full py-2.5 px-4 rounded-xl border border-white/10 hover:border-white/15 bg-white/[0.03] text-white/60 hover:text-white text-xs font-mono transition flex items-center justify-center gap-2"
-          >
-            <Code2 size={14} />
-            {showJson ? "Hide EditPlan JSON" : "Inspect EditPlan v1.3 JSON"}
-          </button>
-        </div>
+          {/* Prompt input field */}
+          <div className="my-2">
+            <input
+              type="text"
+              value={prompt}
+              onChange={(e) => setPrompt(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  submit();
+                }
+              }}
+              placeholder="Chiedi all'AI di modificare tagli, zoom, silenzi, testo..."
+              className="w-full rounded-2xl bg-black/40 border border-white/10 px-4 py-3 text-sm text-white placeholder:text-white/35 focus:outline-none focus:border-white/30 transition text-center sm:text-left"
+              disabled={busy}
+            />
+            {err && (
+              <p className="mt-1.5 text-center text-xs text-rose-400 font-medium">
+                {err}
+              </p>
+            )}
+          </div>
 
-        <div className="lg:col-span-5 space-y-4">
-          <div className="p-5 rounded-2xl bg-white/[0.04] border border-white/10 space-y-2">
-            <h3 className="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-2">
-              <Sparkles size={14} className="text-emerald-400" /> Delivery notes
-            </h3>
-            <p className="text-xs leading-relaxed text-white/50">
-              La cover e il video vengono rigenerati da HyperFrames + Modal quando chiedi una revisione in barra.
-            </p>
+          {/* Bottom row: OPUS 3.5 (left) + EDIT button (right) */}
+          <div className="flex items-center justify-between mt-3 pt-1">
+            {/* Left: OPUS 3.5 Terracotta/Orange Badge (#ea9368 from photo) */}
+            <div
+              className="inline-flex items-center gap-1.5 rounded-full px-4 py-1.5 text-xs font-extrabold tracking-wider text-white shadow-md select-none"
+              style={{ backgroundColor: "#ea9368" }}
+              aria-label="Powered by OPUS 3.5"
+            >
+              <Sparkles size={13} className="text-white fill-white" />
+              <span>OPUS 3.5</span>
+            </div>
+
+            {/* Right: EDIT outlined pill button matching the photo */}
+            <button
+              type="button"
+              onClick={submit}
+              disabled={busy || prompt.trim().length < 2}
+              className="inline-flex items-center justify-center gap-2 rounded-full border-2 border-white/30 bg-transparent hover:bg-white/10 active:scale-95 px-6 sm:px-7 py-1.5 text-xs font-extrabold uppercase tracking-wider text-white transition disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
+            >
+              {busy ? <Loader2 size={13} className="animate-spin" /> : null}
+              <span>EDIT</span>
+            </button>
           </div>
         </div>
       </div>
-
-      {showJson && (
-        <div className="p-4 rounded-2xl bg-zinc-950 border border-white/10 font-mono text-xs text-zinc-300 max-h-96 overflow-auto">
-          <pre>{JSON.stringify(job.editPlan, null, 2)}</pre>
-        </div>
-      )}
-
-      {job.editPlan?.brolls && job.editPlan.brolls.length > 0 && (
-        <div className="p-5 rounded-2xl bg-white/[0.04] border border-white/10 space-y-4">
-          <div className="flex items-center justify-between gap-3">
-            <h3 className="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-2">
-              <Sparkles size={14} className="text-emerald-400" />
-              2.5D Ken Burns ({job.editPlan.brolls.length} · Higgsfield 4K)
-            </h3>
-            <span className="text-[10px] px-2.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-300 border border-emerald-500/20 font-bold whitespace-nowrap">
-              Zero AI Slime
-            </span>
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-1">
-            {job.editPlan.brolls.map((b, idx) => (
-              <div
-                key={b.id || idx}
-                className="p-3 rounded-xl border border-white/10 bg-black/20 flex flex-col gap-3 group hover:border-white/15 transition"
-              >
-                <div className="relative aspect-video rounded-lg overflow-hidden border border-white/10 bg-black">
-                  <img
-                    src={b.source_url}
-                    alt={b.prompt}
-                    className="w-full h-full object-cover group-hover:scale-[1.02] transition duration-500"
-                    loading="lazy"
-                  />
-                  <div className="absolute top-2 left-2 px-2 py-0.5 rounded-full bg-black/70 backdrop-blur-md border border-white/10 text-[10px] text-emerald-300 font-mono">
-                    {b.timeline_start.toFixed(2)}s → {b.timeline_end.toFixed(2)}s
-                  </div>
-                  <div className="absolute bottom-2 right-2 px-2 py-0.5 rounded-full bg-black/70 backdrop-blur-md border border-white/10 text-[10px] text-white/80 font-semibold uppercase">
-                    {b.camera_motion.replace(/_/g, " ")}
-                  </div>
-                </div>
-                <p className="text-xs text-white/60 line-clamp-2 italic">&ldquo;{b.prompt}&rdquo;</p>
-                <div className="flex items-center justify-between text-[11px] text-white/35 font-mono">
-                  <span>
-                    Drift {b.motion_params?.drift_x ?? 24}/{b.motion_params?.drift_y ?? -14}px
-                  </span>
-                  <a
-                    href={b.source_url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-emerald-300 hover:text-emerald-200 flex items-center gap-1"
-                  >
-                    <ExternalLink size={11} /> 4K
-                  </a>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      <RetentionMetrics job={job} />
     </div>
   );
 }

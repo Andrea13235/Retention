@@ -1,6 +1,6 @@
 "use client";
 
-import { VideoFormat } from "./types";
+import type { VideoFormat } from "./types";
 
 /**
  * My Projects persistent store.
@@ -47,6 +47,44 @@ const SEED_ENTRY: ProjectEntry = {
   format: "short",
 };
 
+export function normalizeProjectTitle(title: string): string {
+  return (title || "")
+    .toLowerCase()
+    .replace(/\.[a-z0-9]{2,5}$/i, "") // strip .mp4, .mov, etc.
+    .replace(/\b(202[0-9]|clips?|edit|untitled)\b/gi, "")
+    .replace(/[^a-z0-9]/g, "")
+    .trim();
+}
+
+export function deduplicateProjects(list: ProjectEntry[]): ProjectEntry[] {
+  const seenTitles = new Set<string>();
+  const seenIds = new Set<string>();
+  const result: ProjectEntry[] = [];
+
+  // Sort: prefer ready over processing, then newest first
+  const sorted = [...list].sort((a, b) => {
+    if (a.status === "ready" && b.status === "processing") return -1;
+    if (b.status === "ready" && a.status === "processing") return 1;
+    return b.createdAt - a.createdAt;
+  });
+
+  for (const item of sorted) {
+    if (seenIds.has(item.id)) continue;
+    const norm = normalizeProjectTitle(item.title);
+    if (norm.length >= 3 && seenTitles.has(norm)) {
+      continue; // Duplicate project card! Only keep one per video.
+    }
+    if (norm.length >= 3) seenTitles.add(norm);
+    seenIds.add(item.id);
+    result.push(item);
+  }
+
+  if (result.length === 0) {
+    result.push(SEED_ENTRY);
+  }
+  return result;
+}
+
 function readAll(): ProjectEntry[] {
   if (typeof window === "undefined") return [SEED_ENTRY];
   try {
@@ -57,13 +95,13 @@ function readAll(): ProjectEntry[] {
     }
     const parsed = JSON.parse(raw) as ProjectEntry[];
     if (!Array.isArray(parsed) || parsed.length === 0) return [SEED_ENTRY];
-    // Seed must always exist exactly once.
-    if (!parsed.some((p) => p.id === SEED_ENTRY.id)) {
-      const withSeed = [...parsed, SEED_ENTRY];
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(withSeed));
-      return withSeed;
+    
+    // Auto-clean any duplicates from localStorage
+    const deduped = deduplicateProjects(parsed);
+    if (deduped.length !== parsed.length) {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(deduped));
     }
-    return parsed;
+    return deduped;
   } catch {
     return [SEED_ENTRY];
   }
@@ -72,9 +110,9 @@ function readAll(): ProjectEntry[] {
 function writeAll(entries: ProjectEntry[]): void {
   if (typeof window === "undefined") return;
   try {
-    // Newest first, cap size (seed is never dropped).
-    const seed = entries.filter((e) => e.id === SEED_ENTRY.id);
-    const rest = entries
+    const deduped = deduplicateProjects(entries);
+    const seed = deduped.filter((e) => e.id === SEED_ENTRY.id);
+    const rest = deduped
       .filter((e) => e.id !== SEED_ENTRY.id)
       .sort((a, b) => b.createdAt - a.createdAt)
       .slice(0, MAX_ENTRIES - 1);
@@ -82,8 +120,9 @@ function writeAll(entries: ProjectEntry[]): void {
   } catch {
     // Quota exceeded: drop oldest non-seed entries and retry once.
     try {
-      const seed = entries.filter((e) => e.id === SEED_ENTRY.id);
-      const rest = entries
+      const deduped = deduplicateProjects(entries);
+      const seed = deduped.filter((e) => e.id === SEED_ENTRY.id);
+      const rest = deduped
         .filter((e) => e.id !== SEED_ENTRY.id)
         .sort((a, b) => b.createdAt - a.createdAt)
         .slice(0, 5);
@@ -121,7 +160,13 @@ export async function upsertProject(
       // ignore — entry still saved with cover/remote URL
     }
   }
-  const all = readAll().filter((e) => e.id !== entry.id);
+  const normNew = normalizeProjectTitle(entry.title);
+  const all = readAll().filter((e) => {
+    if (e.id === entry.id) return false;
+    if (normNew.length >= 3 && normalizeProjectTitle(e.title) === normNew) return false;
+    if (entry.videoUrl && e.videoUrl && entry.videoUrl !== "/videos/raw-vlog.mp4" && e.videoUrl === entry.videoUrl) return false;
+    return true;
+  });
   writeAll([entry, ...all]);
   notifyProjectsChanged();
 }

@@ -274,7 +274,14 @@ export function AppShell({
           <aside className="absolute left-0 top-0 w-[216px] h-screen px-2.5 py-3 bg-[#0F0F0F] flex flex-col z-30 select-none overflow-y-auto [&::-webkit-scrollbar]:hidden [scrollbar-width:none] border-r border-white/[0.08] shadow-2xl shadow-black/80 animate-in fade-in duration-150">
             {/* Top row: Brand mark + Collapse button (arrow pointing left into line) */}
             <div className="flex items-center justify-between px-1.5 pt-0.5 pb-2 shrink-0">
-              <Brand compact />
+              <button
+                type="button"
+                onClick={() => onTabChange?.("home")}
+                className="cursor-pointer hover:opacity-80 transition text-left"
+                title="Home"
+              >
+                <Brand compact />
+              </button>
               <button
                 type="button"
                 onClick={handleToggleSidebar}
@@ -542,7 +549,19 @@ export function AppShell({
       {/* ========================================================================= */}
       <div className="flex-1 flex flex-col min-w-0 relative bg-[#0F0F0F]">
         {/* Top Header Floating Actions (Matching Desktop OpusClip) */}
-        <header className="sticky top-0 z-20 h-14 bg-[#0F0F0F]/95 backdrop-blur px-8 flex items-center justify-end gap-3 select-none">
+        <header className="sticky top-0 z-20 h-14 bg-[#0F0F0F]/95 backdrop-blur px-8 flex items-center justify-between gap-3 select-none">
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => onTabChange?.("home")}
+              className="inline-flex items-center gap-2 text-xs font-semibold text-[#8c8c90] hover:text-white transition px-2.5 py-1.5 rounded-xl hover:bg-[#1a1a1e] cursor-pointer"
+              title="Home"
+            >
+              <Home size={15} />
+              <span>Home</span>
+            </button>
+          </div>
+          <div className="flex items-center gap-3">
           {/* Notifications Bell with Red Badge 1 */}
           <div className="relative">
             <button
@@ -599,6 +618,7 @@ export function AppShell({
           >
             Add credits
           </button>
+          </div>
         </header>
 
         {/* Main Content View (Home Workspace, Projects, or Subscription) */}

@@ -55,17 +55,23 @@ export class ModalGPUClient {
           const result = await response.json();
           const isShort = editPlan.format === "short";
           const sampleRenderUrl = isShort
-            ? "/assets/demo_retention_short.mp4"
-            : "/assets/demo_retention_long.mp4";
+            ? "/videos/kling-creator-9-16.mp4"
+            : "/videos/final-horizontal.mp4";
+          const modalVideo = result.rendered_video_url || result.renderedVideoUrl || "";
+          const isDeadVideo = !modalVideo || modalVideo.includes("r2.retentionedit.com") || modalVideo.includes("your_");
+          const safeRenderedUrl = !isDeadVideo
+            ? modalVideo
+            : (rawVideoUrl.startsWith("blob:") || rawVideoUrl.startsWith("/") ? rawVideoUrl : sampleRenderUrl);
+
+          const modalThumb = result.thumbnail_url || result.thumbnailUrl || "";
+          const isDeadThumb = !modalThumb || modalThumb.includes("r2.retentionedit.com") || modalThumb.includes("your_");
+          const safeThumbUrl = !isDeadThumb
+            ? modalThumb
+            : (isShort ? "/videos/raw-vlog.jpg" : "/images/ruzza-thumb.png");
+
           return {
-            renderedVideoUrl:
-              result.rendered_video_url ||
-              result.renderedVideoUrl ||
-              (rawVideoUrl.startsWith("blob:") || rawVideoUrl.startsWith("/") ? rawVideoUrl : sampleRenderUrl),
-            thumbnailUrl:
-              result.thumbnail_url ||
-              result.thumbnailUrl ||
-              `/assets/thumbnail_${jobId}.jpg`,
+            renderedVideoUrl: safeRenderedUrl,
+            thumbnailUrl: safeThumbUrl,
             qualityGate: result.quality_gate || result.qualityGate || {
               passed: true,
               score: 9.8,
@@ -90,12 +96,12 @@ export class ModalGPUClient {
     // Default high-performance engine for local execution & dev preview
     const isShort = editPlan.format === "short";
     const sampleRenderUrl = isShort
-      ? "/assets/demo_retention_short.mp4"
-      : "/assets/demo_retention_long.mp4";
+      ? "/videos/kling-creator-9-16.mp4"
+      : "/videos/final-horizontal.mp4";
 
     return {
       renderedVideoUrl: rawVideoUrl.startsWith("blob:") || rawVideoUrl.startsWith("/") ? rawVideoUrl : sampleRenderUrl,
-      thumbnailUrl: `/assets/thumbnail_${jobId}.jpg`,
+      thumbnailUrl: isShort ? "/videos/raw-vlog.jpg" : "/images/ruzza-thumb.png",
       qualityGate: {
         passed: true,
         score: 9.8,

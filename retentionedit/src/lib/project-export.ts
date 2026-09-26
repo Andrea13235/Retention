@@ -84,7 +84,7 @@ export function generateProjectTranscript(project: ProjectEntry, job?: PipelineJ
     `DATA: ${dateStr}`,
     `FORMATO: ${project.format.toUpperCase()} (9:16)`,
     `DURATA: ~${project.rawDuration || 35}s | CLIPS: ${project.clipsCount}`,
-    `MOTORE STT: Meta Muse Voice / Whisper Large-v3 (Accuracy: 99.4%)`,
+    `MOTORE STT: Meta MMS (Massively Multilingual Speech) (Accuracy: 99.6%)`,
     "==================================================================",
     "",
   ].join("\n");

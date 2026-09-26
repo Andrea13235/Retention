@@ -25,6 +25,7 @@ interface UploaderProps {
     format: VideoFormat;
     genaiTier: GenAITier;
     duration: number;
+    file?: File | null;
   }) => void;
   loading: boolean;
   initialUrl?: string;
@@ -43,7 +44,7 @@ export function Uploader({ onStartJob, loading, initialUrl = "" }: UploaderProps
       title: "Creator Talking Head (9:16 Vertical)",
       format: "short" as VideoFormat,
       duration: 38,
-      url: "/assets/demo_raw_short.mp4",
+      url: "/videos/raw-vlog.mp4",
       tag: "TikTok / Shorts",
       hookScore: 9.8,
       desc: "Fast cadence with punch zooms & karaoke words",
@@ -52,7 +53,7 @@ export function Uploader({ onStartJob, loading, initialUrl = "" }: UploaderProps
       title: "Tech Explainer & Breakdown (16:9 Horizontal)",
       format: "long" as VideoFormat,
       duration: 64,
-      url: "/assets/demo_raw_long.mp4",
+      url: "/videos/raw-podcast.mp4",
       tag: "YouTube Masterclass",
       hookScore: 9.5,
       desc: "Ali Abdaal pacing with demonstrative PiP slides",
@@ -77,10 +78,11 @@ export function Uploader({ onStartJob, loading, initialUrl = "" }: UploaderProps
   const handleStart = () => {
     onStartJob({
       title: videoTitle,
-      rawVideoUrl: selectedFile ? URL.createObjectURL(selectedFile) : "/assets/demo_raw.mp4",
+      rawVideoUrl: selectedFile ? URL.createObjectURL(selectedFile) : "/videos/raw-vlog.mp4",
       format,
       genaiTier: tier,
       duration: selectedFile ? 45 : format === "short" ? 38 : 64,
+      file: selectedFile || null,
     });
   };
 

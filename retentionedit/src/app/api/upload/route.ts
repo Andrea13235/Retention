@@ -89,7 +89,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({
         success: true,
         title: safe.replace(/\.[^/.]+$/, ""),
-        rawVideoUrl: isServerless ? `/assets/sample_raw.mp4` : `/uploads/${stored}`,
+        rawVideoUrl: isServerless ? `/videos/raw-vlog.mp4` : `/uploads/${stored}`,
         size: bytes.length,
         duration,
         durationProbed: probed !== null,
@@ -105,7 +105,7 @@ export async function POST(req: NextRequest) {
     }
     const title = typeof body.title === "string" ? body.title.replace(/[\x00-\x1F\x7F]/g, "").slice(0, 160) : "Raw Creator Video";
     const rawUrl = typeof body.url === "string" ? body.url.trim() : "";
-    let rawVideoUrl = "/assets/demo_raw.mp4";
+    let rawVideoUrl = "/videos/raw-vlog.mp4";
     if (rawUrl) {
       const lower = rawUrl.toLowerCase();
       if (!lower.startsWith("javascript:") && !lower.startsWith("data:") && !lower.startsWith("file:")) {

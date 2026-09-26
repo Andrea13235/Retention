@@ -14,7 +14,6 @@ export function PipelineTracker({ job }: PipelineTrackerProps) {
     "analyze",
     "retentionvolt",
     "plan",
-    "voiceover",
     "render",
     "verify",
   ];
@@ -37,7 +36,7 @@ export function PipelineTracker({ job }: PipelineTrackerProps) {
 
         <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-950 border border-slate-800 text-xs text-slate-300">
           <Layers size={14} className="text-indigo-400" />
-          <span>Stage <strong>{Math.max(1, STAGE_ORDER.indexOf(job.currentStage as StageId) + 1)}</strong> of 8</span>
+          <span>Stage <strong>{Math.max(1, STAGE_ORDER.indexOf(job.currentStage as StageId) + 1)}</strong> of 7</span>
         </div>
       </div>
 

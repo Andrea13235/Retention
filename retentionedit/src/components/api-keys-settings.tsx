@@ -14,10 +14,9 @@ import { Check, KeyRound, Loader2, Trash2, FlaskConical } from "lucide-react";
 
 const PROVIDER_META: Array<{ id: string; label: string; hint: string }> = [
   { id: "anthropic", label: "Claude (Anthropic)", hint: "Direzione editoriale, hook, pacing" },
-  { id: "elevenlabs", label: "ElevenLabs (voiceover)", hint: "Voiceover hook + dubbing AI" },
+  { id: "meta_mms", label: "Meta MMS (STT)", hint: "Trascrizione Massively Multilingual Speech word-level" },
   { id: "higgsfield", label: "Higgsfield (cover 4K)", hint: "Cover ad-hoc SOUL text-to-image" },
   { id: "modal", label: "Modal GPU (token)", hint: "Render serverless NVENC T4/L4" },
-  { id: "meta_muse", label: "Meta Muse Voice (STT)", hint: "Trascrizione word-level" },
 ];
 
 type StatusMap = Record<string, { configured: boolean; source: "vault" | "env" | null }>;

@@ -11,18 +11,18 @@ function sanitizeTitle(v: unknown): string {
 function sanitizeUrl(v: unknown): string {
   const s = typeof v === "string" ? v.trim() : "";
   // Allow only safe local/public or https URLs; reject javascript:, data:, file:
-  if (!s) return "/assets/sample_raw.mp4";
+  if (!s) return "/videos/raw-vlog.mp4";
   const lower = s.toLowerCase();
   if (lower.startsWith("javascript:") || lower.startsWith("data:") || lower.startsWith("file:")) {
-    return "/assets/sample_raw.mp4";
+    return "/videos/raw-vlog.mp4";
   }
   if (s.startsWith("/") || s.startsWith("blob:")) return s.slice(0, 400);
   try {
     const u = new URL(s);
-    if (u.protocol !== "https:" && u.protocol !== "http:") return "/assets/sample_raw.mp4";
+    if (u.protocol !== "https:" && u.protocol !== "http:") return "/videos/raw-vlog.mp4";
     return s.slice(0, 600);
   } catch {
-    return "/assets/sample_raw.mp4";
+    return "/videos/raw-vlog.mp4";
   }
 }
 const FORMAT_SET = new Set<VideoFormat>(["short", "long"]);
@@ -42,10 +42,6 @@ export async function POST(req: NextRequest) {
     const format: VideoFormat = FORMAT_SET.has(body?.format) ? (body.format as VideoFormat) : "short";
     const genaiTier: GenAITier = TIER_SET.has(body?.genaiTier) ? (body.genaiTier as GenAITier) : "balanced";
     const duration = Number.isFinite(body?.duration) ? Math.max(1, Math.min(4 * 3600, Math.round(Number(body.duration)))) : 48;
-    const voiceoverText =
-      typeof body?.voiceoverText === "string" && body.voiceoverText.trim().length > 0
-        ? body.voiceoverText.trim().slice(0, 900)
-        : undefined;
 
     const job = PipelineOrchestrator.createJob({
       title: rawTitle,
@@ -53,16 +49,19 @@ export async function POST(req: NextRequest) {
       format,
       genaiTier,
       duration,
-      voiceoverText,
     });
 
-    // Ensure initial job state is saved to Supabase Storage before pumping
-    await persistJobAsync(job);
+    // Cloud sync in background
+    persistJobAsync(job).catch(() => {});
 
-    // Prime first stage immediately so initial state is primed
-    await PipelineOrchestrator.pumpNextStage(job.id);
+    // Prime first stage immediately so initial state is active
+    try {
+      await PipelineOrchestrator.pumpNextStage(job.id);
+    } catch (pumpErr) {
+      console.warn("[pipeline/start] Prime pump warning:", pumpErr);
+    }
 
-    // Continue background execution if runtime environment keeps process alive
+    // Continue background execution
     PipelineOrchestrator.executeAutonomousPipeline(job.id).catch((err) => {
       console.error(`Pipeline execution failed for job ${job.id}:`, err);
     });

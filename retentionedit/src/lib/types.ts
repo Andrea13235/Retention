@@ -43,13 +43,15 @@ export interface TranscriptSegment {
   speaker?: string;
 }
 
-export interface MetaMuseTranscript {
-  provider: "meta_muse_voice";
+export interface MetaMMSTranscript {
+  provider: "meta_mms" | "meta_muse_voice";
   language: string;
   duration_sec: number;
   segments: TranscriptSegment[];
   speakers: string[];
 }
+
+export type MetaMuseTranscript = MetaMMSTranscript;
 
 export interface CutCandidate {
   start: number;
@@ -180,9 +182,7 @@ export interface PipelineJob {
   editPlan?: EditPlan;
   renderedVideoUrl?: string;
   thumbnailUrl?: string;
-  /** ElevenLabs hook voiceover (MP3 servito da /voiceovers). Null quando non richiesto/non configurato. */
   voiceoverUrl?: string | null;
-  /** Testo hook da sintetizzare con ElevenLabs. Assente/vuoto = stage voiceover skippato. */
   voiceoverText?: string;
   qualityGate?: QualityGateResult;
   stats?: {
