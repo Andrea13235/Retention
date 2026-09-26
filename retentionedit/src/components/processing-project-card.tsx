@@ -4,6 +4,7 @@ import React, { useEffect, useState } from "react";
 import { Loader2 } from "lucide-react";
 import { ProjectEntry } from "@/lib/projects-store";
 import { computeEta, formatEta } from "@/lib/eta";
+import { ProjectMenu } from "./project-menu";
 
 /**
  * Card "in lavorazione" per My Projects: mentre il job è attivo mostra
@@ -18,7 +19,6 @@ export function ProcessingProjectCard({ project }: { project: ProjectEntry }) {
       currentStage: "ingest",
       stages: {},
       rawDuration: project.rawDuration ?? 38,
-      hasVoiceover: project.hasVoiceover ?? false,
       startedAt: project.createdAt,
     })
   );
@@ -31,17 +31,13 @@ export function ProcessingProjectCard({ project }: { project: ProjectEntry }) {
         const res = await fetch(`/api/pipeline/status?jobId=${encodeURIComponent(project.id)}`);
         if (!res.ok) {
           failCount++;
-          if (failCount >= 6 && !cancelled) {
+          // If status returns 404 (job not on server) or fails repeatedly:
+          // Immediately delete this dead/bugged project from My Projects so it doesn't spin forever!
+          if (res.status === 404 || failCount >= 2) {
             cancelled = true;
-            // Mark as ready with fallback so card never stays stuck indefinitely
-            const { upsertProject, loadProjectEntries } = await import("@/lib/projects-store");
-            const existing = loadProjectEntries().find((p) => p.id === project.id) || project;
-            await upsertProject({
-              ...existing,
-              status: "ready",
-              videoUrl: existing.videoUrl || (project.format === "short" ? "/videos/kling-creator-9-16.mp4" : "/videos/final-horizontal.mp4"),
-              coverUrl: existing.coverUrl || (project.format === "short" ? "/videos/raw-vlog.jpg" : "/images/ruzza-thumb.png"),
-            }, null);
+            const { deleteProject } = await import("@/lib/projects-store");
+            await deleteProject(project.id);
+            return;
           }
           return;
         }
@@ -49,7 +45,15 @@ export function ProcessingProjectCard({ project }: { project: ProjectEntry }) {
         if (cancelled) return;
         failCount = 0;
 
-        if (data.currentStage === "done" || data.currentStage === "error") {
+        if (data.currentStage === "error") {
+          cancelled = true;
+          // Errored job: remove bugged project so it doesn't spin forever
+          const { deleteProject } = await import("@/lib/projects-store");
+          await deleteProject(project.id);
+          return;
+        }
+
+        if (data.currentStage === "done") {
           cancelled = true;
           try {
             const resResult = await fetch(`/api/pipeline/result?jobId=${encodeURIComponent(project.id)}`);
@@ -58,8 +62,8 @@ export function ProcessingProjectCard({ project }: { project: ProjectEntry }) {
             const existing = loadProjectEntries().find((p) => p.id === project.id) || project;
             const finalTitle = fullJob?.title || data.title || existing.title;
             const rawCover = fullJob?.thumbnailUrl || fullJob?.coverUrl || data.thumbnailUrl || existing.coverUrl;
-            const isDeadCover = !rawCover || rawCover.includes("r2.retentionedit.com");
-            const finalCover = !isDeadCover ? rawCover : (project.format === "short" ? "/videos/raw-vlog.jpg" : "/images/ruzza-thumb.png");
+            const isDeadCover = !rawCover || rawCover.includes("r2.retentionedit.com") || rawCover.includes("ruzza");
+            const finalCover = !isDeadCover ? rawCover : (project.format === "short" ? "/videos/raw-vlog.jpg" : "/images/hero-preview.png");
 
             const rawVid = fullJob?.renderedVideoUrl || fullJob?.finalVideoUrl || data.renderedVideoUrl || existing.videoUrl;
             const isDeadVid = !rawVid || rawVid.includes("r2.retentionedit.com") || rawVid.includes("your_");
@@ -89,7 +93,6 @@ export function ProcessingProjectCard({ project }: { project: ProjectEntry }) {
             currentStage: String(data.currentStage || "ingest"),
             stages: data.stages || {},
             rawDuration: project.rawDuration ?? 38,
-            hasVoiceover: project.hasVoiceover ?? false,
             startedAt: project.createdAt,
           })
         );
@@ -103,7 +106,7 @@ export function ProcessingProjectCard({ project }: { project: ProjectEntry }) {
       cancelled = true;
       clearInterval(id);
     };
-  }, [project.id, project.createdAt, project.rawDuration, project.hasVoiceover, project.format, project.title, project.coverUrl, project.videoUrl]);
+  }, [project.id, project.createdAt, project.rawDuration, project.format, project.title, project.coverUrl, project.videoUrl]);
 
   return (
     <article className="group w-full">
@@ -144,13 +147,18 @@ export function ProcessingProjectCard({ project }: { project: ProjectEntry }) {
       </div>
 
       {/* Meta */}
-      <div className="pt-3 px-0.5">
-        <h3 className="text-sm font-semibold text-white truncate leading-snug">
-          {project.title}
-        </h3>
-        <p className="text-xs text-[#8c8c90] mt-1">
-          Elaborazione · tempo stimato {formatEta(eta.totalSec)}
-        </p>
+      <div className="pt-3 px-0.5 flex items-start justify-between gap-2">
+        <div className="min-w-0 flex-1">
+          <h3 className="text-sm font-semibold text-white truncate leading-snug">
+            {project.title}
+          </h3>
+          <p className="text-xs text-[#8c8c90] mt-1">
+            Elaborazione · tempo stimato {formatEta(eta.totalSec)}
+          </p>
+        </div>
+        <div className="flex items-center gap-1 shrink-0">
+          <ProjectMenu project={project} />
+        </div>
       </div>
     </article>
   );

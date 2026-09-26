@@ -73,6 +73,9 @@ export function ProjectCard({ project, onClearCover, onOpen }: ProjectCardProps)
             playsInline
             preload="metadata"
             className="w-full h-full object-cover"
+            onError={() => {
+              setExpired(true);
+            }}
           />
         ) : expired ? (
           <div className="w-full h-full flex flex-col items-center justify-center gap-2 p-4 text-center bg-gradient-to-tr from-[#202022] via-[#232326] to-[#1a1b22]">
@@ -82,7 +85,12 @@ export function ProjectCard({ project, onClearCover, onOpen }: ProjectCardProps)
             </p>
           </div>
         ) : (
-          <div className="w-full h-full animate-pulse bg-[#202022]" />
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={project.format === "short" ? "/videos/raw-vlog.jpg" : "/images/hero-preview.png"}
+            alt={project.title}
+            className="w-full h-full object-cover"
+          />
         )}
 
         {/* "Try it" CTA — like Opus demo cards in the reference photo */}

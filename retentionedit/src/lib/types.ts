@@ -8,7 +8,6 @@ export type StageId =
   | "analyze"
   | "retentionvolt"
   | "plan"
-  | "voiceover"
   | "render"
   | "verify";
 
@@ -182,8 +181,6 @@ export interface PipelineJob {
   editPlan?: EditPlan;
   renderedVideoUrl?: string;
   thumbnailUrl?: string;
-  voiceoverUrl?: string | null;
-  voiceoverText?: string;
   qualityGate?: QualityGateResult;
   stats?: {
     cutsCount: number;

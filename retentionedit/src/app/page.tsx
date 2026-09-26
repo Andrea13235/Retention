@@ -126,7 +126,7 @@ export default function HomePage() {
                     createdAt: existing?.createdAt || Date.now(),
                     format: fullJob.format || existing?.format || "short",
                     title: fullJob.title || existing?.title || "Untitled edit",
-                    coverUrl: freshCover || (fullJob.format === "short" ? "/videos/raw-vlog.jpg" : "/images/ruzza-thumb.png"),
+                    coverUrl: freshCover || (fullJob.format === "short" ? "/videos/raw-vlog.jpg" : "/images/hero-preview.png"),
                     videoUrl: isSafeRendered
                       ? renderedUrl!
                       : (existing?.videoUrl || (fullJob.format === "short" ? "/videos/kling-creator-9-16.mp4" : "/videos/final-horizontal.mp4")),
@@ -335,7 +335,7 @@ export default function HomePage() {
                         rawDuration: existing.rawDuration || 38,
                         rawVideoUrl: fallbackVideo,
                         renderedVideoUrl: fallbackVideo,
-                        thumbnailUrl: existing.coverUrl || (existing.format === "short" ? "/videos/raw-vlog.jpg" : "/images/ruzza-thumb.png"),
+                        thumbnailUrl: existing.coverUrl || (existing.format === "short" ? "/videos/raw-vlog.jpg" : "/images/hero-preview.png"),
                         currentStage: "done",
                         createdAt: existing.createdAt,
                         stages: {} as any,
@@ -402,7 +402,7 @@ export default function HomePage() {
                     rawDuration: existing.rawDuration || 38,
                     rawVideoUrl: fallbackVideo,
                     renderedVideoUrl: fallbackVideo,
-                    thumbnailUrl: existing.coverUrl || (existing.format === "short" ? "/videos/raw-vlog.jpg" : "/images/ruzza-thumb.png"),
+                    thumbnailUrl: existing.coverUrl || (existing.format === "short" ? "/videos/raw-vlog.jpg" : "/images/hero-preview.png"),
                     currentStage: "done",
                     createdAt: existing.createdAt,
                     stages: {} as any,

@@ -25,8 +25,6 @@ export interface ProjectEntry {
   status?: "processing" | "ready";
   /** Durata RAW (s) usata per l'ETA. */
   rawDuration?: number;
-  /** True se il job include il voiceover ElevenLabs (pesa sull'ETA). */
-  hasVoiceover?: boolean;
   /** Collezione a cui appartiene il progetto (es. Favorites, TikTok, ecc.) */
   collection?: string;
   /** Flag salvataggio nello storage permanente (Cloudflare R2 / Archivio). */
@@ -37,15 +35,49 @@ const STORAGE_KEY = "retentionedit_projects_v1";
 const MAX_ENTRIES = 12;
 const EVENT_NAME = "retentionedit:projects-changed";
 
-const SEED_ENTRY: ProjectEntry = {
-  id: "seed-ruzza-2026",
-  title: "Quanto fattura Ruzza? Il 2025...",
-  coverUrl: "/images/ruzza-thumb.png",
-  videoUrl: "/videos/raw-vlog.mp4",
-  clipsCount: 32,
-  createdAt: new Date("2026-09-23T12:00:00").getTime(),
-  format: "short",
-};
+export function isBuggedOrStaleProject(item: ProjectEntry): boolean {
+  if (!item || !item.id) return true;
+
+  // 1. Remove Ruzza per user instruction
+  const lowerTitle = (item.title || "").toLowerCase();
+  const lowerId = (item.id || "").toLowerCase();
+  if (lowerTitle.includes("ruzza") || lowerId.includes("ruzza") || lowerId === "seed-ruzza-2026") {
+    return true;
+  }
+
+  // 2. Remove bugged processing projects that load infinitely:
+  // If status is "processing" and older than 2 minutes (120s), it is stuck/abandoned from an earlier session
+  if (item.status === "processing") {
+    const ageMs = Date.now() - (item.createdAt || 0);
+    if (ageMs > 120_000 || !item.createdAt || isNaN(item.createdAt)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+export function sanitizeProjectEntry(item: ProjectEntry): ProjectEntry {
+  const isShort = item.format === "short";
+  const defaultVideo = isShort ? "/videos/kling-creator-9-16.mp4" : "/videos/final-horizontal.mp4";
+  const defaultCover = isShort ? "/videos/raw-vlog.jpg" : "/videos/final-horizontal.jpg";
+
+  let videoUrl = item.videoUrl || "";
+  if (videoUrl.includes("r2.retentionedit.com") || videoUrl.includes("demo_retention")) {
+    videoUrl = defaultVideo;
+  }
+
+  let coverUrl = item.coverUrl || "";
+  if (coverUrl.includes("r2.retentionedit.com") || coverUrl.includes("ruzza")) {
+    coverUrl = defaultCover;
+  }
+
+  return {
+    ...item,
+    videoUrl,
+    coverUrl,
+  };
+}
 
 export function normalizeProjectTitle(title: string): string {
   return (title || "")
@@ -61,11 +93,14 @@ export function deduplicateProjects(list: ProjectEntry[]): ProjectEntry[] {
   const seenIds = new Set<string>();
   const result: ProjectEntry[] = [];
 
+  // Filter out bugged, stale, or Ruzza projects, then sanitize paths
+  const valid = list.filter((item) => !isBuggedOrStaleProject(item)).map(sanitizeProjectEntry);
+
   // Sort: prefer ready over processing, then newest first
-  const sorted = [...list].sort((a, b) => {
+  const sorted = [...valid].sort((a, b) => {
     if (a.status === "ready" && b.status === "processing") return -1;
     if (b.status === "ready" && a.status === "processing") return 1;
-    return b.createdAt - a.createdAt;
+    return (b.createdAt || 0) - (a.createdAt || 0);
   });
 
   for (const item of sorted) {
@@ -79,31 +114,27 @@ export function deduplicateProjects(list: ProjectEntry[]): ProjectEntry[] {
     result.push(item);
   }
 
-  if (result.length === 0) {
-    result.push(SEED_ENTRY);
-  }
   return result;
 }
 
 function readAll(): ProjectEntry[] {
-  if (typeof window === "undefined") return [SEED_ENTRY];
+  if (typeof window === "undefined") return [];
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify([SEED_ENTRY]));
-      return [SEED_ENTRY];
+      return [];
     }
     const parsed = JSON.parse(raw) as ProjectEntry[];
-    if (!Array.isArray(parsed) || parsed.length === 0) return [SEED_ENTRY];
+    if (!Array.isArray(parsed) || parsed.length === 0) return [];
     
-    // Auto-clean any duplicates from localStorage
+    // Auto-clean any duplicates, Ruzza entries, and stale processing projects from localStorage
     const deduped = deduplicateProjects(parsed);
     if (deduped.length !== parsed.length) {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(deduped));
     }
     return deduped;
   } catch {
-    return [SEED_ENTRY];
+    return [];
   }
 }
 
@@ -111,22 +142,18 @@ function writeAll(entries: ProjectEntry[]): void {
   if (typeof window === "undefined") return;
   try {
     const deduped = deduplicateProjects(entries);
-    const seed = deduped.filter((e) => e.id === SEED_ENTRY.id);
-    const rest = deduped
-      .filter((e) => e.id !== SEED_ENTRY.id)
-      .sort((a, b) => b.createdAt - a.createdAt)
-      .slice(0, MAX_ENTRIES - 1);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify([...rest, ...seed]));
+    const sorted = deduped
+      .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))
+      .slice(0, MAX_ENTRIES);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(sorted));
   } catch {
-    // Quota exceeded: drop oldest non-seed entries and retry once.
+    // Quota exceeded: drop oldest entries and retry once.
     try {
       const deduped = deduplicateProjects(entries);
-      const seed = deduped.filter((e) => e.id === SEED_ENTRY.id);
-      const rest = deduped
-        .filter((e) => e.id !== SEED_ENTRY.id)
-        .sort((a, b) => b.createdAt - a.createdAt)
+      const sorted = deduped
+        .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))
         .slice(0, 5);
-      localStorage.setItem(STORAGE_KEY, JSON.stringify([...rest, ...seed]));
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(sorted));
     } catch {
       // ignore — in-memory still works for this session
     }

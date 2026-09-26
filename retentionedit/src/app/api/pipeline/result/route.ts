@@ -32,7 +32,6 @@ export async function GET(req: NextRequest) {
     finalVideoUrl: job.renderedVideoUrl,
     thumbnailUrl: job.thumbnailUrl,
     coverUrl: job.thumbnailUrl,
-    voiceoverUrl: job.voiceoverUrl ?? null,
     stats: job.stats,
     qualityGate: job.qualityGate,
     blueprint: job.blueprint,

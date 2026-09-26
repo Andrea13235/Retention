@@ -58,8 +58,6 @@ export function HomeWorkspace({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [selectedName, setSelectedName] = useState<string>(initialUrl);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [voiceoverOpen, setVoiceoverOpen] = useState(false);
-  const [voiceoverText, setVoiceoverText] = useState("");
   const [projects, setProjects] = useState<ProjectEntry[]>(() =>
     typeof window === "undefined" ? [] : loadProjectEntries()
   );
@@ -177,7 +175,7 @@ export function HomeWorkspace({
     }
     const baseName = file
       ? file.name.replace(/\.[^/.]+$/, "")
-      : selectedName || "Quanto fattura Ruzza? Il 2026";
+      : selectedName || "Creator Talking Head (9:16 Vertical)";
     onStartJob({
       title: baseName,
       rawVideoUrl: objectUrl,
@@ -263,7 +261,7 @@ export function HomeWorkspace({
           type="button"
           onClick={() =>
             onStartJob({
-              title: "Quanto fattura Ruzza? Il 2026",
+              title: "Creator Talking Head (9:16 Vertical)",
               rawVideoUrl: "/videos/raw-vlog.mp4",
               format: "short",
               genaiTier: "balanced",

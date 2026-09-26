@@ -171,7 +171,7 @@ export function SubscriptionView({
                 </td>
                 <td className="py-3.5 pr-4 max-w-md truncate">
                   <span className="text-xs text-white">
-                    Quanto fattura Ruzza? Il 2025 senza filtri, analizzato con lui
+                    Mastering Short-Form Retention: 100% Viral Hook Guide
                   </span>
                 </td>
                 <td className="py-3.5 pr-4 whitespace-nowrap">

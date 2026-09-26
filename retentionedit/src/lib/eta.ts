@@ -63,7 +63,6 @@ export interface JobProgressSnapshot {
   currentStage: string;
   stages: Record<string, { state: string; progress: number }>;
   rawDuration?: number;
-  hasVoiceover?: boolean;
   startedAt?: number;
 }
 

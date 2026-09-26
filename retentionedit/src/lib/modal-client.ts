@@ -67,7 +67,7 @@ export class ModalGPUClient {
           const isDeadThumb = !modalThumb || modalThumb.includes("r2.retentionedit.com") || modalThumb.includes("your_");
           const safeThumbUrl = !isDeadThumb
             ? modalThumb
-            : (isShort ? "/videos/raw-vlog.jpg" : "/images/ruzza-thumb.png");
+            : (isShort ? "/videos/raw-vlog.jpg" : "/videos/final-horizontal.jpg");
 
           return {
             renderedVideoUrl: safeRenderedUrl,
@@ -101,7 +101,7 @@ export class ModalGPUClient {
 
     return {
       renderedVideoUrl: rawVideoUrl.startsWith("blob:") || rawVideoUrl.startsWith("/") ? rawVideoUrl : sampleRenderUrl,
-      thumbnailUrl: isShort ? "/videos/raw-vlog.jpg" : "/images/ruzza-thumb.png",
+      thumbnailUrl: isShort ? "/videos/raw-vlog.jpg" : "/videos/final-horizontal.jpg",
       qualityGate: {
         passed: true,
         score: 9.8,

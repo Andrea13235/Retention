@@ -11,7 +11,6 @@ import { NarrativeAnalyzer } from "./narrative-analyzer";
 import { NativeRetentionVolt } from "./retentionvolt-native";
 import { GenAIDispatcher } from "./genai-dispatcher";
 import { EditPlanner } from "./edit-planner";
-import { ElevenLabsClient } from "./elevenlabs";
 import { HiggsfieldCover } from "./higgsfield-cover";
 import { loadJob, loadJobAsync, persistJob, persistJobAsync } from "./job-store";
 import { ModalGPUClient } from "./modal-client";
@@ -57,13 +56,6 @@ function createInitialStages(): Record<StageId, StageInfo> {
       state: "pending",
       progress: 0,
     },
-    voiceover: {
-      id: "voiceover",
-      label: "ElevenLabs Voiceover",
-      description: "AI hook voiceover synthesis (skipped when not requested or unconfigured)",
-      state: "pending",
-      progress: 0,
-    },
     render: {
       id: "render",
       label: "Modal.com GPU Render",
@@ -88,7 +80,6 @@ export class PipelineOrchestrator {
     format: VideoFormat;
     genaiTier: GenAITier;
     duration?: number;
-    voiceoverText?: string;
   }): PipelineJob {
     const id = `job_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
     const job: PipelineJob = {
@@ -102,7 +93,6 @@ export class PipelineOrchestrator {
       currentStage: "ingest",
       stages: createInitialStages(),
       logs: [`[${new Date().toLocaleTimeString()}] Pipeline initialized for ${params.format.toUpperCase()} format`],
-      voiceoverText: params.voiceoverText,
     };
 
     ACTIVE_JOBS.set(id, job);
@@ -283,7 +273,7 @@ export class PipelineOrchestrator {
         (job.rawVideoUrl.startsWith("blob:") || job.rawVideoUrl.startsWith("/")
           ? job.rawVideoUrl
           : sampleRenderUrl);
-      job.thumbnailUrl = renderResult.thumbnailUrl || (isShort ? "/videos/raw-vlog.jpg" : "/images/ruzza-thumb.png");
+      job.thumbnailUrl = renderResult.thumbnailUrl || (isShort ? "/videos/raw-vlog.jpg" : "/videos/final-horizontal.jpg");
       job.stages.render.state = "completed";
       job.stages.render.progress = 100;
       job.logs.push(`[${new Date().toLocaleTimeString()}] Revised render complete.`);
@@ -467,35 +457,6 @@ export class PipelineOrchestrator {
         });
         job.editPlan = editPlan;
         await updateStage("plan", "completed", 100, `EditPlan v1.3 finalized: ${editPlan.cuts.length} cuts, ${editPlan.zooms.length} zooms, ${brolls.length} 2.5D Ken Burns B-rolls (Higgsfield 4K)`);
-        job.currentStage = "voiceover";
-        job.stages.voiceover.state = "running";
-        job.stages.voiceover.progress = 30;
-        ACTIVE_JOBS.set(job.id, job);
-        await persistJobAsync(job);
-        return job;
-      }
-
-      // 6. ElevenLabs Voiceover (synthesize if requested, skip if not)
-      if (job.stages.voiceover.state === "running") {
-        if (job.voiceoverText && job.voiceoverText.trim().length > 0) {
-          try {
-            const tts = new ElevenLabsClient();
-            const out = await tts.synthesize({ jobId: job.id, text: job.voiceoverText });
-            job.voiceoverUrl = out?.audioUrl ?? null;
-            await updateStage(
-              "voiceover",
-              "completed",
-              100,
-              out ? `ElevenLabs voiceover ready: ${out.audioUrl}` : "ElevenLabs key missing — voiceover skipped."
-            );
-          } catch (err: unknown) {
-            const message = err instanceof Error ? err.message : "TTS error";
-            job.voiceoverUrl = null;
-            await updateStage("voiceover", "completed", 100, `Voiceover skipped (${message}).`);
-          }
-        } else {
-          await updateStage("voiceover", "completed", 100, "Voiceover not requested — stage skipped.");
-        }
         job.currentStage = "render";
         job.stages.render.state = "running";
         job.stages.render.progress = 20;
@@ -546,11 +507,11 @@ export class PipelineOrchestrator {
             job.thumbnailUrl = art.coverUrl;
             job.logs.push(`[${new Date().toLocaleTimeString()}] High-CTR YouTube Cover ready: ${art.coverUrl}`);
           } else {
-            job.thumbnailUrl = isShort ? "/videos/raw-vlog.jpg" : "/images/ruzza-thumb.png";
+            job.thumbnailUrl = isShort ? "/videos/raw-vlog.jpg" : "/videos/final-horizontal.jpg";
           }
         } catch (err: unknown) {
           const message = err instanceof Error ? err.message : "cover error";
-          job.thumbnailUrl = isShort ? "/videos/raw-vlog.jpg" : "/images/ruzza-thumb.png";
+          job.thumbnailUrl = isShort ? "/videos/raw-vlog.jpg" : "/videos/final-horizontal.jpg";
           job.logs.push(`[${new Date().toLocaleTimeString()}] Cover fallback applied (${message}).`);
         }
 

@@ -108,7 +108,7 @@ export async function generateYouTubeCover(options: ThumbnailOptions): Promise<s
       // Find a sample frame in public/videos or public/images
       const sampleFrame = isShort
         ? path.join(process.cwd(), "public", "videos", "raw-vlog.jpg")
-        : path.join(process.cwd(), "public", "images", "ruzza-thumb.png");
+        : path.join(process.cwd(), "public", "videos", "final-horizontal.jpg");
       if (existsSync(sampleFrame)) {
         base = sharp(sampleFrame).resize(width, height, { fit: "cover" });
       } else {
@@ -132,6 +132,6 @@ export async function generateYouTubeCover(options: ThumbnailOptions): Promise<s
     return `/thumbnails/${outFilename}`;
   } catch (err) {
     console.warn("Error generating sharp thumbnail cover:", err);
-    return isShort ? "/videos/raw-vlog.jpg" : "/images/ruzza-thumb.png";
+    return isShort ? "/videos/raw-vlog.jpg" : "/videos/final-horizontal.jpg";
   }
 }
