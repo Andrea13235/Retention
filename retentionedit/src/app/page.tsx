@@ -12,6 +12,7 @@ import { ProjectsView } from "@/components/projects-view";
 import { SubscriptionView } from "@/components/subscription-view";
 import { AuthModal } from "@/components/auth-modal";
 import { OnboardingModal } from "@/components/onboarding-modal";
+import { ToastContainer } from "@/components/toast-notification";
 import { Brand } from "@/components/brand";
 import { Loader2 } from "lucide-react";
 import { PipelineJob } from "@/lib/types";
@@ -416,6 +417,9 @@ export default function HomePage() {
         onFinished={() => setOnboardingOpen(false)}
         onOpenPaywall={() => setPricingOpen(true)}
       />
+
+      {/* Global floating toast notification */}
+      <ToastContainer />
     </>
   );
 }

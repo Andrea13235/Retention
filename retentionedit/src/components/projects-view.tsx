@@ -4,6 +4,7 @@ import {
   Plus,
   Crown,
   Heart,
+  Folder,
 } from "lucide-react";
 import { ProjectCard } from "@/components/project-card";
 import { ProcessingProjectCard } from "@/components/processing-project-card";
@@ -11,6 +12,7 @@ import {
   ProjectEntry,
   deleteProject,
   loadProjectEntries,
+  loadCollections,
   subscribeProjectsChanged,
 } from "@/lib/projects-store";
 
@@ -31,6 +33,10 @@ interface ProjectsViewProps {
  */
 export function ProjectsView({ onNewEdit, onOpenPricing, onOpenJob }: ProjectsViewProps) {
   const [activeTab, setActiveTab] = useState<"all" | "collections" | "projects">("all");
+  const [selectedCollection, setSelectedCollection] = useState<string | null>(null);
+  const [collections, setCollections] = useState<string[]>(() =>
+    typeof window === "undefined" ? [] : loadCollections()
+  );
   const [autoSave, setAutoSave] = useState(true);
   const [autoImport, setAutoImport] = useState(false);
   const [projects, setProjects] = useState<ProjectEntry[]>(() =>
@@ -39,13 +45,21 @@ export function ProjectsView({ onNewEdit, onOpenPricing, onOpenJob }: ProjectsVi
 
   useEffect(() => {
     setProjects(loadProjectEntries());
-    return subscribeProjectsChanged(() => setProjects(loadProjectEntries()));
+    setCollections(loadCollections());
+    return subscribeProjectsChanged(() => {
+      setProjects(loadProjectEntries());
+      setCollections(loadCollections());
+    });
   }, []);
 
   const handleClearCover = async (project: ProjectEntry) => {
     await deleteProject(project.id);
     setProjects(loadProjectEntries());
   };
+
+  const displayedProjects = selectedCollection
+    ? projects.filter((p) => (p.collection || "Favorites") === selectedCollection)
+    : projects;
 
   const projectsLabel = `Projects (${projects.length})`;
 
@@ -140,18 +154,40 @@ export function ProjectsView({ onNewEdit, onOpenPricing, onOpenJob }: ProjectsVi
               <Crown size={13} className="text-[#f59e0b] fill-[#f59e0b]" />
             </button>
 
-            {/* Favorites Card */}
-            <div className="w-[244px] h-[58px] rounded-xl bg-[#252525] hover:bg-[#2b2b2b] px-4 flex items-center gap-3 cursor-pointer transition">
-              <div className="w-8 h-8 rounded-lg bg-transparent flex items-center justify-center text-white shrink-0">
-                <Heart size={16} className="fill-white text-white" />
-              </div>
-              <div className="min-w-0">
-                <strong className="text-xs sm:text-[13px] font-semibold text-white block leading-tight">
-                  Favorites
-                </strong>
-                <span className="text-[11px] text-[#8c8c90] block mt-0.5">0 clips</span>
-              </div>
-            </div>
+            {/* Dynamic Collections Cards */}
+            {collections.map((col) => {
+              const count = projects.filter((p) => (p.collection || "Favorites") === col).length;
+              const isSelected = selectedCollection === col;
+              const isFav = col === "Favorites";
+
+              return (
+                <div
+                  key={col}
+                  onClick={() => setSelectedCollection(isSelected ? null : col)}
+                  className={`w-[244px] h-[58px] rounded-xl px-4 flex items-center gap-3 cursor-pointer transition border ${
+                    isSelected
+                      ? "bg-[#2e2f38] border-indigo-500 shadow-md shadow-indigo-500/10"
+                      : "bg-[#252525] hover:bg-[#2b2b2b] border-transparent"
+                  }`}
+                >
+                  <div className="w-8 h-8 rounded-lg bg-transparent flex items-center justify-center text-white shrink-0">
+                    {isFav ? (
+                      <Heart size={16} className="fill-white text-white" />
+                    ) : (
+                      <Folder size={16} className="text-indigo-400" />
+                    )}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <strong className="text-xs sm:text-[13px] font-semibold text-white block leading-tight truncate">
+                      {col}
+                    </strong>
+                    <span className="text-[11px] text-[#8c8c90] block mt-0.5">
+                      {count} clip{count === 1 ? "" : "s"}
+                    </span>
+                  </div>
+                </div>
+              );
+            })}
           </div>
         </section>
       )}
@@ -210,7 +246,7 @@ export function ProjectsView({ onNewEdit, onOpenPricing, onOpenJob }: ProjectsVi
               <span>Upload new video</span>
             </button>
 
-            {projects.map((project) =>
+            {displayedProjects.map((project) =>
               project.status === "processing" ? (
                 <ProcessingProjectCard key={project.id} project={project} />
               ) : (

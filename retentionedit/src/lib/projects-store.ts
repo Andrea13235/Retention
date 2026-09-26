@@ -27,6 +27,10 @@ export interface ProjectEntry {
   rawDuration?: number;
   /** True se il job include il voiceover ElevenLabs (pesa sull'ETA). */
   hasVoiceover?: boolean;
+  /** Collezione a cui appartiene il progetto (es. Favorites, TikTok, ecc.) */
+  collection?: string;
+  /** Flag salvataggio nello storage permanente (Cloudflare R2 / Archivio). */
+  savedToStorage?: boolean;
 }
 
 const STORAGE_KEY = "retentionedit_projects_v1";
@@ -130,6 +134,49 @@ export async function deleteProject(id: string): Promise<void> {
     // ignore
   }
   notifyProjectsChanged();
+}
+
+/** Update specific fields of an existing project */
+export function updateProject(id: string, patch: Partial<ProjectEntry>): void {
+  const all = readAll();
+  const index = all.findIndex((e) => e.id === id);
+  if (index !== -1) {
+    all[index] = { ...all[index], ...patch };
+    writeAll(all);
+    notifyProjectsChanged();
+  }
+}
+
+const COLLECTIONS_KEY = "retentionedit_collections_v1";
+const DEFAULT_COLLECTIONS = ["Favorites", "TikTok / Reels", "YouTube Shorts", "Podcast Highlights"];
+
+export function loadCollections(): string[] {
+  if (typeof window === "undefined") return DEFAULT_COLLECTIONS;
+  try {
+    const raw = localStorage.getItem(COLLECTIONS_KEY);
+    if (!raw) {
+      localStorage.setItem(COLLECTIONS_KEY, JSON.stringify(DEFAULT_COLLECTIONS));
+      return DEFAULT_COLLECTIONS;
+    }
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) && parsed.length > 0 ? parsed : DEFAULT_COLLECTIONS;
+  } catch {
+    return DEFAULT_COLLECTIONS;
+  }
+}
+
+export function addCollection(name: string): void {
+  if (typeof window === "undefined") return;
+  const trimmed = name.trim();
+  if (!trimmed) return;
+  const current = loadCollections();
+  if (!current.includes(trimmed)) {
+    const updated = [...current, trimmed];
+    try {
+      localStorage.setItem(COLLECTIONS_KEY, JSON.stringify(updated));
+    } catch {}
+    notifyProjectsChanged();
+  }
 }
 
 /** A URL is replayable across reloads only if remote or absolute-path. */

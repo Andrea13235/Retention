@@ -1,8 +1,9 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
-import { MoreHorizontal, Play, RotateCcw } from "lucide-react";
+import { Play, RotateCcw } from "lucide-react";
 import { ProjectEntry, getProjectVideoUrl } from "@/lib/projects-store";
+import { ProjectMenu } from "./project-menu";
 
 interface ProjectCardProps {
   project: ProjectEntry;
@@ -121,14 +122,7 @@ export function ProjectCard({ project, onClearCover, onOpen }: ProjectCardProps)
               <Play size={13} className="ml-0.5" fill="currentColor" />
             </span>
           )}
-          <button
-            type="button"
-            className="text-[#8c8c90] hover:text-white p-1.5 rounded transition bg-transparent border-0 cursor-pointer"
-            title="Options"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <MoreHorizontal size={17} />
-          </button>
+          <ProjectMenu project={project} onClearCover={onClearCover} />
         </div>
       </div>
     </article>
