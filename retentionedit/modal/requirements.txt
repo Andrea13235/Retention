@@ -1,0 +1,4 @@
+modal>=0.64.0
+fastapi[standard]>=0.115.0
+pillow>=10.4.0
+pydantic>=2.9.0

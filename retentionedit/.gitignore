@@ -1,0 +1,8 @@
+# RetentionEdit — local-only ignores (never push secrets, uploads, renders)
+.vault/
+.next/
+.next-dev/
+public/uploads/
+public/thumbnails/
+.vercel
+.env*

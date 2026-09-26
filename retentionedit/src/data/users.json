@@ -1,0 +1,44 @@
+[
+  {
+    "id": "usr_1790353365977_19fbw",
+    "email": "andrea.test@example.com",
+    "passwordHash": "7a02024f05b5cb4e047a6d081e98259c1a4be8115a4fe89f3c476cb2c2a8f94a88c9a66196b89fc6f27d24f91feca2bcef51e803093085108cb08460a0cd0c20",
+    "salt": "4c8ee58a9f2a15dc40de6faecb6af225",
+    "name": "Andrea Test",
+    "role": "Video Creator",
+    "plan": "free",
+    "provider": "email",
+    "createdAt": "2026-09-25T16:22:45.977Z"
+  },
+  {
+    "id": "usr_g_1790353386585_uqaup",
+    "email": "andrea.creator@gmail.com",
+    "name": "Andrea Barretta",
+    "role": "Video Creator",
+    "plan": "free",
+    "avatarUrl": "https://lh3.googleusercontent.com/a/ACg8ocL54-default=s96-c",
+    "provider": "google",
+    "createdAt": "2026-09-25T16:23:06.585Z"
+  },
+  {
+    "id": "usr_g_1790361471301_14oc7",
+    "email": "ping@test.it",
+    "name": "Andrea Barretta",
+    "role": "Video Creator",
+    "plan": "free",
+    "avatarUrl": "https://lh3.googleusercontent.com/a/ACg8ocL54-default=s96-c",
+    "provider": "google",
+    "createdAt": "2026-09-25T18:37:51.302Z"
+  },
+  {
+    "id": "usr_g_1790364482869_1j0p9",
+    "email": "barrettaandrea03@gmail.com",
+    "name": "andrea barretta",
+    "role": "Video Creator",
+    "plan": "free",
+    "avatarUrl": "https://lh3.googleusercontent.com/a/ACg8ocJ7OBFa4GGmQwsUG1WQTbe2-OgJuLrAASIdzN2kx9Bl6JBg1A=s96-c",
+    "provider": "google",
+    "createdAt": "2026-09-25T19:28:02.870Z",
+    "onboardingCompleted": false
+  }
+]

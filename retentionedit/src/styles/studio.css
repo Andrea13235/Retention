@@ -1,0 +1,6 @@
+/* Clean studio CSS - monochrome palette matching Opus.pro */
+:root {
+  --studio-bg: #000000;
+  --studio-card: #121319;
+  --studio-border: #21232d;
+}
