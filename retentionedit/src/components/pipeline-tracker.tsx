@@ -28,23 +28,29 @@ export function PipelineTracker({ job }: PipelineTrackerProps) {
             <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
             Autonomous Pipeline Running
           </span>
-          <h2 className="text-xl font-bold text-white mt-1">{job.title}</h2>
+          <h2 className="text-xl font-bold text-white mt-1">{job.title || "Untitled edit"}</h2>
           <p className="text-xs text-slate-400 mt-0.5">
-            Format: <strong className="text-slate-200">{job.format.toUpperCase()}</strong> &bull; Tier:{" "}
-            <strong className="text-slate-200">{job.genaiTier.toUpperCase()}</strong> &bull; Raw duration: ~{job.rawDuration}s
+            Format: <strong className="text-slate-200">{(job.format || "9:16").toUpperCase()}</strong> &bull; Tier:{" "}
+            <strong className="text-slate-200">{(job.genaiTier || "balanced").toUpperCase()}</strong> &bull; Raw duration: ~{job.rawDuration ?? 0}s
           </p>
         </div>
 
         <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-950 border border-slate-800 text-xs text-slate-300">
           <Layers size={14} className="text-indigo-400" />
-          <span>Stage <strong>{STAGE_ORDER.indexOf(job.currentStage as StageId) + 1}</strong> of 8</span>
+          <span>Stage <strong>{Math.max(1, STAGE_ORDER.indexOf(job.currentStage as StageId) + 1)}</strong> of 8</span>
         </div>
       </div>
 
       {/* Sequential Stages Grid */}
       <div className="space-y-3">
         {STAGE_ORDER.map((stageId, idx) => {
-          const stage = job.stages[stageId];
+          const stage = job.stages?.[stageId] || {
+            id: stageId,
+            label: stageId,
+            description: "",
+            state: "pending",
+            progress: 0,
+          };
           const isDone = stage.state === "completed";
           const isRunning = stage.state === "running";
           const isFailed = stage.state === "failed";
@@ -109,7 +115,7 @@ export function PipelineTracker({ job }: PipelineTrackerProps) {
           <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
         </div>
         <div className="p-4 font-mono text-xs text-slate-300 space-y-1.5 max-h-48 overflow-y-auto">
-          {job.logs.map((log, index) => (
+          {(job.logs || []).map((log, index) => (
             <div key={index} className="leading-relaxed">
               <span className="text-emerald-400/90">&gt;</span> {log}
             </div>

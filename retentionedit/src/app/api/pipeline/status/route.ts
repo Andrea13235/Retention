@@ -22,8 +22,17 @@ export async function GET(req: NextRequest) {
 
   return NextResponse.json({
     jobId: job.id,
+    title: job.title,
+    format: job.format,
+    genaiTier: job.genaiTier,
+    rawDuration: job.rawDuration,
+    rawVideoUrl: job.rawVideoUrl,
     currentStage: job.currentStage,
     stages: job.stages,
     logs: job.logs,
+    renderedVideoUrl: job.renderedVideoUrl,
+    thumbnailUrl: job.thumbnailUrl,
+    stats: job.stats,
+    editPlan: job.editPlan,
   });
 }

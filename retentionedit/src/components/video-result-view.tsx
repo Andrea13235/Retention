@@ -137,7 +137,7 @@ function ReviseBar({
 
 export function VideoResultView({ job, onReset, onRevised }: VideoResultViewProps) {
   const [showJson, setShowJson] = useState(false);
-  const isShort = job.format === "short";
+  const isShort = (job.format || "short").toLowerCase() === "short";
 
   return (
     <div className="space-y-6 max-w-5xl mx-auto">
@@ -154,9 +154,9 @@ export function VideoResultView({ job, onReset, onRevised }: VideoResultViewProp
               </span>
               <OpusBadge />
             </div>
-            <h2 className="text-lg sm:text-xl font-extrabold text-white truncate mt-0.5">{job.title}</h2>
+            <h2 className="text-lg sm:text-xl font-extrabold text-white truncate mt-0.5">{job.title || "Untitled edit"}</h2>
             <p className="text-xs text-white/50">
-              ~{job.editPlan?.target_duration ?? 32}s · {job.format.toUpperCase()} · {job.genaiTier.toUpperCase()}
+              ~{job.editPlan?.target_duration ?? 32}s · {(job.format || "9:16").toUpperCase()} · {(job.genaiTier || "balanced").toUpperCase()}
             </p>
           </div>
         </div>

@@ -223,6 +223,27 @@ export default function HomePage() {
 
       // Deduct credits on successful launch
       setCredits((prev) => Math.max(0, prev - requiredCredits));
+      setJobData({
+        id: data.jobId,
+        title: params.title || "Untitled edit",
+        format: params.format || "short",
+        genaiTier: params.genaiTier || "balanced",
+        rawDuration: params.duration || 30,
+        rawVideoUrl: sourceUrl,
+        currentStage: "ingest",
+        createdAt: Date.now(),
+        stages: {
+          ingest: { id: "ingest", label: "Ingest & Frame Probing", description: "Probing raw footage metadata & validating cloud asset buffers", state: "running", progress: 20 },
+          transcribe: { id: "transcribe", label: "Whisper Transcription", description: "Whisper large-v3 transcription with word-level timestamps", state: "pending", progress: 0 },
+          analyze: { id: "analyze", label: "Narrative Analysis", description: "Extracting emotional peaks, silence segments & retention hooks", state: "pending", progress: 0 },
+          retentionvolt: { id: "retentionvolt", label: "RetentionVolt Pattern Matcher", description: "Matching against viral retention graphs", state: "pending", progress: 0 },
+          plan: { id: "plan", label: "EditPlan Generation", description: "Claude Opus synthesizing edit plan & rhythm registers", state: "pending", progress: 0 },
+          voiceover: { id: "voiceover", label: "ElevenLabs Voiceover & Sound Design", description: "Generating voiceover & SFX cues", state: "pending", progress: 0 },
+          render: { id: "render", label: "Modal GPU Render Pipeline", description: "Cloud GPU compositing with HyperFrames", state: "pending", progress: 0 },
+          verify: { id: "verify", label: "Broadcast Quality Gate", description: "Evaluating retention score & broadcast readiness", state: "pending", progress: 0 },
+        },
+        logs: [`Pipeline initialized for ${(params.format || "short").toUpperCase()} format`],
+      } as PipelineJob);
       setActiveJobId(data.jobId);
       setActiveTab("home");
     } catch (err: any) {
