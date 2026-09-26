@@ -43,6 +43,29 @@ export async function POST(req: NextRequest) {
     const genaiTier: GenAITier = TIER_SET.has(body?.genaiTier) ? (body.genaiTier as GenAITier) : "balanced";
     const duration = Number.isFinite(body?.duration) ? Math.max(1, Math.min(4 * 3600, Math.round(Number(body.duration)))) : 48;
 
+    // Feature gating per plan (Free, Starter, Pro, Agency)
+    const { checkFeatureAccess } = await import("@/lib/stripe");
+    const userPlanHeader = req.headers.get("x-user-plan");
+    const userPlan = (body?.userPlan || userPlanHeader || "free") as any;
+
+    if (genaiTier === "cinematic") {
+      const gate = checkFeatureAccess(userPlan, "cinematic_tier");
+      if (!gate.allowed) {
+        return NextResponse.json(
+          { error: gate.reason, code: "PLAN_UPGRADE_REQUIRED", requiredPlan: gate.requiredPlan },
+          { status: 403 }
+        );
+      }
+    } else if (genaiTier === "balanced") {
+      const gate = checkFeatureAccess(userPlan, "balanced_tier");
+      if (!gate.allowed && body?.userPlan && body.userPlan === "free") {
+        return NextResponse.json(
+          { error: gate.reason, code: "PLAN_UPGRADE_REQUIRED", requiredPlan: gate.requiredPlan },
+          { status: 403 }
+        );
+      }
+    }
+
     const job = PipelineOrchestrator.createJob({
       title: rawTitle,
       rawVideoUrl: safeR2Key ? `r2://${safeR2Key}` : rawVideoUrl,

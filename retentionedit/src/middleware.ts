@@ -13,6 +13,7 @@ const PUBLIC_PREFIXES = [
   "/login",
   "/auth/callback",
   "/api/auth/",
+  "/api/stripe/webhook",
   "/_next/",
   "/favicon.ico",
   "/robots.txt",

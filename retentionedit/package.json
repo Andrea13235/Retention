@@ -19,6 +19,7 @@
     "next": "^15.5.26",
     "react": "19.0.0",
     "react-dom": "19.0.0",
+    "stripe": "^22.6.2",
     "tailwind-merge": "^2.5.4"
   },
   "devDependencies": {

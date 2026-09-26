@@ -14,9 +14,11 @@ import {
   Zap,
   ShieldCheck,
   Layers,
+  Lock,
 } from "lucide-react";
 import { GenAITier, VideoFormat } from "@/lib/types";
 import { calculateJobCredits } from "@/lib/credits";
+import { PlanId } from "@/lib/stripe";
 
 interface UploaderProps {
   onStartJob: (params: {
@@ -29,9 +31,17 @@ interface UploaderProps {
   }) => void;
   loading: boolean;
   initialUrl?: string;
+  userPlan?: PlanId;
+  onOpenPricing?: () => void;
 }
 
-export function Uploader({ onStartJob, loading, initialUrl = "" }: UploaderProps) {
+export function Uploader({
+  onStartJob,
+  loading,
+  initialUrl = "",
+  userPlan = "free",
+  onOpenPricing,
+}: UploaderProps) {
   const [format, setFormat] = useState<VideoFormat>("short");
   const [tier, setTier] = useState<GenAITier>("balanced");
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -368,7 +378,14 @@ export function Uploader({ onStartJob, loading, initialUrl = "" }: UploaderProps
             {/* Balanced Tier (Recommended) */}
             <button
               type="button"
-              onClick={() => setTier("balanced")}
+              onClick={() => {
+                if (userPlan === "free" && onOpenPricing) {
+                  // Allow selecting or suggest Starter
+                  setTier("balanced");
+                } else {
+                  setTier("balanced");
+                }
+              }}
               className={`p-4 rounded-2xl border text-left transition-all relative cursor-pointer ${
                 tier === "balanced"
                   ? "border-white/50 bg-[#181a24] shadow-lg"
@@ -389,18 +406,31 @@ export function Uploader({ onStartJob, loading, initialUrl = "" }: UploaderProps
               </p>
             </button>
 
-            {/* Cinematic Pro Tier */}
+            {/* Cinematic Pro Tier (Locked for Free & Starter) */}
             <button
               type="button"
-              onClick={() => setTier("cinematic")}
-              className={`p-4 rounded-2xl border text-left transition-all cursor-pointer ${
+              onClick={() => {
+                if (userPlan !== "pro" && userPlan !== "agency") {
+                  if (onOpenPricing) onOpenPricing();
+                  return;
+                }
+                setTier("cinematic");
+              }}
+              className={`p-4 rounded-2xl border text-left transition-all relative cursor-pointer ${
                 tier === "cinematic"
                   ? "border-white/50 bg-[#181a24] shadow-md"
                   : "border-[#21232d] bg-[#121319] hover:border-[#2f3240]"
-              }`}
+              } ${userPlan !== "pro" && userPlan !== "agency" ? "opacity-80" : ""}`}
             >
+              {userPlan !== "pro" && userPlan !== "agency" && (
+                <div className="absolute -top-2.5 right-3 px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-400 border border-amber-500/30 text-[10px] font-bold flex items-center gap-1">
+                  <Lock size={10} /> PRO ONLY
+                </div>
+              )}
               <div className="flex items-center justify-between mb-1">
-                <span className="text-sm font-bold text-white">Cinematic Pro</span>
+                <div className="flex items-center gap-1.5">
+                  <span className="text-sm font-bold text-white">Cinematic Pro</span>
+                </div>
                 <span className="text-[10px] px-2 py-0.5 rounded-full bg-white/10 text-white font-mono font-bold">
                   55 Credits
                 </span>

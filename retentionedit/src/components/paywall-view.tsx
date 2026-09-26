@@ -28,6 +28,33 @@ export function PaywallView({
 }: PaywallViewProps) {
   const [annualBilling, setAnnualBilling] = useState(true);
   const [openFaq, setOpenFaq] = useState<number | null>(0);
+  const [loadingPlan, setLoadingPlan] = useState<string | null>(null);
+
+  const handleCheckout = async (planId: string) => {
+    if (onSelectPlan) {
+      onSelectPlan(planId);
+      return;
+    }
+    setLoadingPlan(planId);
+    try {
+      const res = await fetch("/api/stripe/checkout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          planId,
+          interval: annualBilling ? "year" : "month",
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Errore creazione checkout Stripe");
+      if (data.url) {
+        window.location.href = data.url;
+      }
+    } catch (err: any) {
+      alert(`Errore checkout: ${err.message}`);
+      setLoadingPlan(null);
+    }
+  };
 
   const PLANS = [
     {
@@ -244,18 +271,22 @@ export function PaywallView({
               <div className="pt-8">
                 <button
                   type="button"
-                  onClick={() => {
-                    if (onSelectPlan) onSelectPlan(plan.id);
-                    else alert(`Proceeding to Stripe Checkout for ${plan.name} (${price}€/mo)!`);
-                  }}
-                  className={`w-full py-4 px-6 rounded-2xl font-black text-xs uppercase tracking-wider transition-all shadow-xl flex items-center justify-center gap-2 group cursor-pointer ${
+                  disabled={Boolean(loadingPlan)}
+                  onClick={() => handleCheckout(plan.id)}
+                  className={`w-full py-4 px-6 rounded-2xl font-black text-xs uppercase tracking-wider transition-all shadow-xl flex items-center justify-center gap-2 group cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed ${
                     plan.highlight
                       ? "bg-white hover:bg-neutral-200 text-black shadow-md"
                       : "bg-[#1e202b] hover:bg-[#282b3a] text-white border border-[#2c2f3e]"
                   }`}
                 >
-                  <span>{plan.cta}</span>
-                  <ArrowRight size={14} className="group-hover:translate-x-1 transition-transform" />
+                  {loadingPlan === plan.id ? (
+                    <span>Opening Stripe Checkout...</span>
+                  ) : (
+                    <>
+                      <span>{plan.cta}</span>
+                      <ArrowRight size={14} className="group-hover:translate-x-1 transition-transform" />
+                    </>
+                  )}
                 </button>
               </div>
             </div>

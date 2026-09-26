@@ -12,7 +12,7 @@ import { ProjectsView } from "@/components/projects-view";
 import { SubscriptionView } from "@/components/subscription-view";
 import { AuthModal } from "@/components/auth-modal";
 import { OnboardingModal } from "@/components/onboarding-modal";
-import { ToastContainer } from "@/components/toast-notification";
+import { ToastContainer, showToast } from "@/components/toast-notification";
 import { Brand } from "@/components/brand";
 import { Loader2 } from "lucide-react";
 import { PipelineJob } from "@/lib/types";
@@ -21,6 +21,7 @@ import { calculateJobCredits } from "@/lib/credits";
 import { captureVideoCover } from "@/lib/video-cover";
 import { upsertProject } from "@/lib/projects-store";
 import { useAuth } from "@/context/auth-context";
+import { PlanId } from "@/lib/stripe";
 
 export default function HomePage() {
   const { user, isLoggedIn, isLoading, logout, onboardingCompleted } = useAuth();
@@ -31,6 +32,7 @@ export default function HomePage() {
   const [jobData, setJobData] = useState<PipelineJob | null>(null);
   const [loading, setLoading] = useState(false);
   const [credits, setCredits] = useState(25);
+  const [userPlan, setUserPlan] = useState<PlanId>("free");
   const [pricingOpen, setPricingOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [authModalOpen, setAuthModalOpen] = useState(false);
@@ -61,6 +63,20 @@ export default function HomePage() {
       if (params.get("tab") === "subscription" || window.location.pathname === "/subscription") {
         setActiveTab("subscription");
       }
+      // Stripe Checkout return processing
+      const stripeStatus = params.get("stripe");
+      if (stripeStatus === "success") {
+        const plan = (params.get("plan") || "pro") as PlanId;
+        const grantedCredits = Number(params.get("credits")) || 750;
+        setUserPlan(plan);
+        setCredits((prev) => Math.max(prev, grantedCredits));
+        showToast(`🎉 Abbonamento ${plan.toUpperCase()} attivato con successo! ${grantedCredits} crediti disponibili.`, 5000);
+        setActiveTab("subscription");
+        window.history.replaceState({}, "", window.location.pathname + "?tab=subscription");
+      } else if (stripeStatus === "canceled") {
+        showToast("Checkout Stripe annullato. Nessun addebito effettuato.", 3500);
+        window.history.replaceState({}, "", window.location.pathname);
+      }
       if (params.get("action") === "studio" || params.get("action") === "login") {
         if (!isLoggedIn) {
           setAuthModalOpen(true);
@@ -70,6 +86,22 @@ export default function HomePage() {
       }
     }
   }, [isLoggedIn]);
+
+  // Synchronize live Stripe subscription status
+  useEffect(() => {
+    if (!user?.email) return;
+    fetch(`/api/stripe/status?email=${encodeURIComponent(user.email)}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (data?.plan) {
+          setUserPlan(data.plan);
+          if (data.isSubscribed && data.credits) {
+            setCredits((prev) => Math.max(prev, data.credits));
+          }
+        }
+      })
+      .catch(() => {});
+  }, [user?.email]);
 
   // If not logged in, ALWAYS show the landing page / auth gate
   const showLanding = !isLoggedIn || showLandingOverride;
@@ -156,8 +188,27 @@ export default function HomePage() {
       return;
     }
 
+    // Feature gating per plan
+    const { checkFeatureAccess } = await import("@/lib/stripe");
+    if (params.genaiTier === "cinematic") {
+      const gate = checkFeatureAccess(userPlan, "cinematic_tier");
+      if (!gate.allowed) {
+        showToast(gate.reason || "Il tier Cinematic Pro richiede un abbonamento Pro Studio o Agency.", 5000);
+        setPricingOpen(true);
+        return;
+      }
+    } else if (params.genaiTier === "balanced") {
+      const gate = checkFeatureAccess(userPlan, "balanced_tier");
+      if (!gate.allowed && userPlan === "free") {
+        showToast(gate.reason || "Il tier Balanced richiede almeno il piano Creator Starter.", 5000);
+        setPricingOpen(true);
+        return;
+      }
+    }
+
     const requiredCredits = calculateJobCredits(params.genaiTier);
     if (credits < requiredCredits) {
+      showToast(`Crediti insufficienti (${credits}/${requiredCredits} pts). Effettua l'upgrade!`, 4000);
       setPricingOpen(true);
       return;
     }
@@ -182,6 +233,7 @@ export default function HomePage() {
         headers: {
           "Content-Type": "application/json",
           "x-retentionedit-session": user?.id || "active",
+          "x-user-plan": userPlan,
         },
         body: JSON.stringify({
           title: params.title,
@@ -189,6 +241,7 @@ export default function HomePage() {
           format: params.format,
           genaiTier: params.genaiTier,
           duration: params.duration,
+          userPlan,
         }),
       });
 
@@ -430,6 +483,7 @@ export default function HomePage() {
             <SubscriptionView
               credits={credits}
               userEmail={user?.email || "barrettaandrea03@gmail.com"}
+              planId={userPlan}
               onOpenPricing={() => setPricingOpen(true)}
             />
           )}
@@ -439,8 +493,22 @@ export default function HomePage() {
             <PaywallView
               currentCredits={credits}
               onBackToEditor={() => setActiveTab("home")}
-              onSelectPlan={(planId) => {
-                alert(`Piano ${planId} selezionato. Apertura checkout sicuro...`);
+              onSelectPlan={async (planId) => {
+                try {
+                  const res = await fetch("/api/stripe/checkout", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ planId, interval: "month", userEmail: user?.email }),
+                  });
+                  const data = await res.json();
+                  if (data.url) {
+                    window.location.href = data.url;
+                  } else {
+                    throw new Error(data.error || "Impossibile aprire il checkout");
+                  }
+                } catch (e: any) {
+                  alert(`Errore checkout: ${e.message}`);
+                }
               }}
             />
           )}
