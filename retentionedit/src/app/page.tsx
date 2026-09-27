@@ -308,6 +308,8 @@ export default function HomePage() {
     setActiveTab("home");
   };
 
+  const isEditorView = !!(activeJobId && jobData && jobData.currentStage === "done" && activeTab === "home");
+
   return (
     <>
       {/* ======================================================================= */}
@@ -342,6 +344,7 @@ export default function HomePage() {
           credits={credits}
           activeTab={activeTab}
           user={user}
+          noScroll={isEditorView}
           onTabChange={(tab) => {
             setActiveTab(tab);
             if (tab === "home") {
@@ -349,10 +352,10 @@ export default function HomePage() {
             }
           }}
           onOpenSettings={() => setSettingsOpen(true)}
-          onOpenPricing={() => setPricingOpen(true)}
-          onLogout={handleLogout}
-          onOpenLanding={() => setShowLandingOverride(true)}
-        >
+              onOpenPricing={() => setPricingOpen(true)}
+              onLogout={handleLogout}
+              onOpenLanding={() => setShowLandingOverride(true)}
+            >
           {/* HOME TAB (Screenshot 1 & 2) */}
           {activeTab === "home" && (
             <div>
@@ -416,7 +419,7 @@ export default function HomePage() {
               )}
 
               {activeJobId && jobData && jobData.currentStage === "done" && (
-                <div className="py-6">
+                <div className="w-full h-full flex flex-col items-center justify-center overflow-hidden">
                   <VideoResultView
                     job={jobData}
                     onReset={handleReset}

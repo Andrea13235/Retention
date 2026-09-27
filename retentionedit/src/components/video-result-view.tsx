@@ -1,8 +1,6 @@
 "use client";
 import React, { useState } from "react";
 import {
-  Home,
-  ChevronLeft,
   Loader2,
   Sparkles,
 } from "lucide-react";
@@ -18,23 +16,18 @@ interface VideoResultViewProps {
 /**
  * VideoResultView
  *
- * Implements the exact layout, dimensions, proportions, and UI elements
- * from the design wireframe:
- * 1. Top: Centered 16:9 VIDEO player container.
- * 2. Bottom: Prominent rounded pill card with:
- *    - "EDIT THE VIDEO ON AI" header
- *    - "Gesture Mode" pill button in the center
+ * Implements the refined single-screen layout matching the wireframe photo:
+ * 1. Raised 16:9 VIDEO player container at the top (no headers, badges or titles above it).
+ * 2. Bottom card:
  *    - Prompt input to request AI revisions
  *    - Bottom-left: "OPUS 3.5" terracotta/orange badge (#ea9368)
  *    - Bottom-right: "EDIT" pill button
- * 3. Clean minimal screen: NOTHING ELSE ("non ci deve stare niente altro").
- * 4. "Home" navigation button to return to the home screen.
+ * 3. Fits completely into a single screen with no possibility of scrolling.
  */
-export function VideoResultView({ job, onReset, onRevised }: VideoResultViewProps) {
+export function VideoResultView({ job, onRevised }: VideoResultViewProps) {
   const [prompt, setPrompt] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  const [gestureMode, setGestureMode] = useState(true);
 
   const submit = async () => {
     const p = prompt.trim();
@@ -65,13 +58,23 @@ export function VideoResultView({ job, onReset, onRevised }: VideoResultViewProp
     }
   };
 
-  const fallbackUrl = (job.format === "short") ? "/videos/kling-creator-9-16.mp4" : "/videos/final-horizontal.mp4";
+  const fallbackUrl =
+    job.format === "short"
+      ? "/videos/kling-creator-9-16.mp4"
+      : "/videos/final-horizontal.mp4";
+
   const getInitialSrc = () => {
     const v = job.renderedVideoUrl;
     if (v && !v.includes("r2.retentionedit.com") && !v.includes("your_")) return v;
-    if (job.rawVideoUrl && !job.rawVideoUrl.includes("r2.retentionedit.com") && !job.rawVideoUrl.includes("your_")) return job.rawVideoUrl;
+    if (
+      job.rawVideoUrl &&
+      !job.rawVideoUrl.includes("r2.retentionedit.com") &&
+      !job.rawVideoUrl.includes("your_")
+    )
+      return job.rawVideoUrl;
     return fallbackUrl;
   };
+
   const [currentVideoSrc, setCurrentVideoSrc] = useState(getInitialSrc());
 
   React.useEffect(() => {
@@ -79,37 +82,11 @@ export function VideoResultView({ job, onReset, onRevised }: VideoResultViewProp
   }, [job.renderedVideoUrl, job.rawVideoUrl, fallbackUrl]);
 
   return (
-    <div className="w-full flex flex-col items-center justify-center min-h-[calc(100vh-140px)] py-4 px-2 sm:px-4">
-      {/* Top Navigation: Home Back Button */}
-      <div className="w-full max-w-[780px] flex items-center justify-between mb-4">
-        <button
-          type="button"
-          onClick={onReset}
-          className="inline-flex items-center gap-2 text-xs font-semibold text-[#8c8c90] hover:text-white transition px-3 py-1.5 rounded-xl hover:bg-white/5 cursor-pointer group"
-          title="Torna alla Home"
-        >
-          <ChevronLeft size={16} className="text-[#8c8c90] group-hover:text-white transition" />
-          <Home size={15} />
-          <span>Home</span>
-        </button>
-
-        {/* Deliverable Badge */}
-        <span className="text-[11px] font-semibold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-3 py-1 rounded-full">
-          Quality Gate Verified &bull; Broadcast Ready
-        </span>
-      </div>
-
+    <div className="w-full h-full flex flex-col items-center justify-center overflow-hidden select-none py-1">
       {/* Main Layout Container matching the wireframe photo */}
-      <div className="w-full max-w-[780px] flex flex-col items-center">
-        {/* Title display */}
-        <div className="w-full mb-3 text-left">
-          <h1 className="text-base sm:text-xl font-bold text-white tracking-tight leading-snug">
-            {job.title}
-          </h1>
-        </div>
-
-        {/* 1. TOP VIDEO CONTAINER — Proportions and position matching the photo */}
-        <div className="w-full aspect-[16/9] rounded-2xl sm:rounded-3xl overflow-hidden border border-white/10 bg-black shadow-2xl flex items-center justify-center relative">
+      <div className="w-full max-w-[720px] flex flex-col items-center my-auto">
+        {/* 1. TOP VIDEO CONTAINER — Raised, clean, 16:9, fits the viewport perfectly */}
+        <div className="relative w-full aspect-[16/9] max-h-[52vh] rounded-2xl sm:rounded-3xl overflow-hidden border border-white/10 bg-black shadow-2xl flex items-center justify-center shrink">
           <video
             src={currentVideoSrc}
             controls
@@ -118,7 +95,6 @@ export function VideoResultView({ job, onReset, onRevised }: VideoResultViewProp
             loop
             onError={() => {
               if (currentVideoSrc !== fallbackUrl) {
-                console.warn("Rendered video failed to load, switching to fallback:", fallbackUrl);
                 setCurrentVideoSrc(fallbackUrl);
               }
             }}
@@ -126,38 +102,10 @@ export function VideoResultView({ job, onReset, onRevised }: VideoResultViewProp
           />
         </div>
 
-        {/* 2. BOTTOM CARD CONTAINER — Rounded pill card matching the photo */}
-        <div className="w-full mt-7 sm:mt-9 rounded-[28px] sm:rounded-[36px] border border-white/15 bg-[#141416]/95 backdrop-blur-xl shadow-2xl p-5 sm:p-7 flex flex-col justify-between">
-          {/* Top text: EDIT THE VIDEO ON AI */}
-          <div className="text-center">
-            <h2 className="text-xs sm:text-sm font-semibold tracking-[0.22em] text-white/60 uppercase select-none font-mono">
-              EDIT THE VIDEO ON AI
-            </h2>
-          </div>
-
-          {/* Center: Gesture Mode pill */}
-          <div className="flex items-center justify-center my-3.5">
-            <button
-              type="button"
-              onClick={() => setGestureMode(!gestureMode)}
-              className={`inline-flex items-center gap-1.5 rounded-full px-4 py-1.5 text-xs font-medium transition cursor-pointer select-none border ${
-                gestureMode
-                  ? "bg-[#333338] text-white border-white/20 shadow-md"
-                  : "bg-[#202024] text-white/50 border-white/10 hover:text-white"
-              }`}
-              title="Toggle Gesture Mode"
-            >
-              <span
-                className={`w-1.5 h-1.5 rounded-full ${
-                  gestureMode ? "bg-emerald-400" : "bg-white/30"
-                }`}
-              />
-              Gesture Mode
-            </button>
-          </div>
-
+        {/* 2. BOTTOM CARD CONTAINER — Rounded pill card matching the wireframe */}
+        <div className="w-full mt-3 sm:mt-4 rounded-3xl sm:rounded-[32px] border border-white/15 bg-[#141416]/95 backdrop-blur-xl shadow-2xl p-3.5 sm:p-4 flex flex-col justify-between shrink-0">
           {/* Prompt input field */}
-          <div className="my-2">
+          <div className="w-full mb-2.5">
             <input
               type="text"
               value={prompt}
@@ -169,25 +117,25 @@ export function VideoResultView({ job, onReset, onRevised }: VideoResultViewProp
                 }
               }}
               placeholder="Chiedi all'AI di modificare tagli, zoom, silenzi, testo..."
-              className="w-full rounded-2xl bg-black/40 border border-white/10 px-4 py-3 text-sm text-white placeholder:text-white/35 focus:outline-none focus:border-white/30 transition text-center sm:text-left"
+              className="w-full rounded-2xl bg-black/40 border border-white/10 px-4 py-2.5 text-xs sm:text-sm text-white placeholder:text-white/35 focus:outline-none focus:border-white/30 transition text-center sm:text-left"
               disabled={busy}
             />
             {err && (
-              <p className="mt-1.5 text-center text-xs text-rose-400 font-medium">
+              <p className="mt-1 text-center text-xs text-rose-400 font-medium">
                 {err}
               </p>
             )}
           </div>
 
           {/* Bottom row: OPUS 3.5 (left) + EDIT button (right) */}
-          <div className="flex items-center justify-between mt-3 pt-1">
+          <div className="flex items-center justify-between">
             {/* Left: OPUS 3.5 Terracotta/Orange Badge (#ea9368 from photo) */}
             <div
-              className="inline-flex items-center gap-1.5 rounded-full px-4 py-1.5 text-xs font-extrabold tracking-wider text-white shadow-md select-none"
+              className="inline-flex items-center gap-1.5 rounded-full px-3.5 py-1 text-xs font-extrabold tracking-wider text-white shadow-md select-none"
               style={{ backgroundColor: "#ea9368" }}
               aria-label="Powered by OPUS 3.5"
             >
-              <Sparkles size={13} className="text-white fill-white" />
+              <Sparkles size={12} className="text-white fill-white" />
               <span>OPUS 3.5</span>
             </div>
 
@@ -196,9 +144,9 @@ export function VideoResultView({ job, onReset, onRevised }: VideoResultViewProp
               type="button"
               onClick={submit}
               disabled={busy || prompt.trim().length < 2}
-              className="inline-flex items-center justify-center gap-2 rounded-full border-2 border-white/30 bg-transparent hover:bg-white/10 active:scale-95 px-6 sm:px-7 py-1.5 text-xs font-extrabold uppercase tracking-wider text-white transition disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
+              className="inline-flex items-center justify-center gap-2 rounded-full border-2 border-white/30 bg-transparent hover:bg-white/10 active:scale-95 px-6 py-1 text-xs font-extrabold uppercase tracking-wider text-white transition disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
             >
-              {busy ? <Loader2 size={13} className="animate-spin" /> : null}
+              {busy ? <Loader2 size={12} className="animate-spin" /> : null}
               <span>EDIT</span>
             </button>
           </div>

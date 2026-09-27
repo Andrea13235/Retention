@@ -39,6 +39,7 @@ interface AppShellProps {
   onOpenPricing?: () => void;
   onLogout?: () => void;
   onOpenLanding?: () => void;
+  noScroll?: boolean;
 }
 
 export function AppShell({
@@ -51,11 +52,24 @@ export function AppShell({
   onOpenPricing,
   onLogout,
   onOpenLanding,
+  noScroll = false,
 }: AppShellProps) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [profileDropdownOpen, setProfileDropdownOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const sidebarRef = useRef<HTMLDivElement>(null);
+
+  // Prevent window scrolling when in noScroll mode
+  useEffect(() => {
+    if (noScroll) {
+      document.body.style.overflow = "hidden";
+      document.documentElement.style.overflow = "hidden";
+      return () => {
+        document.body.style.overflow = "";
+        document.documentElement.style.overflow = "";
+      };
+    }
+  }, [noScroll]);
 
   // Clear any legacy localStorage value so sidebar always starts natively closed
   useEffect(() => {
@@ -260,7 +274,11 @@ export function AppShell({
   };
 
   return (
-    <div className="min-h-screen bg-[#0F0F0F] text-[#f4f4f6] flex flex-row font-sans selection:bg-[#6723FF]/30 selection:text-white">
+    <div
+      className={`min-h-screen bg-[#0F0F0F] text-[#f4f4f6] flex flex-row font-sans selection:bg-[#6723FF]/30 selection:text-white ${
+        noScroll ? "h-screen max-h-screen overflow-hidden" : ""
+      }`}
+    >
       {/* ========================================================================= */}
       {/* 1. LEFT SIDEBAR (COLLAPSIBLE / EXPANDABLE VIA TOP ARROW BUTTON)            */}
       {/* ========================================================================= */}
@@ -547,7 +565,11 @@ export function AppShell({
       {/* ========================================================================= */}
       {/* 2. MAIN APP CONTENT CONTAINER                                             */}
       {/* ========================================================================= */}
-      <div className="flex-1 flex flex-col min-w-0 relative bg-[#0F0F0F]">
+      <div
+        className={`flex-1 flex flex-col min-w-0 relative bg-[#0F0F0F] ${
+          noScroll ? "h-screen max-h-screen overflow-hidden" : ""
+        }`}
+      >
         {/* Top Header Floating Actions (Matching Desktop OpusClip) */}
         <header className="sticky top-0 z-20 h-14 bg-[#0F0F0F]/95 backdrop-blur px-8 flex items-center justify-between gap-3 select-none">
           <div className="flex items-center gap-2">
@@ -622,11 +644,18 @@ export function AppShell({
         </header>
 
         {/* Main Content View (Home Workspace, Projects, or Subscription) */}
-        <main className="flex-1 px-6 sm:px-8 pb-16 w-full max-w-[1320px] mx-auto">
+        <main
+          className={`flex-1 w-full max-w-[1320px] mx-auto ${
+            noScroll
+              ? "px-4 sm:px-6 flex flex-col justify-center items-center overflow-hidden py-1"
+              : "px-6 sm:px-8 pb-16"
+          }`}
+        >
           {children}
         </main>
 
         {/* Bottom Navigation & Floating Controls (Matching Screenshots 1 & 3) */}
+        {!noScroll && (
         <div className="fixed bottom-5 right-8 z-40 flex items-center gap-2.5 select-none">
           {/* Carousel Arrows */}
           <div className="flex items-center gap-1 mr-1">
@@ -679,9 +708,12 @@ export function AppShell({
             </button>
           </div>
         </div>
+        )}
 
         {/* Bottom Center Indicator capsule */}
-        <div className="fixed bottom-2 left-1/2 -translate-x-1/2 w-16 h-1 rounded-full bg-[#383838] pointer-events-none" />
+        {!noScroll && (
+          <div className="fixed bottom-2 left-1/2 -translate-x-1/2 w-16 h-1 rounded-full bg-[#383838] pointer-events-none" />
+        )}
       </div>
     </div>
   );
