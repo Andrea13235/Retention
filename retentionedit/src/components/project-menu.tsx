@@ -177,7 +177,95 @@ export function ProjectMenu({ project, onClearCover, onShowToast }: ProjectMenuP
     }
   };
 
-  // 6. DELETE
+  // 6. DOWNLOAD VIDEO (MP4) — Physically rendered with cuts, zooms, graphics, subtitles
+  const handleDownloadVideo = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setIsOpen(false);
+    try {
+      const { getProjectBlob } = await import("@/lib/projects-store");
+      const cleanTitle = project.title.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 40) || "video";
+
+      // 1. Check if physically rendered MP4 blob is already cached
+      const renderedBlob = await getProjectBlob(`${project.id}_rendered`).catch(() => null);
+      if (renderedBlob && renderedBlob.size > 0) {
+        const url = URL.createObjectURL(renderedBlob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `${cleanTitle}_retention_edit.mp4`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        notify("✓ Download video editato (.MP4) completato");
+        return;
+      }
+
+      // 2. Otherwise get raw footage source
+      const rawBlob = await getProjectBlob(project.id).catch(() => null);
+      const source = rawBlob || project.videoUrl;
+
+      if (!source) {
+        notify("Nessun file video disponibile per il montaggio");
+        return;
+      }
+
+      // If we have an editPlan, physically bake the video with cuts, zooms, graphics, and subtitles
+      if (project.editPlan) {
+        notify("⚡ Elaborazione video in corso: applicando tagli silenzi, punch zoom e sottotitoli...");
+        const { bakeEditedVideo } = await import("@/lib/video-baker");
+        const bakedBlob = await bakeEditedVideo(project.id, source, project.editPlan, {
+          format: project.format,
+          onProgress: (p) => {
+            if (p.pct % 25 === 0 || p.pct === 100) {
+              notify(`Rendering video MP4: ${p.pct}%`);
+            }
+          },
+        });
+
+        const url = URL.createObjectURL(bakedBlob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `${cleanTitle}_retention_edit.mp4`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        notify("✓ Video editato (.MP4) scaricato con successo!");
+        return;
+      }
+
+      // Fallback if no editPlan yet: download source
+      if (rawBlob) {
+        const url = URL.createObjectURL(rawBlob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `${cleanTitle}.mp4`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        notify("✓ Download video (.MP4) avviato");
+        return;
+      }
+
+      if (project.videoUrl) {
+        const a = document.createElement("a");
+        a.href = project.videoUrl;
+        a.download = `${cleanTitle}.mp4`;
+        a.target = "_blank";
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        notify("✓ Download video (.MP4) avviato");
+        return;
+      }
+      notify("Nessun file video disponibile per il download");
+    } catch (err: any) {
+      notify("Errore esportazione video: " + err.message);
+    }
+  };
+
+  // 7. DELETE
   const handleDelete = async (e: React.MouseEvent) => {
     e.stopPropagation();
     setIsOpen(false);
@@ -242,7 +330,18 @@ export function ProjectMenu({ project, onClearCover, onShowToast }: ProjectMenuP
             <span>Add to a collection</span>
           </button>
 
-          {/* 4. Download subtitles SRT */}
+          {/* 4. Download video MP4 */}
+          <button
+            type="button"
+            role="menuitem"
+            onClick={handleDownloadVideo}
+            className="w-full text-left px-3.5 py-2.5 rounded-xl text-[14px] text-[#ededef] hover:bg-white/10 transition-colors flex items-center justify-between font-normal cursor-pointer bg-transparent border-0"
+          >
+            <span>Download video</span>
+            <span className="text-xs font-semibold text-emerald-400 tracking-wider">MP4</span>
+          </button>
+
+          {/* 5. Download subtitles SRT */}
           <button
             type="button"
             role="menuitem"
@@ -253,7 +352,7 @@ export function ProjectMenu({ project, onClearCover, onShowToast }: ProjectMenuP
             <span className="text-xs font-semibold text-[#8e9099] tracking-wider">SRT</span>
           </button>
 
-          {/* 5. Download transcript TXT */}
+          {/* 6. Download transcript TXT */}
           <button
             type="button"
             role="menuitem"

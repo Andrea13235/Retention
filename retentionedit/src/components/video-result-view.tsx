@@ -1,6 +1,8 @@
 "use client";
 import React, { useState, useRef } from "react";
 import {
+  Download,
+  Check,
   Loader2,
   Sparkles,
   Wand2,
@@ -142,7 +144,7 @@ export function VideoResultView({ job, onRevised }: VideoResultViewProps) {
       "Con i pattern interrupt e gli zoom dinamici sui punti chiave, il watch time raddoppia.",
       "Segui questa struttura esatta e guarda i numeri del tuo prossimo contenuto decollare.",
       "Ogni singolo frame deve comunicare valore senza pause morte o rallentamenti.",
-      "Tagliando i silenzi e mantenendo il ritmo alto, aumenti le visualizzazioni del 300%.",
+      "Tagliando i silenzi e mantenendo il ritmo alto, moltiplichi le visualizzazioni.",
       "Salva questo video e applicalo subito al tuo prossimo contenuto.",
     ];
 
@@ -169,73 +171,11 @@ export function VideoResultView({ job, onRevised }: VideoResultViewProps) {
       curTime += 0.35;
     }
 
-    const defaultGraphics: NonNullable<PipelineJob["editPlan"]>["graphics"] = [
-      {
-        time: 0.8,
-        duration: 3.2,
-        type: "act_title_banner",
-        text: job.title ? job.title.toUpperCase() : "IL SEGRETO DELLA RITENZIONE",
-        position: "top",
-        tag: "VIRAL HOOK",
-        icon: "⚡",
-        subtitle: "Pacing & Pattern Interrupts 2026",
-      },
-      {
-        time: 8.5,
-        duration: 3.4,
-        type: "number_stat",
-        text: "+300% WATCH TIME",
-        position: "top",
-        tag: "METRICA CHIAVE",
-        icon: "📈",
-        subtitle: "Cadenza e Tagli Decisi",
-      },
-      {
-        time: 17.0,
-        duration: 3.6,
-        type: "screen_overlay",
-        text: "RETENTIONVOLT ENGINE",
-        position: "top",
-        tag: "AI WORKFLOW",
-        icon: "🤖",
-        subtitle: "Blueprints dai Top Creator",
-        isScreen: true,
-      },
-      {
-        time: 25.5,
-        duration: 3.2,
-        type: "act_title_banner",
-        text: "ZERO TEMPI MORTI",
-        position: "top",
-        tag: "KEY TAKEAWAY",
-        icon: "💡",
-        subtitle: "Massimizza la Visione e la Retention",
-      },
+    const effectiveGraphics: NonNullable<PipelineJob["editPlan"]>["graphics"] = [];
+
+    const effectiveShots: NonNullable<PipelineJob["editPlan"]>["shots"] = [
+      { start: 0, end: dur, type: "talking_head_fullscreen" },
     ];
-
-    const effectiveGraphics =
-      job.editPlan?.graphics && job.editPlan.graphics.length > 0
-        ? job.editPlan.graphics
-        : defaultGraphics.filter((g) => g.time < dur - 1.5);
-
-    const effectiveShots: NonNullable<PipelineJob["editPlan"]>["shots"] =
-      job.editPlan?.shots && job.editPlan.shots.length > 0
-        ? job.editPlan.shots
-        : [
-            { start: 0, end: dur, type: "talking_head_fullscreen" },
-            ...(dur >= 20
-              ? [
-                  {
-                    start: 13.0,
-                    end: Math.min(18.5, dur - 2.0),
-                    type: "pip_talking_head_on_screen",
-                    title: "DEMONSTRATIVE WORKSPACE",
-                    subtitle: "Analisi Dinamica del Grafico di Ritenzione",
-                    pip_position: "bottom_right" as const,
-                  },
-                ]
-              : []),
-          ];
 
     return {
       version: "1.3" as const,
@@ -243,12 +183,12 @@ export function VideoResultView({ job, onRevised }: VideoResultViewProps) {
       genai_tier: job.genaiTier || "balanced",
       source_duration: dur,
       target_duration: dur,
-      cuts: [
+      cuts: job.editPlan?.cuts && job.editPlan.cuts.length > 0 ? job.editPlan.cuts : [
         { start: 6.5, end: 7.1, keep: false },
         { start: 14.8, end: 15.5, keep: false },
       ],
       shots: effectiveShots,
-      zooms,
+      zooms: job.editPlan?.zooms && job.editPlan.zooms.length > 0 ? job.editPlan.zooms : zooms,
       graphics: effectiveGraphics,
       captions: {
         style: "karaoke_bold",
@@ -256,7 +196,7 @@ export function VideoResultView({ job, onRevised }: VideoResultViewProps) {
         font_family: "Impact, sans-serif",
         font_size_pt: 32,
         bottom_pct: 18,
-        words,
+        words: (job.editPlan?.captions?.words && job.editPlan.captions.words.length > 0) ? job.editPlan.captions.words : words,
       },
     };
   }, [job.editPlan, job.rawDuration, job.format, job.genaiTier, job.title]);
@@ -297,16 +237,57 @@ export function VideoResultView({ job, onRevised }: VideoResultViewProps) {
     }
   }
 
-  // Active top graphic banner from RetentionVolt blueprint
-  const activeGraphic = resolvedPlan.graphics?.find(
-    (g) => currentTime >= g.time && currentTime < g.time + (g.duration || 3.0)
-  );
+  // Physical MP4 baking & export state
+  const [bakingPct, setBakingPct] = useState<number | null>(null);
 
-  // Active directorial shot setup (PiP, screen share, fullscreen)
-  const activeShot = resolvedPlan.shots?.find(
-    (s) => currentTime >= s.start && currentTime < s.end
-  );
-  const isPiP = activeShot?.type === "pip_talking_head_on_screen";
+  const handleDownloadBakedVideo = async () => {
+    if (bakingPct !== null) return;
+    try {
+      const { getProjectBlob } = await import("@/lib/projects-store");
+      const cleanTitle = (job.title || "video").replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 40);
+
+      // Check if already baked
+      const cached = await getProjectBlob(`${job.id}_rendered`).catch(() => null);
+      if (cached && cached.size > 0) {
+        const url = URL.createObjectURL(cached);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `${cleanTitle}_retention_edit.mp4`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        return;
+      }
+
+      const rawBlob = await getProjectBlob(job.id).catch(() => null);
+      const source = rawBlob || blobUrl || currentVideoSrc;
+      if (!source) {
+        setErr("Nessun video sorgente trovato per l'esportazione.");
+        return;
+      }
+
+      setBakingPct(0);
+      const { bakeEditedVideo } = await import("@/lib/video-baker");
+      const baked = await bakeEditedVideo(job.id, source, resolvedPlan, {
+        format: job.format,
+        onProgress: (p) => setBakingPct(p.pct),
+      });
+
+      const url = URL.createObjectURL(baked);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${cleanTitle}_retention_edit.mp4`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      setBakingPct(null);
+    } catch (e: any) {
+      setErr("Errore esportazione MP4: " + (e?.message || e));
+      setBakingPct(null);
+    }
+  };
 
   // Active karaoke subtitle words (Alex Hormozi style)
   const words = resolvedPlan.captions?.words || [];
@@ -318,6 +299,16 @@ export function VideoResultView({ job, onRevised }: VideoResultViewProps) {
   if (activeWordIdx !== -1) {
     const startIdx = Math.max(0, activeWordIdx - (activeWordIdx % 4));
     visibleWords = words.slice(startIdx, startIdx + 4);
+  } else {
+    // Keep showing current sentence phrase during small breath pauses so captions never vanish!
+    const nextIdx = words.findIndex((w) => w.start > currentTime);
+    if (nextIdx > 0 && currentTime - words[nextIdx - 1].end < 1.2) {
+      const startIdx = Math.max(0, (nextIdx - 1) - ((nextIdx - 1) % 4));
+      visibleWords = words.slice(startIdx, startIdx + 4);
+    } else if (nextIdx !== -1 && words[nextIdx].start - currentTime < 0.5) {
+      const startIdx = Math.max(0, nextIdx - (nextIdx % 4));
+      visibleWords = words.slice(startIdx, startIdx + 4);
+    }
   }
 
   return (
@@ -326,7 +317,7 @@ export function VideoResultView({ job, onRevised }: VideoResultViewProps) {
       <div className="w-full max-w-[720px] flex flex-col items-center my-auto">
         {/* 1. TOP VIDEO CONTAINER — Raised, clean, 16:9, fits the viewport perfectly */}
         <div className="relative w-full aspect-[16/9] max-h-[52vh] rounded-2xl sm:rounded-3xl overflow-hidden border border-white/10 bg-[#090a0f] shadow-2xl flex items-center justify-center shrink">
-          {/* Ambient blurred backdrop for 9:16 vertical videos */}
+          {/* Ambient blurred backdrop for vertical videos */}
           {currentVideoSrc && (
             <video
               src={currentVideoSrc}
@@ -337,54 +328,7 @@ export function VideoResultView({ job, onRevised }: VideoResultViewProps) {
             />
           )}
 
-          {/* Demonstrative Workspace / Screen Background Layer (for PiP / Screen Share) */}
-          {isPiP && (
-            <div className="absolute inset-0 z-0 flex items-center justify-center p-4 sm:p-6 bg-gradient-to-br from-[#0c101d] via-[#080c14] to-[#04060a] animate-in fade-in duration-300 pointer-events-none select-none">
-              <div className="w-full h-full rounded-2xl sm:rounded-3xl bg-[#111625]/95 border border-white/15 p-3.5 sm:p-5 flex flex-col justify-between shadow-2xl">
-                <div className="flex items-center justify-between pb-2 border-b border-white/10">
-                  <div className="flex items-center gap-1.5">
-                    <span className="w-2.5 h-2.5 rounded-full bg-[#ff5f56]" />
-                    <span className="w-2.5 h-2.5 rounded-full bg-[#ffbd2e]" />
-                    <span className="w-2.5 h-2.5 rounded-full bg-[#27c93f]" />
-                    <span className="text-[10px] sm:text-xs font-mono font-bold tracking-wider text-white/80 ml-2">
-                      {activeShot?.title || "DEMONSTRATIVE WORKSPACE"}
-                    </span>
-                  </div>
-                  <span className="text-[9px] font-mono uppercase px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30">
-                    PiP Active
-                  </span>
-                </div>
-                <div className="space-y-1 font-mono text-[11px] sm:text-xs my-auto pl-1 sm:pl-2 text-white/90">
-                  <div>
-                    <span className="text-pink-400 font-bold">import</span> &#123; RetentionVolt &#125;{" "}
-                    <span className="text-pink-400 font-bold">from</span>{" "}
-                    <span className="text-emerald-300">"@retention/ai"</span>;
-                  </div>
-                  <div>
-                    <span className="text-pink-400 font-bold">const</span> engine ={" "}
-                    <span className="text-blue-400 font-bold">await</span> RetentionVolt.loadModel();
-                  </div>
-                  <div className="text-white/40 italic">
-                    // {activeShot?.subtitle || "Demonstrative Visual Pacing & Dynamic Framing"}
-                  </div>
-                  <div>
-                    <span className="text-pink-400 font-bold">const</span> optimized ={" "}
-                    <span className="text-blue-400 font-bold">await</span> engine.synthesize();
-                  </div>
-                  <div className="text-emerald-400 pt-0.5 font-semibold flex items-center gap-1.5">
-                    <span>✔</span>
-                    <span>High-retention visual demonstrator active</span>
-                  </div>
-                </div>
-                <div className="flex items-center justify-between pt-1.5 border-t border-white/10 text-[9px] text-white/45 uppercase font-mono">
-                  <span>CADENCE: 2.2S CADENCE</span>
-                  <span>RETENTIONVOLT MCP</span>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Primary Video Element (with Dynamic Scale & PiP Corner Positioning) */}
+          {/* Primary Video Element (Full Size with Dynamic Punch Zoom) */}
           <video
             ref={videoRef}
             src={currentVideoSrc}
@@ -409,104 +353,32 @@ export function VideoResultView({ job, onRevised }: VideoResultViewProps) {
             }}
             className="w-full h-full object-contain relative z-10"
             style={{
-              transform: isPiP
-                ? "scale(0.38) translate(76%, 76%)"
-                : `scale(${currentScale})`,
-              borderRadius: isPiP ? "24px" : "0px",
-              boxShadow: isPiP
-                ? "0 20px 50px rgba(0,0,0,0.9), 0 0 0 2px rgba(255,255,255,0.3)"
-                : "none",
-              transition:
-                "transform 0.3s cubic-bezier(0.2, 0.9, 0.2, 1), border-radius 0.3s ease, box-shadow 0.3s ease",
+              transform: `scale(${currentScale})`,
+              transformOrigin: "center 38%",
+              transition: "transform 0.22s cubic-bezier(0.2, 0.9, 0.2, 1)",
             }}
           />
-
-          {/* Top Motion Graphic Card (RetentionVolt Top Banner — Apple Restraint & Safe Area) */}
-          {activeGraphic && (
-            <div
-              className="absolute left-0 right-0 z-30 flex justify-center items-center pointer-events-none px-4 select-none animate-in fade-in zoom-in-95 duration-200"
-              style={{ top: resolvedPlan.format === "short" ? "6%" : "8%" }}
-            >
-              {activeGraphic.isScreen ? (
-                // Demonstrative macOS Terminal / Workspace Card
-                <div className="w-full max-w-[340px] sm:max-w-[420px] rounded-2xl bg-[#090d16]/95 backdrop-blur-2xl border border-white/20 shadow-[0_20px_50px_rgba(0,0,0,0.85)] p-3 overflow-hidden text-left">
-                  <div className="flex items-center gap-2 pb-2 mb-2 border-b border-white/10">
-                    <div className="flex items-center gap-1.5">
-                      <span className="w-2.5 h-2.5 rounded-full bg-[#ff5f56]" />
-                      <span className="w-2.5 h-2.5 rounded-full bg-[#ffbd2e]" />
-                      <span className="w-2.5 h-2.5 rounded-full bg-[#27c93f]" />
-                    </div>
-                    <span className="text-[10px] font-mono uppercase tracking-wider text-white/60">
-                      {activeGraphic.tag || "AI WORKFLOW"} — {activeGraphic.text}
-                    </span>
-                  </div>
-                  <div className="space-y-1 font-mono text-xs">
-                    <div className="text-white flex items-center gap-1.5">
-                      <span className="text-emerald-400 font-bold">&gt;</span>
-                      <span className="font-semibold">{activeGraphic.text}</span>
-                      <span className="text-[10px] px-1.5 py-0.2 rounded bg-emerald-500/20 text-emerald-300 font-sans uppercase">
-                        Active
-                      </span>
-                    </div>
-                    {activeGraphic.subtitle && (
-                      <div className="text-white/70 text-[11px] flex items-center gap-1">
-                        <span className="text-amber-400">⚡</span>
-                        <span>{activeGraphic.subtitle}</span>
-                      </div>
-                    )}
-                    <div className="text-emerald-400/90 text-[10px] flex items-center gap-1">
-                      <span>✔</span>
-                      <span>workflow optimized with RetentionVolt</span>
-                    </div>
-                  </div>
-                </div>
-              ) : (
-                // Frosted Glassmorphism Motion Card (act_title_banner / number_stat)
-                <div className="inline-flex flex-col items-center justify-center text-center px-4 py-2 sm:px-5 sm:py-2.5 rounded-2xl sm:rounded-3xl bg-[#0b0f19]/92 backdrop-blur-xl border border-white/20 shadow-[0_16px_40px_rgba(0,0,0,0.85)] max-w-[90%] sm:max-w-[80%]">
-                  {activeGraphic.tag && (
-                    <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-white/10 border border-white/15 text-[10px] font-black uppercase tracking-wider text-white/90 mb-1">
-                      {activeGraphic.icon && <span>{activeGraphic.icon}</span>}
-                      <span>{activeGraphic.tag}</span>
-                    </div>
-                  )}
-                  <span
-                    className={`font-black uppercase tracking-tight text-sm sm:text-base ${
-                      activeGraphic.type === "number_stat"
-                        ? "text-[#a3e635] drop-shadow-[0_0_12px_rgba(163,230,53,0.85)]"
-                        : "text-white drop-shadow-[0_2px_4px_rgba(0,0,0,0.9)]"
-                    }`}
-                  >
-                    {activeGraphic.text}
-                  </span>
-                  {activeGraphic.subtitle && (
-                    <span className="text-white/75 text-[11px] sm:text-xs font-medium tracking-wide mt-0.5">
-                      {activeGraphic.subtitle}
-                    </span>
-                  )}
-                </div>
-              )}
-            </div>
-          )}
 
           {/* Alex Hormozi Style Karaoke Subtitles (Strictly at 18% Bottom Safe Area) */}
           {visibleWords.length > 0 && (
             <div
-              className="absolute left-0 right-0 z-20 flex justify-center items-center pointer-events-none px-4 select-none animate-in fade-in duration-100"
+              className="absolute left-0 right-0 z-30 flex justify-center items-center pointer-events-none px-4 select-none animate-in fade-in duration-100"
               style={{ bottom: "18%" }}
             >
-              <div className="inline-flex flex-wrap justify-center items-center gap-2 sm:gap-2.5 px-4 py-2 rounded-2xl bg-black/85 backdrop-blur-md shadow-[0_8px_32px_rgba(0,0,0,0.9)] border border-white/15">
+              <div className="inline-flex flex-wrap justify-center items-center gap-2 sm:gap-3 px-3 py-1">
                 {visibleWords.map((w, idx) => {
                   const isCurrent = currentTime >= w.start && currentTime <= w.end;
                   return (
                     <span
                       key={`${w.word}-${idx}`}
-                      className={`font-black uppercase tracking-tight sm:tracking-wider transition-all duration-100 ${
+                      className={`font-black uppercase tracking-tight transition-all duration-100 ${
                         isCurrent
-                          ? "text-[#fde047] scale-115 drop-shadow-[0_0_14px_rgba(253,224,71,0.95)] text-base sm:text-lg"
-                          : "text-white text-sm sm:text-base drop-shadow-[0_2px_4px_rgba(0,0,0,1)]"
+                          ? "text-[#fde047] scale-110 drop-shadow-[0_0_18px_rgba(253,224,71,1)] text-lg sm:text-2xl lg:text-3xl"
+                          : "text-white text-base sm:text-xl lg:text-2xl drop-shadow-[0_4px_8px_rgba(0,0,0,1)]"
                       }`}
                       style={{
-                        WebkitTextStroke: isCurrent ? "1px #000" : "0.5px #000",
+                        WebkitTextStroke: isCurrent ? "1.8px #000" : "1.2px #000",
+                        textShadow: "0 2px 10px rgba(0,0,0,0.9)",
                       }}
                     >
                       {w.word}
@@ -554,6 +426,26 @@ export function VideoResultView({ job, onRevised }: VideoResultViewProps) {
               <Sparkles size={12} className="text-white fill-white" />
               <span>OPUS 3.5</span>
             </div>
+
+            {/* Center: Download Baked MP4 button */}
+            <button
+              type="button"
+              onClick={handleDownloadBakedVideo}
+              disabled={bakingPct !== null}
+              className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/40 bg-emerald-500/15 hover:bg-emerald-500/25 active:scale-95 px-4 py-1 text-xs font-bold uppercase tracking-wider text-emerald-300 transition cursor-pointer"
+            >
+              {bakingPct !== null ? (
+                <>
+                  <Loader2 size={12} className="animate-spin text-emerald-400" />
+                  <span>BAKING MP4 ({bakingPct}%)</span>
+                </>
+              ) : (
+                <>
+                  <Download size={12} className="text-emerald-400" />
+                  <span>DOWNLOAD MP4</span>
+                </>
+              )}
+            </button>
 
             {/* Right: EDIT outlined pill button matching the photo */}
             <button

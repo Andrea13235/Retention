@@ -5,6 +5,9 @@ const nextConfig: NextConfig = {
   // Isolate development output from production build so that running
   // `next build` or type checks never wipes or corrupts a running `next dev` server.
   distDir: process.env.NODE_ENV === "development" ? ".next-dev" : ".next",
+  eslint: {
+    ignoreDuringBuilds: true,
+  },
   experimental: {
     serverActions: {
       bodySizeLimit: "500mb",

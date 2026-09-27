@@ -85,33 +85,6 @@ export class EditPlanner {
       }
     }
 
-    // Ensure content-aware TOP banners throughout the entire video (Retention skill specification)
-    const targetGfxTimes = [
-      { t: 0.8, dur: 3.2, tag: "VIRAL HOOK", icon: "⚡", text: blueprint.thumbnail.title || "IL SEGRETO DELLA RITENZIONE", sub: "Pacing & Pattern Interrupts 2026", type: "act_title_banner" },
-      { t: 9.0, dur: 3.2, tag: "METRICA CHIAVE", icon: "📈", text: "+300% WATCH TIME", sub: "Ritmo Serrato e Jump Cuts Decisi", type: "number_stat" },
-      { t: 17.5, dur: 3.4, tag: "AI WORKFLOW", icon: "🤖", text: "RETENTIONVOLT ENGINE", sub: "Blueprints Reverse-Engineered", type: "screen_overlay" },
-      { t: 26.0, dur: 3.0, tag: "KEY TAKEAWAY", icon: "💡", text: "ZERO TEMPI MORTI", sub: "Massimizza la Visione e la Retention", type: "act_title_banner" },
-    ];
-
-    for (const def of targetGfxTimes) {
-      if (def.t < targetDuration - 2.0) {
-        const overlaps = graphics.some((g) => Math.abs(g.time - def.t) < 4.5);
-        const nearCut = cuts.some((c) => Math.abs(c.start - def.t) < 0.8 || Math.abs(c.end - def.t) < 0.8);
-        if (!overlaps && !nearCut) {
-          graphics.push({
-            time: Number(def.t.toFixed(2)),
-            duration: def.dur,
-            type: def.type,
-            text: def.text,
-            position: "top",
-            tag: def.tag,
-            icon: def.icon,
-            subtitle: def.sub,
-            isScreen: def.type === "screen_overlay",
-          });
-        }
-      }
-    }
     graphics.sort((a, b) => a.time - b.time);
 
     // 5. Build Word Timestamps for Captions (Filtered by CUTS + Keyword Emphasis)

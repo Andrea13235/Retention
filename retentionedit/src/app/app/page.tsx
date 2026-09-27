@@ -421,8 +421,13 @@ function AppWorkspaceContent() {
                   const existing = loadProjectEntries().find((p) => p.id === jobId);
                   let userBlobUrl: string | null = null;
                   try {
-                    const b = await getProjectBlob(jobId);
-                    if (b) userBlobUrl = URL.createObjectURL(b);
+                    const rendered = await getProjectBlob(`${jobId}_rendered`);
+                    if (rendered && rendered.size > 0) {
+                      userBlobUrl = URL.createObjectURL(rendered);
+                    } else {
+                      const b = await getProjectBlob(jobId);
+                      if (b) userBlobUrl = URL.createObjectURL(b);
+                    }
                   } catch {}
 
                   try {
@@ -532,8 +537,13 @@ function AppWorkspaceContent() {
               const existing = loadProjectEntries().find((p) => p.id === jobId);
               let userBlobUrl: string | null = null;
               try {
-                const b = await getProjectBlob(jobId);
-                if (b) userBlobUrl = URL.createObjectURL(b);
+                const rendered = await getProjectBlob(`${jobId}_rendered`);
+                if (rendered && rendered.size > 0) {
+                  userBlobUrl = URL.createObjectURL(rendered);
+                } else {
+                  const b = await getProjectBlob(jobId);
+                  if (b) userBlobUrl = URL.createObjectURL(b);
+                }
               } catch {}
 
               try {
