@@ -177,3 +177,46 @@ export function scratchFilePath(userId: string, jobId: string, kind: "final" | "
   const dir = scratchDir(userId, jobId);
   return kind === "final" ? path.join(dir, "final.mp4") : path.join(dir, "cover.jpg");
 }
+
+function brollKey(userId: string, jobId: string): string {
+  const safeJob = jobId.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 80);
+  return `jobs/${userId}/${safeJob}/broll.png`;
+}
+
+/**
+ * Persist the SOUL B-roll PNG to R2 (cross-instance finalize needs it —
+ * /tmp does not survive instance changes on serverless).
+ */
+export async function persistBroll(job: LocalJob, localPngPath: string): Promise<void> {
+  if (!isR2Configured()) return;
+  try {
+    if (!existsSync(localPngPath)) return;
+    await uploadR2Object(brollKey(job.userId, job.jobId), readFileSync(localPngPath), "image/png");
+  } catch {}
+}
+
+/**
+ * Ensure the B-roll PNG exists locally for this invocation (re-download
+ * from R2 when the finalize runs on a different instance than the poll).
+ * Returns the local path, or null when unavailable (caller ships w/o broll).
+ */
+export async function ensureBrollLocal(job: LocalJob): Promise<string | null> {
+  const b = job.broll;
+  if (!b?.localPath) return null;
+  try {
+    if (existsSync(b.localPath)) return b.localPath;
+  } catch {}
+  if (!isR2Configured()) return null;
+  try {
+    const buf = await downloadR2Object(brollKey(job.userId, job.jobId));
+    if (!buf || buf.length < 2048) return null;
+    const dir = scratchDir(job.userId, job.jobId);
+    mkdirSync(dir, { recursive: true });
+    const dst = path.join(dir, "broll_soul.png");
+    writeFileSync(dst, buf);
+    b.localPath = dst;
+    return dst;
+  } catch {
+    return null;
+  }
+}

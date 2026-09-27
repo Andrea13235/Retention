@@ -324,19 +324,39 @@ export async function advanceJob(
           },
           `B-roll Higgsfield pronto (${(got.image.bytes / 1048576).toFixed(1)}MB, ${(s.finalEnd - s.finalStart).toFixed(1)}s da t=${s.finalStart}s)`
         );
+        // Persist PNG to R2 — finalize may run on another instance (/tmp is per-instance).
+        try {
+          const { persistBroll } = await import("./local-jobs-r2");
+          await persistBroll(job, got.image.localPath);
+        } catch {}
       } else {
         await touch({ broll: null, soul: null, progress: 94 }, "Higgsfield fallito — video senza B-roll");
       }
 
       if (timeLeft(opts) < 8_000) return job; // finalize next poll
       const b = job.broll;
-      await finalizeFromBase(
-        job,
-        jobId,
-        keep,
-        b ? { imagePath: b.localPath, finalStart: b.finalStart, finalEnd: b.finalEnd } : null,
-        touch
-      );
+      // Re-materialize the PNG when this invocation runs on another instance.
+      let overlay: { imagePath: string; finalStart: number; finalEnd: number } | null = null;
+      if (b) {
+        try {
+          const { ensureBrollLocal } = await import("./local-jobs-r2");
+          const local = await ensureBrollLocal(job);
+          if (local) overlay = { imagePath: local, finalStart: b.finalStart, finalEnd: b.finalEnd };
+          else {
+            await touch({ broll: null, progress: 94 }, "B-roll non recuperabile — video senza B-roll");
+          }
+        } catch {
+          overlay = null;
+        }
+        // Last-resort local path (single-instance flows without R2).
+        if (!overlay) {
+          try {
+            const { existsSync } = await import("node:fs");
+            if (existsSync(b.localPath)) overlay = { imagePath: b.localPath, finalStart: b.finalStart, finalEnd: b.finalEnd };
+          } catch {}
+        }
+      }
+      await finalizeFromBase(job, jobId, keep, overlay, touch);
       return job;
     }
 

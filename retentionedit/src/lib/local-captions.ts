@@ -65,10 +65,44 @@ function strokeStyle(sw: number): string {
   return `paint-order: stroke; stroke: rgba(0,0,0,0.55); stroke-width: ${sw}px; stroke-linejoin: round;`;
 }
 
+let cachedFontFace: string | null = null;
+
+/**
+ * @font-face with the bundled Inter Bold (WOFF) as data URI.
+ * Resolves assets/fonts/Inter-Bold.woff from CWD or Next server layouts.
+ * Returns "" when missing (falls back to system stack — local dev only).
+ */
+function captionFontFace(): string {
+  if (cachedFontFace !== null) return cachedFontFace;
+  try {
+    const { existsSync, readFileSync } = require("node:fs") as typeof import("node:fs");
+    const p = require("node:path") as typeof import("node:path");
+    const candidates = [
+      p.join(process.cwd(), "assets", "fonts", "Inter-Bold.woff"),
+      p.join(process.cwd(), "..", "assets", "fonts", "Inter-Bold.woff"),
+      p.join(__dirname, "..", "..", "assets", "fonts", "Inter-Bold.woff"),
+    ];
+    for (const c of candidates) {
+      try {
+        if (existsSync(c)) {
+          const b64 = readFileSync(c).toString("base64");
+          cachedFontFace = `@font-face { font-family: 'CapFont'; src: url(data:font/woff;base64,${b64}) format('woff'); font-weight: 700; }`;
+          return cachedFontFace;
+        }
+      } catch {}
+    }
+  } catch {}
+  cachedFontFace = "";
+  return cachedFontFace;
+}
+
 /**
  * Render one caption PNG: transparent full-frame canvas (so ffmpeg overlay
- * needs no x/y math), white 600-weight text centered, anchored bottom.
+ * needs no x/y math), white 700-weight text centered, anchored bottom.
  * Up to 2 stacked lines. NO background boxes.
+ *
+ * Font: Inter Bold embedded via @font-face data URI — serverless Linux has
+ * NO system fonts (Apple-only stacks render as tofu boxes there).
  */
 export async function renderCaptionPng(
   text: string,
@@ -88,10 +122,12 @@ export async function renderCaptionPng(
     lines.length > 1
       ? `<text x="${frameW / 2}" y="${y1}" class="cap" style="${strokeStyle(sw)}">${escXml(lines[0])}</text>\n  <text x="${frameW / 2}" y="${y2}" class="cap" style="${strokeStyle(sw)}">${escXml(lines[1])}</text>`
       : `<text x="${frameW / 2}" y="${y2}" class="cap" style="${strokeStyle(sw)}">${escXml(lines[0])}</text>`;
+  const fontFace = captionFontFace();
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${frameW}" height="${frameH}">
   <style>
-    .cap { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
-           font-size: ${fontSize}px; font-weight: 600; fill: #ffffff;
+    ${fontFace}
+    .cap { font-family: 'CapFont', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+           font-size: ${fontSize}px; font-weight: 700; fill: #ffffff;
            text-anchor: middle; }
   </style>
   ${tspans}
