@@ -183,6 +183,7 @@ function AppWorkspaceContent() {
                     videoUrl: isSafeRendered ? renderedUrl! : safeExistingVideo,
                     clipsCount: realClips,
                     status: "ready",
+                    editPlan: fullJob.editPlan || existing?.editPlan,
                   },
                   null
                 ).catch(() => {});
@@ -433,6 +434,9 @@ function AppWorkspaceContent() {
                     );
                     if (r.ok) {
                       const j = (await r.json()) as PipelineJob;
+                      if (!j.editPlan && existing?.editPlan) {
+                        j.editPlan = existing.editPlan;
+                      }
                       if (userBlobUrl) {
                         j.rawVideoUrl = userBlobUrl;
                         j.renderedVideoUrl = userBlobUrl;
@@ -485,6 +489,7 @@ function AppWorkspaceContent() {
                       createdAt: existing.createdAt,
                       stages: {} as any,
                       logs: ["Autonomous Edit Completed Successfully! Ready for delivery."],
+                      editPlan: existing.editPlan,
                       stats: {
                         cutsCount: existing.clipsCount || 1,
                         timeSavedSec: 8,
@@ -540,6 +545,9 @@ function AppWorkspaceContent() {
                 );
                 if (r.ok) {
                   const j = (await r.json()) as PipelineJob;
+                  if (!j.editPlan && existing?.editPlan) {
+                    j.editPlan = existing.editPlan;
+                  }
                   if (userBlobUrl) {
                     j.rawVideoUrl = userBlobUrl;
                     j.renderedVideoUrl = userBlobUrl;
@@ -592,6 +600,7 @@ function AppWorkspaceContent() {
                   createdAt: existing.createdAt,
                   stages: {} as any,
                   logs: ["Autonomous Edit Completed Successfully! Ready for delivery."],
+                  editPlan: existing.editPlan,
                   stats: {
                     cutsCount: existing.clipsCount || 1,
                     timeSavedSec: 8,

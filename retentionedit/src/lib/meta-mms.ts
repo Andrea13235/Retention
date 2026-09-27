@@ -136,24 +136,41 @@ export class MetaMMSClient {
       "Se non catturi l'attenzione all'istante, lo spettatore scrollerà via immediatamente.",
       "Con i pattern interrupt e gli zoom dinamici sui punti chiave, il watch time raddoppia.",
       "Segui questa struttura esatta e guarda i numeri del tuo prossimo contenuto decollare.",
+      "Ogni singolo frame deve comunicare valore senza pause inutili.",
+      "Tagliando i silenzi e mantenendo il ritmo alto, nessuno lascerà il tuo video a metà.",
+      "Questo è il metodo testato per dominare l'algoritmo e convertire visualizzazioni in follower.",
+      "Fai attenzione a questo dettaglio cruciale che nessuno ti dice.",
+      "Salva questo video e applicalo subito al tuo prossimo contenuto.",
     ];
 
     const segments: TranscriptSegment[] = [];
-    let currentTime = 0.4;
+    let currentTime = 0.3;
+    let sentenceIdx = 0;
 
-    for (let i = 0; i < sampleSentences.length && currentTime < durationSec; i++) {
-      const sentence = sampleSentences[i];
+    while (currentTime < durationSec - 1.2) {
+      const sentence = sampleSentences[sentenceIdx % sampleSentences.length];
+      sentenceIdx++;
       const words = sentence.split(" ");
       const segStart = currentTime;
       const wordList: WordTimestamp[] = [];
 
       for (const w of words) {
-        const wordDuration = Math.max(0.18, (w.length / 5) * 0.32);
+        if (currentTime >= durationSec - 0.4) break;
+        const wordDuration = Math.max(0.18, (w.length / 5) * 0.30);
         const wStart = currentTime;
-        const wEnd = currentTime + wordDuration;
-        const isEmphasis = ["segreto", "esplosivo", "sbaglia", "attenzione", "raddoppia", "decollare"].includes(
-          w.toLowerCase().replace(/[^a-z]/g, "")
-        );
+        const wEnd = Math.min(durationSec - 0.2, currentTime + wordDuration);
+        const isEmphasis = [
+          "segreto",
+          "esplosivo",
+          "sbaglia",
+          "attenzione",
+          "raddoppia",
+          "decollare",
+          "valore",
+          "cruciale",
+          "subito",
+          "metodo",
+        ].includes(w.toLowerCase().replace(/[^a-z]/g, ""));
 
         wordList.push({
           word: w,
@@ -163,20 +180,22 @@ export class MetaMMSClient {
           emphasis: isEmphasis,
         });
 
-        currentTime += wordDuration + 0.06;
+        currentTime += wordDuration + 0.05;
       }
 
-      segments.push({
-        id: `seg_${i + 1}`,
-        text: sentence,
-        start: Number(segStart.toFixed(2)),
-        end: Number(currentTime.toFixed(2)),
-        speaker: "Speaker 1",
-        words: wordList,
-      });
+      if (wordList.length > 0) {
+        segments.push({
+          id: `seg_${segments.length + 1}`,
+          text: sentence,
+          start: Number(segStart.toFixed(2)),
+          end: Number(currentTime.toFixed(2)),
+          speaker: "Speaker 1",
+          words: wordList,
+        });
+      }
 
-      // Cadence pause between sentences
-      currentTime += i === 1 ? 2.4 : 0.5;
+      // Natural pause between sentences (0.35s)
+      currentTime += 0.35;
     }
 
     return {

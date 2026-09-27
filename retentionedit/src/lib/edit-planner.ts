@@ -38,21 +38,32 @@ export class EditPlanner {
     // 2. Safe blueprint adaptation (Cuts First)
     const adaptedEvents = NativeRetentionVolt.adaptBlueprintToTimeline(blueprint, targetDuration, cuts);
 
-    // 3. Extract Zooms and Punches
+    // 3. Extract Zooms and Punches across the ENTIRE duration
     const zooms = adaptedEvents
       .filter((e) => e.type === "zoom")
       .map((e) => ({
         time: e.at_sec,
         type: e.sub_type || "zoom_punch",
-        scale: (e.parameters?.scale as number) || 1.12,
-        duration: (e.parameters?.duration as number) || 0.3,
+        scale: (e.parameters?.scale as number) || 1.15,
+        duration: (e.parameters?.duration as number) || 0.8,
       }));
 
-    // Add automatic rhythmic zoom punches if none existed
-    if (zooms.length === 0) {
-      zooms.push({ time: 1.0, type: "zoom_punch", scale: 1.1, duration: 0.25 });
-      zooms.push({ time: 5.5, type: "slow_zoom", scale: 1.08, duration: 3.5 });
+    // Ensure rhythmic punch zooms occur throughout the ENTIRE timeline (every 2.8 - 3.8s)
+    let zoomCursor = 1.0;
+    while (zoomCursor < targetDuration - 1.2) {
+      const alreadyHasZoom = zooms.some((z) => Math.abs(z.time - zoomCursor) < 1.8);
+      if (!alreadyHasZoom) {
+        const isBigPunch = zooms.length % 2 === 0;
+        zooms.push({
+          time: Number(zoomCursor.toFixed(2)),
+          type: isBigPunch ? "zoom_punch" : "slow_zoom",
+          scale: isBigPunch ? 1.18 : 1.14,
+          duration: isBigPunch ? 0.75 : 1.5,
+        });
+      }
+      zoomCursor += 3.2;
     }
+    zooms.sort((a, b) => a.time - b.time);
 
     // 4. Extract Graphics and Banners
     const graphics = adaptedEvents

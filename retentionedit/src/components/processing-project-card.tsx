@@ -121,6 +121,7 @@ export function ProcessingProjectCard({ project }: { project: ProjectEntry }) {
                 videoUrl: finalVideo,
                 clipsCount: fullJob?.stats?.cutsCount || 1,
                 status: "ready",
+                editPlan: fullJob?.editPlan || existing.editPlan,
               },
               null
             );

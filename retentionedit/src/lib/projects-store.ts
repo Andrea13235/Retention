@@ -1,11 +1,11 @@
 "use client";
 
-import type { VideoFormat } from "./types";
+import type { EditPlan, VideoFormat } from "./types";
 
 /**
  * My Projects persistent store.
  *
- * - Metadata (title, cover, counts, remote URLs) lives in localStorage.
+ * - Metadata (title, cover, counts, remote URLs, editPlan) lives in localStorage.
  * - Uploaded video bytes live in IndexedDB (blob object URLs die on reload).
  * - Every mutation dispatches `retentionedit:projects-changed` on window so
  *   Home ("Recent projects") and the Projects tab stay in sync.
@@ -29,6 +29,8 @@ export interface ProjectEntry {
   collection?: string;
   /** Flag salvataggio nello storage permanente (Cloudflare R2 / Archivio). */
   savedToStorage?: boolean;
+  /** EditPlan completo serializzato (cuts, zooms, karaoke subtitles) */
+  editPlan?: EditPlan;
 }
 
 function getCurrentUserId(): string {
