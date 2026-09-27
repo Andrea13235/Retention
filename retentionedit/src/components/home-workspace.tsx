@@ -15,6 +15,8 @@ import {
   FileText,
   ChevronRight,
   Mic,
+  CheckCircle2,
+  Loader2,
 } from "lucide-react";
 import { GenAITier, VideoFormat } from "@/lib/types";
 import { JobRequest } from "@/lib/job-request";
@@ -61,6 +63,13 @@ export function HomeWorkspace({
   const [projects, setProjects] = useState<ProjectEntry[]>(() =>
     typeof window === "undefined" ? [] : loadProjectEntries()
   );
+  const [submittedToast, setSubmittedToast] = useState(false);
+
+  React.useEffect(() => {
+    if (!submittedToast) return;
+    const t = setTimeout(() => setSubmittedToast(false), 6000);
+    return () => clearTimeout(t);
+  }, [submittedToast]);
 
   React.useEffect(() => {
     setProjects(loadProjectEntries());
@@ -176,6 +185,7 @@ export function HomeWorkspace({
     const baseName = file
       ? file.name.replace(/\.[^/.]+$/, "")
       : selectedName || "Creator Talking Head (9:16 Vertical)";
+    setSubmittedToast(true);
     onStartJob({
       title: baseName,
       rawVideoUrl: objectUrl,
@@ -192,8 +202,59 @@ export function HomeWorkspace({
     setProjects(loadProjectEntries());
   };
 
+  const activeProcessing = projects.find((p) => p.status === "processing");
+
   return (
     <div className="flex flex-col text-[#f4f4f6]">
+      {/* Top Notification Banner: Project submitted successfully! (Matching OpusClip screenshot) */}
+      {submittedToast && (
+        <div className="fixed top-4 sm:top-5 left-1/2 -translate-x-1/2 z-50 animate-in fade-in slide-in-from-top-4 duration-300 pointer-events-auto select-none">
+          <div className="inline-flex items-center gap-2.5 px-5 py-2.5 rounded-full bg-[#242427] border border-[#3a3a3e] text-xs sm:text-sm text-[#f4f4f6] shadow-2xl backdrop-blur-md">
+            <CheckCircle2 size={16} className="text-emerald-400 fill-emerald-400/20 shrink-0" />
+            <span className="font-medium tracking-tight">Project submitted successfully!</span>
+          </div>
+        </div>
+      )}
+
+      {/* Generating progress floating card on the left (Matching OpusClip screenshot) */}
+      {activeProcessing && (
+        <div className="fixed left-[76px] top-[260px] z-40 w-64 rounded-2xl bg-[#1c1c1f] border border-[#2e2e32] p-3 shadow-2xl animate-in fade-in select-none">
+          <div className="text-xs text-[#8c8c90] font-medium mb-2.5">
+            Generating progress
+          </div>
+          <div className="flex items-center gap-2.5">
+            <div className="relative w-10 h-10 rounded-lg overflow-hidden bg-black shrink-0 border border-white/10">
+              {activeProcessing.coverUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={activeProcessing.coverUrl}
+                  alt=""
+                  className="w-full h-full object-cover filter brightness-75"
+                />
+              ) : (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src="/videos/raw-vlog.jpg"
+                  alt=""
+                  className="w-full h-full object-cover filter brightness-75"
+                />
+              )}
+              <div className="absolute inset-0 flex items-center justify-center bg-black/40">
+                <Loader2 size={16} className="animate-spin text-white" />
+              </div>
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="text-xs font-semibold text-white truncate leading-snug">
+                {activeProcessing.title}
+              </div>
+              <div className="text-[11px] text-[#8c8c90] mt-0.5 font-mono">
+                0% (ETA 11min)
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ========================================================================= */}
       {/* 1. UPGRADE WATERMARK BANNER (DESKTOP PROPORTIONS)                          */}
       {/* ========================================================================= */}
@@ -259,7 +320,8 @@ export function HomeWorkspace({
         {/* Sample project link — exactly like the reference photo */}
         <button
           type="button"
-          onClick={() =>
+          onClick={() => {
+            setSubmittedToast(true);
             onStartJob({
               title: "Creator Talking Head (9:16 Vertical)",
               rawVideoUrl: "/videos/raw-vlog.mp4",
@@ -267,8 +329,8 @@ export function HomeWorkspace({
               genaiTier: "balanced",
               duration: 38,
               file: null,
-            })
-          }
+            });
+          }}
           className="mt-3 text-[13px] text-[#9A9AA0] hover:text-white transition cursor-pointer bg-transparent border-0"
         >
           or Try a sample project?
@@ -428,7 +490,7 @@ export function HomeWorkspace({
       <section className="flex flex-col gap-3 mt-10">
         <div className="flex items-center gap-2">
           <h2 className="text-sm sm:text-base font-medium text-[#8c8c90]">
-            My projects
+            Recent projects
           </h2>
           {onViewAllProjects && projects.length > 0 && (
             <button

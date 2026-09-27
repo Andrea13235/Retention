@@ -291,10 +291,10 @@ export default function HomePage() {
         },
         logs: [`Pipeline initialized for ${(params.format || "short").toUpperCase()} format`],
       } as PipelineJob);
-      // Immediately navigate to "My projects" tab so the user sees the card
-      // with loading animation, percentage, and time remaining!
+      // Stay on the home tab so the user sees the Project submitted banner
+      // and the newly submitted project card in Recent projects under the input!
       setActiveJobId(null);
-      setActiveTab("projects");
+      setActiveTab("home");
     } catch (err: any) {
       alert(`Errore avvio job: ${err.message}`);
     } finally {

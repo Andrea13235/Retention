@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin, isSupabaseConfigured } from "@/lib/supabase";
 import { getOrCreateGoogleUser } from "@/lib/auth-store";
+import { setSessionCookie } from "@/lib/server-auth";
 
 export async function POST(req: NextRequest) {
   try {
@@ -72,17 +73,8 @@ export async function POST(req: NextRequest) {
           }
         : fallbackUser,
     });
-    // ROOT-CAUSE FIX (origin_mismatch follow-up): the client gate (!isLoggedIn)
-    // is not enough — middleware gates /api/pipeline/* server-side on a session
-    // cookie. Mirror /api/auth/login: set the httpOnly session flag so Google
-    // sign-in unlocks pipeline/R2/upload APIs exactly like email login.
-    res.cookies.set("retentionedit_session", supabaseUser?.id || fallbackUser?.id || "google", {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "strict",
-      path: "/",
-      maxAge: 60 * 60 * 8, // 8h
-    });
+    const userId = supabaseUser?.id || fallbackUser?.id || "google";
+    await setSessionCookie(res, userId, email);
     return res;
   } catch (err: any) {
     console.error("Google auth route error:", err);

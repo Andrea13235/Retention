@@ -3,15 +3,28 @@
 import React, { useEffect, useState } from "react";
 import { Loader2 } from "lucide-react";
 import { ProjectEntry } from "@/lib/projects-store";
-import { computeEta, formatEta } from "@/lib/eta";
+import { computeEta } from "@/lib/eta";
 import { ProjectMenu } from "./project-menu";
 
+function formatProjectDate(ts: number): string {
+  const d = new Date(ts);
+  return `${d.getFullYear()}.${d.getMonth() + 1}.${d.getDate()}`;
+}
+
+function formatEtaShort(sec: number): string {
+  const s = Math.max(0, Math.round(sec));
+  const m = Math.round(s / 60);
+  return m <= 0 ? "1m" : `${m}m`;
+}
+
 /**
- * Card "in lavorazione" per My Projects: mentre il job è attivo mostra
- * una bella animazione di caricamento (shimmer + spinner + progress bar)
- * con stima accurata del tempo residuo (ETA adattiva, ricalcolata via poll).
+ * ProcessingProjectCard
  *
- * Quando il job finisce, il parent la sostituisce con la ProjectCard normale.
+ * Matches the exact card layout from the OpusClip screenshot:
+ * 1. 16:9 thumbnail cover preview.
+ * 2. Top-right: Lime green "New" pill badge.
+ * 3. Center: Dark translucent pill with green spinner and "{pct}% (ETA {eta}m)".
+ * 4. Underneath: Title and date (e.g. 2026.9.27).
  */
 export function ProcessingProjectCard({ project }: { project: ProjectEntry }) {
   const [eta, setEta] = useState(() =>
@@ -33,7 +46,6 @@ export function ProcessingProjectCard({ project }: { project: ProjectEntry }) {
         });
         if (!res.ok) {
           failCount++;
-          // Only cancel if repeated severe failures (at least 15 polls = >20s of errors)
           if (failCount >= 15) {
             cancelled = true;
             const { deleteProject } = await import("@/lib/projects-store");
@@ -48,7 +60,6 @@ export function ProcessingProjectCard({ project }: { project: ProjectEntry }) {
 
         if (data.currentStage === "error") {
           cancelled = true;
-          // Errored job: remove bugged project so it doesn't spin forever
           const { deleteProject } = await import("@/lib/projects-store");
           await deleteProject(project.id);
           return;
@@ -66,27 +77,45 @@ export function ProcessingProjectCard({ project }: { project: ProjectEntry }) {
             const finalTitle = fullJob?.title || data.title || existing.title;
             const rawCover = fullJob?.thumbnailUrl || fullJob?.coverUrl || data.thumbnailUrl || existing.coverUrl;
             const isDeadCover = !rawCover || rawCover.includes("r2.retentionedit.com") || rawCover.includes("ruzza");
-            const finalCover = !isDeadCover ? rawCover : (project.format === "short" ? "/videos/raw-vlog.jpg" : "/images/hero-preview.png");
+            const finalCover = !isDeadCover
+              ? rawCover
+              : project.format === "short"
+              ? "/videos/raw-vlog.jpg"
+              : "/images/hero-preview.png";
 
-            const rawVid = fullJob?.renderedVideoUrl || fullJob?.finalVideoUrl || data.renderedVideoUrl || existing.videoUrl;
+            const rawVid =
+              fullJob?.renderedVideoUrl ||
+              fullJob?.finalVideoUrl ||
+              data.renderedVideoUrl ||
+              existing.videoUrl;
             const isDeadVid = !rawVid || rawVid.includes("r2.retentionedit.com") || rawVid.includes("your_");
-            const finalVideo = !isDeadVid ? rawVid : (project.format === "short" ? "/videos/raw-vlog.mp4" : "/videos/final-horizontal.mp4");
+            const finalVideo = !isDeadVid
+              ? rawVid
+              : project.format === "short"
+              ? "/videos/raw-vlog.mp4"
+              : "/videos/final-horizontal.mp4";
 
-            await upsertProject({
-              ...existing,
-              title: finalTitle,
-              coverUrl: finalCover,
-              videoUrl: finalVideo,
-              clipsCount: fullJob?.stats?.cutsCount || 1,
-              status: "ready",
-            }, null);
+            await upsertProject(
+              {
+                ...existing,
+                title: finalTitle,
+                coverUrl: finalCover,
+                videoUrl: finalVideo,
+                clipsCount: fullJob?.stats?.cutsCount || 1,
+                status: "ready",
+              },
+              null
+            );
           } catch {
             const { upsertProject, loadProjectEntries } = await import("@/lib/projects-store");
             const existing = loadProjectEntries().find((p) => p.id === project.id) || project;
-            await upsertProject({
-              ...existing,
-              status: "ready",
-            }, null);
+            await upsertProject(
+              {
+                ...existing,
+                status: "ready",
+              },
+              null
+            );
           }
           return;
         }
@@ -109,61 +138,59 @@ export function ProcessingProjectCard({ project }: { project: ProjectEntry }) {
       cancelled = true;
       clearInterval(id);
     };
-  }, [project.id, project.createdAt, project.rawDuration, project.format, project.title, project.coverUrl, project.videoUrl]);
+  }, [
+    project.id,
+    project.createdAt,
+    project.rawDuration,
+    project.format,
+    project.title,
+    project.coverUrl,
+    project.videoUrl,
+  ]);
 
   return (
     <article className="group w-full">
-      {/* Cover animata */}
-      <div className="relative aspect-video rounded-xl overflow-hidden bg-[#202022] ring-1 ring-white/10">
-        {/* Background preview cover if available */}
+      {/* Cover container matching OpusClip card in screenshot */}
+      <div className="relative aspect-video rounded-xl overflow-hidden bg-[#202022] ring-1 ring-white/10 group">
+        {/* Background preview cover */}
         {project.coverUrl ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
             src={project.coverUrl}
             alt={project.title}
-            className="absolute inset-0 w-full h-full object-cover filter brightness-50"
+            className="w-full h-full object-cover filter brightness-[0.7]"
           />
-        ) : null}
-        {/* Shimmer di base */}
-        <div className="absolute inset-0 processing-shimmer" />
-        {/* Velo scuro + contenuto */}
-        <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 p-4 text-center bg-black/65 backdrop-blur-[2px]">
-          <span className="relative flex items-center justify-center">
-            <span className="absolute w-12 h-12 rounded-full bg-emerald-500/20 animate-ping" />
-            <span className="relative w-11 h-11 rounded-full bg-white text-black flex items-center justify-center shadow-xl">
-              <Loader2 size={22} className="animate-spin text-black" />
-            </span>
-          </span>
-          <div>
-            <p className="text-[13px] font-bold text-white tracking-wide">
-              Editing in corso…
-            </p>
-            {/* Pillola percentuale + tempo rimanente */}
-            <div className="mt-1.5 inline-flex items-center gap-2 text-xs text-white font-mono bg-white/10 px-3 py-1 rounded-full border border-white/15 shadow-sm">
-              <span className="font-bold text-emerald-400">{eta.pct}%</span>
-              <span className="text-white/40">&bull;</span>
-              <span className="text-[#e2e3e7]">~{formatEta(eta.remainingSec)} rimanenti</span>
-            </div>
-          </div>
-          {/* Progress bar */}
-          <div className="w-4/5 max-w-[240px] h-2 rounded-full bg-white/15 overflow-hidden p-[1px] shadow-inner">
-            <div
-              className="h-full rounded-full bg-gradient-to-r from-emerald-400 via-teal-300 to-white transition-all duration-700 shadow-sm"
-              style={{ width: `${Math.max(4, eta.pct)}%` }}
-            />
+        ) : (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={project.format === "short" ? "/videos/raw-vlog.jpg" : "/images/hero-preview.png"}
+            alt={project.title}
+            className="w-full h-full object-cover filter brightness-[0.7]"
+          />
+        )}
+
+        {/* Top-right "New" lime badge */}
+        <span className="absolute top-2.5 right-2.5 px-2.5 py-0.5 rounded-full bg-[#84cc16] text-black text-[11px] font-bold shadow-md select-none">
+          New
+        </span>
+
+        {/* Center pill: spinner + 0% (ETA 11m) */}
+        <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+          <div className="px-3.5 py-1.5 rounded-full bg-black/75 backdrop-blur-md border border-white/10 flex items-center gap-2 text-xs font-semibold text-emerald-400 shadow-xl">
+            <Loader2 size={13} className="animate-spin text-emerald-400" />
+            <span>{eta.pct}% (ETA {formatEtaShort(eta.remainingSec || 660)})</span>
           </div>
         </div>
       </div>
 
-      {/* Meta */}
+      {/* Meta underneath: title + date */}
       <div className="pt-3 px-0.5 flex items-start justify-between gap-2">
         <div className="min-w-0 flex-1">
           <h3 className="text-sm font-semibold text-white truncate leading-snug">
             {project.title}
           </h3>
-          <p className="text-xs text-[#8c8c90] mt-1 flex items-center gap-1.5">
-            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shrink-0" />
-            <span className="truncate">Elaborazione in corso &bull; tempo stimato: {formatEta(eta.totalSec)}</span>
+          <p className="text-xs text-[#8c8c90] mt-1 font-normal">
+            {formatProjectDate(project.createdAt)}
           </p>
         </div>
         <div className="flex items-center gap-1 shrink-0">
