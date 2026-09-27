@@ -22,17 +22,17 @@ const nextConfig: NextConfig = {
     "/api/local-render/start": [
       "./node_modules/ffmpeg-static/ffmpeg",
       "./node_modules/ffprobe-static/bin/linux/x64/ffprobe",
-      "./assets/fonts/Inter-Bold.woff",
+      "./assets/fonts/Inter-Bold.ttf",
     ],
     "/api/local-render/status": [
       "./node_modules/ffmpeg-static/ffmpeg",
       "./node_modules/ffprobe-static/bin/linux/x64/ffprobe",
-      "./assets/fonts/Inter-Bold.woff",
+      "./assets/fonts/Inter-Bold.ttf",
     ],
     "/api/local-render/file": [
       "./node_modules/ffmpeg-static/ffmpeg",
       "./node_modules/ffprobe-static/bin/linux/x64/ffprobe",
-      "./assets/fonts/Inter-Bold.woff",
+      "./assets/fonts/Inter-Bold.ttf",
     ],
     "/api/diag": [
       "./node_modules/ffmpeg-static/ffmpeg",

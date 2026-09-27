@@ -73,9 +73,10 @@ export function captionFontStatus(): string {
 }
 
 /**
- * @font-face with the bundled Inter Bold (WOFF) as data URI.
+ * @font-face with the bundled Inter Bold (TTF) as data URI.
  * Searches upward/outward from CWD and the bundled module dir (Vercel
- * materializes traced files at varying roots) for assets/fonts/Inter-Bold.woff.
+ * materializes traced files at varying roots) for assets/fonts/Inter-Bold.ttf.
+ * TTF (not WOFF): librsvg decodes TTF data URIs more reliably.
  * Returns "" when missing (falls back to system stack — local dev only).
  */
 function captionFontFace(): string {
@@ -102,7 +103,7 @@ function captionFontFace(): string {
     const hit = (dir: string, depth: number): string | null => {
       if (depth < 0) return null;
       try {
-        const direct = p.join(dir, "assets", "fonts", "Inter-Bold.woff");
+        const direct = p.join(dir, "assets", "fonts", "Inter-Bold.ttf");
         if (existsSync(direct) && statSync(direct).isFile()) return direct;
         if (depth === 0) return null;
         for (const e of readdirSync(dir)) {
@@ -122,7 +123,7 @@ function captionFontFace(): string {
       const f = hit(root, 3);
       if (f) {
         const b64 = readFileSync(f).toString("base64");
-        cachedFontFace = `@font-face { font-family: 'CapFont'; src: url(data:font/woff;base64,${b64}) format('woff'); font-weight: 700; }`;
+        cachedFontFace = `@font-face { font-family: 'CapFont'; src: url(data:font/ttf;base64,${b64}) format('truetype'); font-weight: 700; }`;
         return cachedFontFace;
       }
     }
