@@ -141,9 +141,13 @@ export async function advanceJob(
           finalCues = remapCuesToFinal(srcCues, keep);
         }
       } catch {}
+      let fontStatus = "fallback";
+      try {
+        fontStatus = (await import("./local-captions")).captionFontStatus();
+      } catch {}
       await touch(
         { captions: finalCues.slice(0, 400), progress: 78 },
-        finalCues.length > 0 ? `Caption reali: ${finalCues.length} cue da parole trascritte` : "Nessuna caption (STT assente)"
+        finalCues.length > 0 ? `Caption reali: ${finalCues.length} cue da parole trascritte (font ${fontStatus})` : "Nessuna caption (STT assente)"
       );
       // M3 zoom: real scene cuts → remap to FINAL → plan windows.
       let finalZooms: Array<{ finalStart: number; finalEnd: number; peak: number }> = [];

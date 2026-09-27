@@ -66,30 +66,65 @@ function strokeStyle(sw: number): string {
 }
 
 let cachedFontFace: string | null = null;
+/** Diagnostic: "embedded" when the bundled font was found, else "fallback". */
+export function captionFontStatus(): string {
+  captionFontFace();
+  return cachedFontFace ? "embedded" : "fallback";
+}
 
 /**
  * @font-face with the bundled Inter Bold (WOFF) as data URI.
- * Resolves assets/fonts/Inter-Bold.woff from CWD or Next server layouts.
+ * Searches upward/outward from CWD and the bundled module dir (Vercel
+ * materializes traced files at varying roots) for assets/fonts/Inter-Bold.woff.
  * Returns "" when missing (falls back to system stack — local dev only).
  */
 function captionFontFace(): string {
   if (cachedFontFace !== null) return cachedFontFace;
   try {
-    const { existsSync, readFileSync } = require("node:fs") as typeof import("node:fs");
+    const { existsSync, readFileSync, readdirSync, statSync } = require("node:fs") as typeof import("node:fs");
     const p = require("node:path") as typeof import("node:path");
-    const candidates = [
-      p.join(process.cwd(), "assets", "fonts", "Inter-Bold.woff"),
-      p.join(process.cwd(), "..", "assets", "fonts", "Inter-Bold.woff"),
-      p.join(__dirname, "..", "..", "assets", "fonts", "Inter-Bold.woff"),
-    ];
-    for (const c of candidates) {
+    const found = new Set<string>();
+    try {
+      found.add(process.cwd());
+    } catch {}
+    try {
+      found.add(p.dirname(require.main?.filename || ""));
+    } catch {}
+    try {
+      let d: string = __dirname;
+      for (let i = 0; i < 6; i++) {
+        found.add(d);
+        d = p.dirname(d);
+      }
+    } catch {}
+    for (const r of ["/var/task", "/tmp"]) found.add(r);
+    const roots = [...found].filter(Boolean);
+    const hit = (dir: string, depth: number): string | null => {
+      if (depth < 0) return null;
       try {
-        if (existsSync(c)) {
-          const b64 = readFileSync(c).toString("base64");
-          cachedFontFace = `@font-face { font-family: 'CapFont'; src: url(data:font/woff;base64,${b64}) format('woff'); font-weight: 700; }`;
-          return cachedFontFace;
+        const direct = p.join(dir, "assets", "fonts", "Inter-Bold.woff");
+        if (existsSync(direct) && statSync(direct).isFile()) return direct;
+        if (depth === 0) return null;
+        for (const e of readdirSync(dir)) {
+          if (e === "node_modules" || e.startsWith(".")) continue;
+          try {
+            const sub = p.join(dir, e);
+            if (statSync(sub).isDirectory()) {
+              const r = hit(sub, depth - 1);
+              if (r) return r;
+            }
+          } catch {}
         }
       } catch {}
+      return null;
+    };
+    for (const root of roots) {
+      const f = hit(root, 3);
+      if (f) {
+        const b64 = readFileSync(f).toString("base64");
+        cachedFontFace = `@font-face { font-family: 'CapFont'; src: url(data:font/woff;base64,${b64}) format('woff'); font-weight: 700; }`;
+        return cachedFontFace;
+      }
     }
   } catch {}
   cachedFontFace = "";
