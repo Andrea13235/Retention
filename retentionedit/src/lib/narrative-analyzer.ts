@@ -31,14 +31,14 @@ export class NarrativeAnalyzer {
       const nextSeg = transcript.segments[i + 1];
       const gapSec = nextSeg.start - currentSeg.end;
 
-      // Attention dip: pause >= 2.0 seconds
-      if (gapSec >= 2.0) {
-        // Cut out the dead silence leaving a clean 0.3s breath buffer
+      // Attention dip: pause >= 0.7s (matches Retention skill deadAirSec spec)
+      if (gapSec >= 0.7) {
+        // Cut out the dead silence leaving a clean 0.15s breath buffer
         const cutStart = Number((currentSeg.end + 0.15).toFixed(2));
         const cutEnd = Number((nextSeg.start - 0.15).toFixed(2));
         const cutDuration = cutEnd - cutStart;
 
-        if (cutDuration > 0.5) {
+        if (cutDuration >= 0.3) {
           cutCandidates.push({
             start: cutStart,
             end: cutEnd,

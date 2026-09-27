@@ -127,6 +127,28 @@ export interface GenAIBRoll {
   };
 }
 
+export interface EditGraphic {
+  time: number;
+  duration: number;
+  type: string;
+  text: string;
+  position: "top" | "center" | "bottom";
+  tag?: string;
+  icon?: string;
+  subtitle?: string;
+  isScreen?: boolean;
+}
+
+export interface EditShot {
+  start: number;
+  end: number;
+  type: string;
+  media_url?: string;
+  title?: string;
+  subtitle?: string;
+  pip_position?: "bottom_right" | "bottom_left" | "top_right" | "top_left";
+}
+
 export interface EditPlan {
   version: "1.3";
   format: VideoFormat;
@@ -134,9 +156,9 @@ export interface EditPlan {
   source_duration: number;
   target_duration: number;
   cuts: Array<{ start: number; end: number; keep: boolean }>;
-  shots: Array<{ start: number; end: number; type: string; media_url?: string }>;
+  shots: EditShot[];
   zooms: Array<{ time: number; type: string; scale: number; duration: number }>;
-  graphics: Array<{ time: number; duration: number; type: string; text: string; position: "top" | "center" | "bottom" }>;
+  graphics: EditGraphic[];
   captions: {
     style: "karaoke_bold" | "clean_white" | "minimal";
     words: WordTimestamp[];

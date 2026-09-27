@@ -194,8 +194,9 @@ export class MetaMMSClient {
         });
       }
 
-      // Natural pause between sentences (0.35s)
-      currentTime += 0.35;
+      // Natural pause between sentences (with realistic 0.9s thought pauses for retention cutting)
+      const isPauseLong = sentenceIdx % 2 === 0;
+      currentTime += isPauseLong ? 0.90 : 0.40;
     }
 
     return {
