@@ -1,14 +1,14 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%" fill="none">
-  <!-- RetentionEdit Official Pure Ribbon R Icon (Identical to RetentionVolt) -->
+  <!-- RetentionVolt - Soft Serpentine Curve (Higgsfield Style) Neon Lime -->
   <rect width="512" height="512" rx="112" fill="#D1FE17"/>
-  <path d="M 125 418 V 206 C 125 131 175 96 245 96 C 315 96 365 141 365 211 C 365 276 315 311 240 311 H 125" 
+  <path d="M 140 415 C 180 370 175 270 145 200 C 130 140 185 95 260 95 C 340 95 385 140 385 210 C 385 280 320 315 220 315" 
         stroke="#000000" 
-        stroke-width="52" 
+        stroke-width="50" 
         stroke-linecap="butt" 
         stroke-linejoin="round"/>
-  <path d="M 235 311 C 265 311 295 346 325 396 C 342 424 365 434 395 426" 
+  <path d="M 220 315 C 275 315 305 345 330 385 C 350 420 380 435 415 422" 
         stroke="#000000" 
-        stroke-width="52" 
+        stroke-width="50" 
         stroke-linecap="butt" 
         stroke-linejoin="round"/>
 </svg>

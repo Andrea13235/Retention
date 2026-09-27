@@ -3,7 +3,7 @@
 import React, { useState } from "react";
 import Link from "next/link";
 import { X, ArrowLeft, Loader2, Mail, KeyRound, User, Sparkles } from "lucide-react";
-import { Brand } from "./brand";
+import { Brand, RetentionRibbonIcon } from "./brand";
 import { useAuth } from "@/context/auth-context";
 import { useGoogleIdentity } from "@/hooks/use-google-identity";
 import { LoginVideoMarquee } from "./login-video-marquee";
@@ -195,9 +195,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             
             {/* Big Neon Brand Mark Badge */}
             <div className="flex items-center">
-              <div className="w-12 h-12 rounded-2xl bg-[#d1fe17] text-black flex items-center justify-center font-black text-2xl tracking-tighter shadow-lg shadow-[#d1fe17]/20 select-none">
-                R
-              </div>
+              <RetentionRibbonIcon size={48} className="shadow-lg shadow-[#d1fe17]/20 rounded-2xl" />
             </div>
 
             {/* Title & Description */}

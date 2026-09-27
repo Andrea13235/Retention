@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>RETENTIONVOLT — Brand Identity & Logo Explorations</title>
+  <style>
+    :root {
+      --bg: #090a0d;
+      --card: #12141a;
+      --card-border: #1e222d;
+      --neon: #d1fe17;
+      --text: #ffffff;
+      --muted: #8a90a0;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background-color: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+      padding: 40px 24px;
+      line-height: 1.5;
+    }
+    .container { max-width: 1200px; margin: 0 auto; }
+    header { margin-bottom: 40px; border-b: 1px solid var(--card-border); padding-bottom: 24px; }
+    h1 { font-size: 32px; font-weight: 800; letter-spacing: -0.03em; margin-bottom: 8px; display: flex; align-items: center; gap: 12px; }
+    .badge { background: rgba(209, 254, 23, 0.12); color: var(--neon); border: 1px solid rgba(209, 254, 23, 0.3); font-size: 12px; font-family: monospace; padding: 4px 10px; border-radius: 9999px; }
+    p.subtitle { color: var(--muted); font-size: 15px; }
+
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 24px; margin-bottom: 48px; }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--card-border);
+      border-radius: 16px;
+      padding: 28px;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+      transition: border-color 0.2s;
+    }
+    .card:hover { border-color: rgba(209, 254, 23, 0.4); }
+    .card-header { display: flex; justify-content: space-between; align-items: baseline; }
+    .card-title { font-size: 18px; font-weight: 700; color: #fff; }
+    .card-tag { font-size: 11px; font-family: monospace; color: var(--neon); }
+
+    .preview-box {
+      background: #060709;
+      border: 1px solid #191c24;
+      border-radius: 12px;
+      height: 200px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+      overflow: hidden;
+    }
+    .preview-box::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: radial-gradient(circle at center, rgba(209, 254, 23, 0.05) 0%, transparent 70%);
+      pointer-events: none;
+    }
+
+    .meta { font-size: 13px; color: var(--muted); }
+    .meta strong { color: #fff; }
+
+    .lockup-preview {
+      background: #0e1015;
+      border: 1px solid var(--card-border);
+      border-radius: 14px;
+      padding: 24px;
+      margin-top: 16px;
+    }
+
+    .sizes-row {
+      display: flex;
+      align-items: center;
+      gap: 20px;
+      padding-top: 8px;
+    }
+
+    /* Renders */
+    .render-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 24px;
+      margin-top: 32px;
+    }
+    .render-card {
+      background: var(--card);
+      border: 1px solid var(--card-border);
+      border-radius: 16px;
+      overflow: hidden;
+    }
+    .render-card img {
+      width: 100%;
+      height: auto;
+      display: block;
+      object-fit: cover;
+    }
+    .render-desc {
+      padding: 16px 20px;
+      font-size: 13px;
+      color: var(--muted);
+    }
+    .render-desc strong { color: #fff; display: block; margin-bottom: 4px; font-size: 14px; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>
+        RETENTIONVOLT 
+        <span class="badge" style="background: #D1FE17; color: #000; font-weight: 800;">OFFICIAL BRAND IDENTITY v2.0</span>
+      </h1>
+      <p class="subtitle">
+        Official Brand System & Vector Assets for RetentionVolt — The Video Editing Intelligence Platform.
+      </p>
+    </header>
+
+    <h2 style="font-size: 20px; margin-bottom: 20px; display: flex; align-items: center; gap: 10px;">
+      1. Primary Vector Logo Marks (SVG) 
+      <span class="badge" style="background: #d1fe17; color: #000; font-weight: 700;">★ OFFICIAL LOGO SET</span>
+    </h2>
+    <div class="grid">
+      <!-- Official Primary Logo: Pure Ribbon R -->
+      <div class="card" style="border-color: rgba(209, 254, 23, 0.8); box-shadow: 0 0 24px rgba(209, 254, 23, 0.1);">
+        <div class="card-header">
+          <span class="card-title">★ Official Primary Logo: Pure Ribbon "R"</span>
+          <span class="card-tag" style="background: #d1fe17; color: #000; padding: 2px 8px; border-radius: 4px; font-weight: 800;">OFFICIAL BRAND MARK</span>
+        </div>
+        <div class="preview-box">
+          <svg width="96" height="96" viewBox="0 0 512 512" fill="none">
+            <rect width="512" height="512" rx="112" fill="#D1FE17"/>
+            <path d="M 125 418 V 206 C 125 131 175 96 245 96 C 315 96 365 141 365 211 C 365 276 315 311 240 311 H 125" stroke="#000000" stroke-width="52" stroke-linecap="butt" stroke-linejoin="round"/>
+            <path d="M 235 311 C 265 311 295 346 325 396 C 342 424 365 434 395 426" stroke="#000000" stroke-width="52" stroke-linecap="butt" stroke-linejoin="round"/>
+          </svg>
+        </div>
+        <p class="meta">
+          <strong>Higgsfield Aesthetic:</strong> Monoline black ribbon with constant stroke, flat-cut terminals, and an upward retention kick over electric lime neon (#D1FE17).
+        </p>
+      </div>
+
+      <!-- Higgsfield Style Concept (Dark Squircle) -->
+      <div class="card" style="border-color: rgba(209, 254, 23, 0.4);">
+        <div class="card-header">
+          <span class="card-title">Higgsfield Style: Electric Ribbon (Dark)</span>
+          <span class="card-tag">DARK CHASSIS + NEON GLOW</span>
+        </div>
+        <div class="preview-box">
+          <svg width="96" height="96" viewBox="0 0 512 512" fill="none">
+            <defs>
+              <filter id="h-glow" x="-20%" y="-20%" width="140%" height="140%">
+                <feDropShadow dx="0" dy="0" stdDeviation="12" flood-color="#D1FE17" flood-opacity="0.4"/>
+              </filter>
+            </defs>
+            <rect width="512" height="512" rx="112" fill="#0B0C0E" stroke="rgba(255, 255, 255, 0.12)" stroke-width="6"/>
+            <path d="M 125 418 V 206 C 125 131 175 96 245 96 C 315 96 365 141 365 211 C 365 276 315 311 240 311 H 125" stroke="#D1FE17" stroke-width="52" stroke-linecap="butt" stroke-linejoin="round" filter="url(#h-glow)"/>
+            <path d="M 235 311 C 265 311 295 346 325 396 C 342 424 365 434 395 426" stroke="#D1FE17" stroke-width="52" stroke-linecap="butt" stroke-linejoin="round" filter="url(#h-glow)"/>
+          </svg>
+        </div>
+        <p class="meta">
+          <strong>Dark Mode Native:</strong> Perfect for dark dashboards, OLED displays, and desktop app icons.
+        </p>
+      </div>
+
+      <!-- YouTube Red with White Ribbon -->
+      <div class="card" style="border-color: rgba(255, 0, 0, 0.4);">
+        <div class="card-header">
+          <span class="card-title">YouTube Red: White Ribbon "R"</span>
+          <span class="card-tag" style="color: #FF4444;">YOUTUBE NATIVE · PLAY BUTTON CUES</span>
+        </div>
+        <div class="preview-box">
+          <svg width="96" height="96" viewBox="0 0 512 512" fill="none">
+            <rect width="512" height="512" rx="112" fill="#FF0000"/>
+            <path d="M 125 418 V 206 C 125 131 175 96 245 96 C 315 96 365 141 365 211 C 365 276 315 311 240 311 H 125" stroke="#FFFFFF" stroke-width="52" stroke-linecap="butt" stroke-linejoin="round"/>
+            <path d="M 235 311 C 265 311 295 346 325 396 C 342 424 365 434 395 426" stroke="#FFFFFF" stroke-width="52" stroke-linecap="butt" stroke-linejoin="round"/>
+          </svg>
+        </div>
+        <p class="meta">
+          <strong>Instant YouTube Affiliation:</strong> White ribbon on YouTube Red (#FF0000) squircle evokes the iconic YouTube Play button and creator culture.
+        </p>
+      </div>
+
+      <!-- YouTube Red with Black Ribbon -->
+      <div class="card" style="border-color: rgba(255, 0, 0, 0.4);">
+        <div class="card-header">
+          <span class="card-title">YouTube Red: Black Ribbon "R"</span>
+          <span class="card-tag" style="color: #FF4444;">BRUTALIST TECH · HIGGSFIELD CONTRAST</span>
+        </div>
+        <div class="preview-box">
+          <svg width="96" height="96" viewBox="0 0 512 512" fill="none">
+            <rect width="512" height="512" rx="112" fill="#FF0000"/>
+            <path d="M 125 418 V 206 C 125 131 175 96 245 96 C 315 96 365 141 365 211 C 365 276 315 311 240 311 H 125" stroke="#000000" stroke-width="52" stroke-linecap="butt" stroke-linejoin="round"/>
+            <path d="M 235 311 C 265 311 295 346 325 396 C 342 424 365 434 395 426" stroke="#000000" stroke-width="52" stroke-linecap="butt" stroke-linejoin="round"/>
+          </svg>
+        </div>
+        <p class="meta">
+          <strong>Bold Contrast:</strong> Direct translation of the Higgsfield aesthetic into YouTube Red, high-energy and authoritative.
+        </p>
+      </div>
+
+      <!-- YouTube Red Dark Mode -->
+      <div class="card" style="border-color: rgba(255, 0, 0, 0.4);">
+        <div class="card-header">
+          <span class="card-title">YouTube Red: Electric Glow (Dark)</span>
+          <span class="card-tag" style="color: #FF4444;">DARK STUDIO · CRIMSON VOLT</span>
+        </div>
+        <div class="preview-box">
+          <svg width="96" height="96" viewBox="0 0 512 512" fill="none">
+            <defs>
+              <filter id="p-rglow" x="-20%" y="-20%" width="140%" height="140%">
+                <feDropShadow dx="0" dy="0" stdDeviation="14" flood-color="#FF0000" flood-opacity="0.45"/>
+              </filter>
+            </defs>
+            <rect width="512" height="512" rx="112" fill="#0B0C0E" stroke="rgba(255, 255, 255, 0.12)" stroke-width="6"/>
+            <path d="M 125 418 V 206 C 125 131 175 96 245 96 C 315 96 365 141 365 211 C 365 276 315 311 240 311 H 125" stroke="#FF0000" stroke-width="52" stroke-linecap="butt" stroke-linejoin="round" filter="url(#p-rglow)"/>
+            <path d="M 235 311 C 265 311 295 346 325 396 C 342 424 365 434 395 426" stroke="#FF0000" stroke-width="52" stroke-linecap="butt" stroke-linejoin="round" filter="url(#p-rglow)"/>
+          </svg>
+        </div>
+        <p class="meta">
+          <strong>Studio Grade:</strong> Evokes professional timeline monitors, REC indicators, and dark-themed video editing suites.
+        </p>
+      </div>
+
+      <!-- Option 1 -->
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">Concept 1: The Velocity Cut</span>
+          <span class="card-tag">R-MONOGRAM + RETENTION KICK</span>
+        </div>
+        <div class="preview-box">
+          <svg width="84" height="84" viewBox="0 0 40 40" fill="none">
+            <defs>
+              <linearGradient id="p-lime" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stop-color="#E5FF44" />
+                <stop offset="100%" stop-color="#D1FE17" />
+              </linearGradient>
+              <filter id="p-glow" x="-20%" y="-20%" width="140%" height="140%">
+                <feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="#D1FE17" flood-opacity="0.4"/>
+              </filter>
+            </defs>
+            <rect width="40" height="40" rx="9" fill="#121317" stroke="#22252e" stroke-width="1.2"/>
+            <path d="M 10 9 C 10 7.895 10.895 7 12 7 H 14 C 15.105 7 16 7.895 16 9 V 17 L 10 21 Z" fill="#FFFFFF"/>
+            <path d="M 10 24 L 16 20 V 31 C 16 32.105 15.105 33 14 33 H 12 C 10.895 33 10 32.105 10 31 Z" fill="#FFFFFF"/>
+            <path d="M 16 8.5 H 23 C 27.142 8.5 30.5 11.858 30.5 16 C 30.5 20.142 27.142 23.5 23 23.5 H 17.5" stroke="#FFFFFF" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M 19 20.5 C 21.5 20.5 23 23 24 26 C 24.8 28.4 26.5 31.5 31 31.5" stroke="url(#p-lime)" stroke-width="3.6" stroke-linecap="round" filter="url(#p-glow)"/>
+            <circle cx="31" cy="31.5" r="2" fill="#D1FE17"/>
+          </svg>
+        </div>
+        <p class="meta">
+          <strong>Symbolism:</strong> A razor-notched timeline stem on the left, an editor's loop on top, and an ascending neon retention graph wave flaring out.
+        </p>
+      </div>
+
+      <!-- Option 2 -->
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">Concept 2: The Geometric Razor Bin</span>
+          <span class="card-tag">CONTAINER + 45° BLADE SLICE</span>
+        </div>
+        <div class="preview-box">
+          <svg width="84" height="84" viewBox="0 0 44 44" fill="none">
+            <defs>
+              <linearGradient id="p-neon2" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stop-color="#E5FF55" />
+                <stop offset="100%" stop-color="#D1FE17" />
+              </linearGradient>
+              <filter id="p-glow2" x="-20%" y="-20%" width="140%" height="140%">
+                <feDropShadow dx="0" dy="1" stdDeviation="2.5" flood-color="#D1FE17" flood-opacity="0.4"/>
+              </filter>
+            </defs>
+            <rect width="44" height="44" rx="10" fill="#0A0B0E" stroke="#1F222A" stroke-width="1.2"/>
+            <path d="M 12 7 H 34 C 35.657 7 37 8.343 37 10 V 22" stroke="#FFFFFF" stroke-width="2.5" stroke-linecap="round"/>
+            <line x1="33" y1="9" x2="11" y2="33" stroke="#FFFFFF" stroke-width="2.5" stroke-linecap="round" opacity="0.9"/>
+            <line x1="36" y1="14" x2="16" y2="36" stroke="#FFFFFF" stroke-width="2.5" stroke-linecap="round" opacity="0.9"/>
+            <path d="M 8 20 V 34 C 8 35.657 9.343 37 11 37 H 24" stroke="#FFFFFF" stroke-width="2.5" stroke-linecap="round"/>
+            <path d="M 10 35 C 13 35 14 26 17 24 C 20 22 23 30 27 30 C 29.5 30 32 28.5 34 26" stroke="url(#p-neon2)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" filter="url(#p-glow2)"/>
+            <circle cx="34" cy="26" r="2.2" fill="#D1FE17"/>
+          </svg>
+        </div>
+        <p class="meta">
+          <strong>Symbolism:</strong> Represents the NLE project bin sliced by the razor tool, through which the retention curve surges forward.
+        </p>
+      </div>
+
+      <!-- Option 3: Horizontal Lockup in Navbar -->
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">Concept 3: Minimal Brand Lockup</span>
+          <span class="card-tag">RESPONSIVE NAVBAR LOCKUP</span>
+        </div>
+        <div class="preview-box" style="flex-direction: column; gap: 12px; padding: 20px;">
+          <!-- Full horizontal lockup -->
+          <div style="display: flex; align-items: center; gap: 10px;">
+            <svg width="28" height="28" viewBox="0 0 40 40" fill="none">
+              <rect width="40" height="40" rx="8" fill="#15171e" stroke="#2a2e3d" stroke-width="1.5"/>
+              <path d="M 10 9 H 15 V 17 L 10 21 Z" fill="#FFFFFF"/>
+              <path d="M 10 24 L 15 20 V 31 H 10 Z" fill="#FFFFFF"/>
+              <path d="M 15 9 H 23 C 27 9 30 12 30 16 C 30 20 27 23 23 23 H 16" stroke="#FFFFFF" stroke-width="3.5" stroke-linecap="round"/>
+              <path d="M 18 21 C 21 21 23 24 24 26 C 25 28 27 31 31 31" stroke="#D1FE17" stroke-width="3.5" stroke-linecap="round"/>
+            </svg>
+            <span style="font-weight: 800; font-size: 17px; letter-spacing: -0.03em; color: #fff;">
+              RETENTION<span style="color: #D1FE17;">VOLT</span>
+            </span>
+          </div>
+          <!-- Pill Variant -->
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <span style="font-weight: 800; font-size: 14px; letter-spacing: -0.02em; color: #fff;">
+              RETENTIONVOLT
+            </span>
+          </div>
+        </div>
+        <p class="meta">
+          <strong>Usage:</strong> Perfectly balanced for web navbar, browser tab favicons, social cards, and mobile viewports.
+        </p>
+      </div>
+    </div>
+
+    <!-- Generated Mockups Section -->
+    <h2 style="font-size: 20px; margin-bottom: 20px;">2. AI Generated Studio Visuals & Mockups</h2>
+    <div class="render-grid">
+      <div class="render-card" style="border-color: rgba(209, 254, 23, 0.4);">
+        <img src="retentionvolt_higgsfield_r_pure.jpg" alt="Pure Ribbon R (Higgsfield Aesthetic)">
+        <div class="render-desc">
+          <strong>★ The Pure Ribbon R (Higgsfield Aesthetic)</strong>
+          Single continuous monoline black ribbon with flat-cut terminals on electric neon lime squircle.
+        </div>
+      </div>
+      <div class="render-card" style="border-color: rgba(209, 254, 23, 0.4);">
+        <img src="retentionvolt_higgsfield_r_dark.jpg" alt="Dark Mode Electric Ribbon">
+        <div class="render-desc">
+          <strong>★ Dark Mode Electric Ribbon</strong>
+          High-contrast neon green kinetic ribbon glowing on matte black chassis.
+        </div>
+      </div>
+      <div class="render-card">
+        <img src="retentionvolt_minimal_icon_1789722659077.jpg" alt="Minimal Icon Concept">
+        <div class="render-desc">
+          <strong>The Razor Bin Geometric Mark (Legacy)</strong>
+          Dark-mode vector mark showing the square bin container sliced diagonally with the R-retention wave.
+        </div>
+      </div>
+      <div class="render-card">
+        <img src="retentionvolt_lockup_1789722639876.jpg" alt="Brand Lockup">
+        <div class="render-desc">
+          <strong>Official Typographic Lockup</strong>
+          Clean typographic presentation with the film bin emblem and neon VOLT suffix.
+        </div>
+      </div>
+      <div class="render-card">
+        <img src="retentionvolt_logo_mark_1789722616619.jpg" alt="Electric Monogram R">
+        <div class="render-desc">
+          <strong>Electric High-Velocity Monogram</strong>
+          Dynamic R monogram fusing the timeline needle playhead with high-energy retention pulses.
+        </div>
+      </div>
+      <div class="render-card">
+        <img src="retentionvolt_mockup_1789722687983.jpg" alt="Stationery & Hardware Mockup">
+        <div class="render-desc">
+          <strong>Hardware & Studio Environment</strong>
+          How the identity lives on creator displays, studio hardware, and developer access cards.
+        </div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

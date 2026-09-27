@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%" fill="none">
+  <!-- RetentionVolt - Soft Serpentine Curve (Higgsfield Style) YouTube Red -->
+  <rect width="512" height="512" rx="112" fill="#FF0000"/>
+  <path d="M 140 415 C 180 370 175 270 145 200 C 130 140 185 95 260 95 C 340 95 385 140 385 210 C 385 280 320 315 220 315" 
+        stroke="#FFFFFF" 
+        stroke-width="50" 
+        stroke-linecap="butt" 
+        stroke-linejoin="round"/>
+  <path d="M 220 315 C 275 315 305 345 330 385 C 350 420 380 435 415 422" 
+        stroke="#FFFFFF" 
+        stroke-width="50" 
+        stroke-linecap="butt" 
+        stroke-linejoin="round"/>
+</svg>

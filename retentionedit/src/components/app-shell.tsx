@@ -298,7 +298,7 @@ export function AppShell({
                 className="cursor-pointer hover:opacity-80 transition text-left"
                 title="Home"
               >
-                <Brand compact />
+                <Brand size="sm" />
               </button>
               <button
                 type="button"

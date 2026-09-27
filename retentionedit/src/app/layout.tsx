@@ -8,6 +8,11 @@ export const metadata: Metadata = {
   title: "RetentionEdit — Autonomous AI Video Editor",
   description:
     "Autonomous AI Video Editor powered by Open-Source Retention skill, Native RetentionVolt blueprints, and Modal GPU Serverless",
+  icons: {
+    icon: "/icon.svg",
+    shortcut: "/icon.svg",
+    apple: "/icon.svg",
+  },
 };
 
 export default function RootLayout({
