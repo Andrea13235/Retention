@@ -127,8 +127,27 @@ export async function generateYouTubeCover(options: ThumbnailOptions): Promise<s
       .composite([{ input: svgOverlay, top: 0, left: 0 }])
       .png({ quality: 90 })
       .toBuffer();
+    const candidateDirs = [
+      path.join(process.cwd(), "public", "thumbnails"),
+      path.join(process.env.TMPDIR || "/tmp", "thumbnails"),
+    ];
+    for (const d of candidateDirs) {
+      try {
+        mkdirSync(d, { recursive: true });
+        writeFileSync(path.join(d, outFilename), outputBuffer);
+      } catch {}
+    }
 
-    writeFileSync(outPath, outputBuffer);
+    // Cloud backup to Supabase storage if available
+    try {
+      const { supabaseAdmin } = await import("@/lib/supabase");
+      if (supabaseAdmin) {
+        await supabaseAdmin.storage
+          .from("retentionedit_jobs")
+          .upload(`thumbnails/${outFilename}`, outputBuffer, { contentType: "image/png", upsert: true });
+      }
+    } catch {}
+
     return `/thumbnails/${outFilename}`;
   } catch (err) {
     console.warn("Error generating sharp thumbnail cover:", err);

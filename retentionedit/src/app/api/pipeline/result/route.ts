@@ -18,8 +18,8 @@ export async function GET(req: NextRequest) {
   let attempts = 0;
   while (job && job.currentStage !== "done" && job.currentStage !== "error" && attempts < 10) {
     attempts++;
-    await PipelineOrchestrator.pumpNextStage(jobId);
-    job = (await PipelineOrchestrator.getJobAsync(jobId)) || job;
+    const pumped = await PipelineOrchestrator.pumpNextStage(jobId);
+    if (pumped) job = pumped;
   }
 
   return NextResponse.json({

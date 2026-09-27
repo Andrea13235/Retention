@@ -16,8 +16,8 @@ export async function GET(req: NextRequest) {
 
   // Advance next stage on poll to guarantee continuous progress across serverless invocations
   if (job.currentStage !== "done" && job.currentStage !== "error") {
-    await PipelineOrchestrator.pumpNextStage(jobId);
-    job = (await PipelineOrchestrator.getJobAsync(jobId)) || job;
+    const pumped = await PipelineOrchestrator.pumpNextStage(jobId);
+    if (pumped) job = pumped;
   }
 
   return NextResponse.json({

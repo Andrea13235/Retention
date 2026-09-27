@@ -28,12 +28,13 @@ export function ProcessingProjectCard({ project }: { project: ProjectEntry }) {
     let failCount = 0;
     const tick = async () => {
       try {
-        const res = await fetch(`/api/pipeline/status?jobId=${encodeURIComponent(project.id)}`);
+        const res = await fetch(`/api/pipeline/status?jobId=${encodeURIComponent(project.id)}`, {
+          headers: { "x-retentionedit-session": "active" },
+        });
         if (!res.ok) {
           failCount++;
-          // If status returns 404 (job not on server) or fails repeatedly:
-          // Immediately delete this dead/bugged project from My Projects so it doesn't spin forever!
-          if (res.status === 404 || failCount >= 2) {
+          // Only cancel if repeated severe failures (at least 15 polls = >20s of errors)
+          if (failCount >= 15) {
             cancelled = true;
             const { deleteProject } = await import("@/lib/projects-store");
             await deleteProject(project.id);
@@ -56,7 +57,9 @@ export function ProcessingProjectCard({ project }: { project: ProjectEntry }) {
         if (data.currentStage === "done") {
           cancelled = true;
           try {
-            const resResult = await fetch(`/api/pipeline/result?jobId=${encodeURIComponent(project.id)}`);
+            const resResult = await fetch(`/api/pipeline/result?jobId=${encodeURIComponent(project.id)}`, {
+              headers: { "x-retentionedit-session": "active" },
+            });
             const fullJob = resResult.ok ? await resResult.json() : null;
             const { upsertProject, loadProjectEntries } = await import("@/lib/projects-store");
             const existing = loadProjectEntries().find((p) => p.id === project.id) || project;
@@ -67,7 +70,7 @@ export function ProcessingProjectCard({ project }: { project: ProjectEntry }) {
 
             const rawVid = fullJob?.renderedVideoUrl || fullJob?.finalVideoUrl || data.renderedVideoUrl || existing.videoUrl;
             const isDeadVid = !rawVid || rawVid.includes("r2.retentionedit.com") || rawVid.includes("your_");
-            const finalVideo = !isDeadVid ? rawVid : (project.format === "short" ? "/videos/kling-creator-9-16.mp4" : "/videos/final-horizontal.mp4");
+            const finalVideo = !isDeadVid ? rawVid : (project.format === "short" ? "/videos/raw-vlog.mp4" : "/videos/final-horizontal.mp4");
 
             await upsertProject({
               ...existing,

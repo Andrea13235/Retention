@@ -329,9 +329,14 @@ export class PipelineOrchestrator {
    * while also powering the continuous autonomous runner.
    */
   public static async pumpNextStage(jobId: string): Promise<PipelineJob | null> {
-    const job = await PipelineOrchestrator.getJobAsync(jobId);
+    let job = await PipelineOrchestrator.getJobAsync(jobId);
     if (!job) return null;
     if (job.currentStage === "done" || job.currentStage === "error") return job;
+
+    const saveJob = async () => {
+      ACTIVE_JOBS.set(job!.id, job!);
+      await persistJobAsync(job!);
+    };
 
     const updateStage = async (
       stageId: StageId,
@@ -339,34 +344,34 @@ export class PipelineOrchestrator {
       progress: number,
       log?: string
     ) => {
-      job.stages[stageId].state = state;
-      job.stages[stageId].progress = progress;
-      job.currentStage = stageId;
+      job!.stages[stageId].state = state;
+      job!.stages[stageId].progress = progress;
+      job!.currentStage = stageId;
       if (log) {
-        job.logs.push(`[${new Date().toLocaleTimeString()}] ${log}`);
+        job!.logs.push(`[${new Date().toLocaleTimeString()}] ${log}`);
       }
-      ACTIVE_JOBS.set(job.id, job);
-      await persistJobAsync(job);
+      await saveJob();
     };
 
     try {
       // 1. Ingest Stage
-      if (
-        job.stages.ingest.state === "pending" ||
-        (job.stages.ingest.state === "running" && job.stages.ingest.progress < 100)
-      ) {
+      if (job.stages.ingest.state !== "completed") {
         await updateStage("ingest", "completed", 100, `Footage ingested: ~${job.rawDuration}s, format ${job.format}`);
         job.currentStage = "transcribe";
         job.stages.transcribe.state = "running";
         job.stages.transcribe.progress = 25;
         job.logs.push(`[${new Date().toLocaleTimeString()}] Dispatching audio track to Meta MMS (Massively Multilingual Speech) Transcribe...`);
-        ACTIVE_JOBS.set(job.id, job);
-        await persistJobAsync(job);
+        await saveJob();
         return job;
       }
 
       // 2. Transcribe Stage (Meta MMS Speech-to-Text)
-      if (job.stages.transcribe.state === "running") {
+      if (job.stages.transcribe.state !== "completed") {
+        job.currentStage = "transcribe";
+        job.stages.transcribe.state = "running";
+        job.stages.transcribe.progress = 40;
+        await saveJob();
+
         const mmsClient = new MetaMMSClient();
         const transcript = await mmsClient.transcribe(job.rawVideoUrl, job.rawDuration);
         job.transcript = transcript;
@@ -375,13 +380,17 @@ export class PipelineOrchestrator {
         job.stages.analyze.state = "running";
         job.stages.analyze.progress = 40;
         job.logs.push(`[${new Date().toLocaleTimeString()}] Scanning for hook vitality, filler patterns, and attention dips...`);
-        ACTIVE_JOBS.set(job.id, job);
-        await persistJobAsync(job);
+        await saveJob();
         return job;
       }
 
       // 3. Narrative & Retention Analysis (Cuts First, Pauses ≥2.5s, Fillers ≥40%)
-      if (job.stages.analyze.state === "running") {
+      if (job.stages.analyze.state !== "completed") {
+        job.currentStage = "analyze";
+        job.stages.analyze.state = "running";
+        job.stages.analyze.progress = 50;
+        await saveJob();
+
         if (!job.transcript) {
           const mmsClient = new MetaMMSClient();
           job.transcript = await mmsClient.transcribe(job.rawVideoUrl, job.rawDuration);
@@ -398,13 +407,17 @@ export class PipelineOrchestrator {
         job.stages.retentionvolt.state = "running";
         job.stages.retentionvolt.progress = 50;
         job.logs.push(`[${new Date().toLocaleTimeString()}] Querying native RetentionVolt database for viral curve blueprint...`);
-        ACTIVE_JOBS.set(job.id, job);
-        await persistJobAsync(job);
+        await saveJob();
         return job;
       }
 
       // 4. RetentionVolt Native Matcher (Semantic context anchoring, proven viral blueprints)
-      if (job.stages.retentionvolt.state === "running") {
+      if (job.stages.retentionvolt.state !== "completed") {
+        job.currentStage = "retentionvolt";
+        job.stages.retentionvolt.state = "running";
+        job.stages.retentionvolt.progress = 50;
+        await saveJob();
+
         const fullText = (job.transcript?.segments || []).map((s) => s.text).join(" ");
         const rvMatch = NativeRetentionVolt.findBestBlueprint({
           format: job.format,
@@ -429,13 +442,17 @@ export class PipelineOrchestrator {
         job.stages.plan.state = "running";
         job.stages.plan.progress = 30;
         job.logs.push(`[${new Date().toLocaleTimeString()}] Claude Opus synthesizing Tier [${job.genaiTier.toUpperCase()}] and rhythm registers...`);
-        ACTIVE_JOBS.set(job.id, job);
-        await persistJobAsync(job);
+        await saveJob();
         return job;
       }
 
       // 5. EditPlan v1.3 & 2.5D Ken Burns (Cuts first, visual events only, zoom punches)
-      if (job.stages.plan.state === "running") {
+      if (job.stages.plan.state !== "completed") {
+        job.currentStage = "plan";
+        job.stages.plan.state = "running";
+        job.stages.plan.progress = 50;
+        await saveJob();
+
         const fullText = (job.transcript?.segments || []).map((s) => s.text).join(" ");
         const genAiDispatcher = new GenAIDispatcher();
         const { brolls, directorVerdict, hookScore } = await genAiDispatcher.planBRolls({
@@ -461,13 +478,17 @@ export class PipelineOrchestrator {
         job.stages.render.state = "running";
         job.stages.render.progress = 20;
         job.logs.push(`[${new Date().toLocaleTimeString()}] Dispatching render task to Modal.com serverless GPU cluster (NVENC)...`);
-        ACTIVE_JOBS.set(job.id, job);
-        await persistJobAsync(job);
+        await saveJob();
         return job;
       }
 
-      // 7. Modal.com GPU Render & High-CTR Cover
-      if (job.stages.render.state === "running") {
+      // 6. Modal.com GPU Render & High-CTR Cover
+      if (job.stages.render.state !== "completed") {
+        job.currentStage = "render";
+        job.stages.render.state = "running";
+        job.stages.render.progress = 30;
+        await saveJob();
+
         const modalClient = new ModalGPUClient();
         const renderResult = await modalClient.renderVideo({
           jobId: job.id,
@@ -488,7 +509,7 @@ export class PipelineOrchestrator {
         if (renderResult.qualityGate) job.qualityGate = renderResult.qualityGate;
         await updateStage("render", "completed", 100, "Modal GPU render completed. Output MP4 compiled.");
 
-        // 7b. Ad-hoc high-CTR YouTube cover generation with RetentionVolt CTR rules
+        // Ad-hoc high-CTR YouTube cover generation with RetentionVolt CTR rules
         try {
           const cover = new HiggsfieldCover();
           const fullText = (job.transcript?.segments || []).map((s) => s.text).join(" ");
@@ -519,13 +540,17 @@ export class PipelineOrchestrator {
         job.stages.verify.state = "running";
         job.stages.verify.progress = 50;
         job.logs.push(`[${new Date().toLocaleTimeString()}] Executing frame-by-frame quality gate across 5 pillars...`);
-        ACTIVE_JOBS.set(job.id, job);
-        await persistJobAsync(job);
+        await saveJob();
         return job;
       }
 
-      // 8. Quality Gate Verification
-      if (job.stages.verify.state === "running") {
+      // 7. Quality Gate Verification
+      if (job.stages.verify.state !== "completed") {
+        job.currentStage = "verify";
+        job.stages.verify.state = "running";
+        job.stages.verify.progress = 75;
+        await saveJob();
+
         job.qualityGate = {
           passed: true,
           score: 9.8,
@@ -550,11 +575,12 @@ export class PipelineOrchestrator {
           zoomCount: job.editPlan?.zooms.length || 6,
         };
         job.logs.push(`[${new Date().toLocaleTimeString()}] Autonomous Edit Completed Successfully! Ready for delivery.`);
-        ACTIVE_JOBS.set(job.id, job);
-        await persistJobAsync(job);
+        await saveJob();
         return job;
       }
 
+      job.currentStage = "done";
+      await saveJob();
       return job;
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Pipeline error";

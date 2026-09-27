@@ -74,8 +74,11 @@ export async function POST(req: NextRequest) {
       duration,
     });
 
-    // Cloud sync in background
-    persistJobAsync(job).catch(() => {});
+    // Cloud sync with safe timeout to prevent serverless freeze
+    await Promise.race([
+      persistJobAsync(job),
+      new Promise((r) => setTimeout(r, 600)),
+    ]).catch(() => {});
 
     // Prime first stage immediately so initial state is active
     try {
