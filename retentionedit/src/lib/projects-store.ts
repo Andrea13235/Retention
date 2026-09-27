@@ -31,21 +31,48 @@ export interface ProjectEntry {
   savedToStorage?: boolean;
 }
 
-const STORAGE_KEY = "retentionedit_projects_v1";
+function getCurrentUserId(): string {
+  if (typeof window === "undefined") return "default";
+  try {
+    const raw = localStorage.getItem("retentionedit_user_profile_v1");
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed?.id) return parsed.id;
+    }
+  } catch {}
+  return "default";
+}
+
+export function getProjectStorageKey(userId?: string): string {
+  const uid = (userId || getCurrentUserId()).replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 50);
+  return `retentionedit_projects_${uid}_v1`;
+}
+
 const MAX_ENTRIES = 12;
 const EVENT_NAME = "retentionedit:projects-changed";
 
 export function isBuggedOrStaleProject(item: ProjectEntry): boolean {
   if (!item || !item.id) return true;
 
-  // 1. Remove Ruzza per user instruction
   const lowerTitle = (item.title || "").toLowerCase();
   const lowerId = (item.id || "").toLowerCase();
+
+  // 1. Remove Ruzza per user instruction
   if (lowerTitle.includes("ruzza") || lowerId.includes("ruzza") || lowerId === "seed-ruzza-2026") {
     return true;
   }
 
-  // 2. Remove bugged processing projects that load infinitely:
+  // 2. Remove "L'Errore che Distrugge i Tuoi Video" per user instruction
+  if (
+    lowerTitle.includes("distrugge") ||
+    lowerTitle.includes("errore che distrugge") ||
+    lowerTitle.includes("primi 3 seco") ||
+    lowerId.includes("distrugge")
+  ) {
+    return true;
+  }
+
+  // 3. Remove bugged processing projects that load infinitely:
   // If status is "processing" and older than 2 minutes (120s), it is stuck/abandoned from an earlier session
   if (item.status === "processing") {
     const ageMs = Date.now() - (item.createdAt || 0);
@@ -59,12 +86,12 @@ export function isBuggedOrStaleProject(item: ProjectEntry): boolean {
 
 export function sanitizeProjectEntry(item: ProjectEntry): ProjectEntry {
   const isShort = item.format === "short";
-  const defaultVideo = isShort ? "/videos/kling-creator-9-16.mp4" : "/videos/final-horizontal.mp4";
+  const defaultVideo = isShort ? "/videos/raw-vlog.mp4" : "/videos/final-horizontal.mp4";
   const defaultCover = isShort ? "/videos/raw-vlog.jpg" : "/videos/final-horizontal.jpg";
 
   let videoUrl = item.videoUrl || "";
-  if (videoUrl.includes("r2.retentionedit.com") || videoUrl.includes("demo_retention")) {
-    videoUrl = defaultVideo;
+  if (videoUrl.includes("r2.retentionedit.com") || videoUrl.includes("demo_retention") || videoUrl.includes("kling")) {
+    videoUrl = "";
   }
 
   let coverUrl = item.coverUrl || "";
@@ -117,20 +144,66 @@ export function deduplicateProjects(list: ProjectEntry[]): ProjectEntry[] {
   return result;
 }
 
-function readAll(): ProjectEntry[] {
-  if (typeof window === "undefined") return [];
+function purgeStaleLocalStorage(): void {
+  if (typeof window === "undefined") return;
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k && k.startsWith("retentionedit_projects")) {
+        const val = localStorage.getItem(k);
+        if (
+          val &&
+          (val.includes("distrugge") ||
+            val.includes("Distrugge") ||
+            val.includes("ruzza") ||
+            val.includes("primi 3 seco"))
+        ) {
+          try {
+            const arr = JSON.parse(val);
+            if (Array.isArray(arr)) {
+              const cleaned = arr.filter((item) => !isBuggedOrStaleProject(item));
+              localStorage.setItem(k, JSON.stringify(cleaned));
+            }
+          } catch {}
+        }
+      }
+    }
+  } catch {}
+}
+
+if (typeof window !== "undefined") {
+  purgeStaleLocalStorage();
+}
+
+function readAll(userId?: string): ProjectEntry[] {
+  if (typeof window === "undefined") return [];
+  purgeStaleLocalStorage();
+  try {
+    const key = getProjectStorageKey(userId);
+    let raw = localStorage.getItem(key);
+    // Legacy migration fallback for existing active user
+    if (!raw && (!userId || userId === getCurrentUserId())) {
+      raw = localStorage.getItem("retentionedit_projects_v1");
+    }
     if (!raw) {
       return [];
     }
     const parsed = JSON.parse(raw) as ProjectEntry[];
     if (!Array.isArray(parsed) || parsed.length === 0) return [];
     
-    // Auto-clean any duplicates, Ruzza entries, and stale processing projects from localStorage
+    // Purge any lingering kling-creator references from previous sessions
+    for (const p of parsed) {
+      if (p.videoUrl && p.videoUrl.includes("kling")) {
+        p.videoUrl = "";
+      }
+    }
+
     const deduped = deduplicateProjects(parsed);
     if (deduped.length !== parsed.length) {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(deduped));
+      localStorage.setItem(key, JSON.stringify(deduped));
+      try {
+        localStorage.setItem("retentionedit_projects_v1", JSON.stringify(deduped));
+      } catch {}
     }
     return deduped;
   } catch {
@@ -138,14 +211,15 @@ function readAll(): ProjectEntry[] {
   }
 }
 
-function writeAll(entries: ProjectEntry[]): void {
+function writeAll(entries: ProjectEntry[], userId?: string): void {
   if (typeof window === "undefined") return;
+  const key = getProjectStorageKey(userId);
   try {
     const deduped = deduplicateProjects(entries);
     const sorted = deduped
       .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))
       .slice(0, MAX_ENTRIES);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(sorted));
+    localStorage.setItem(key, JSON.stringify(sorted));
   } catch {
     // Quota exceeded: drop oldest entries and retry once.
     try {
@@ -153,15 +227,15 @@ function writeAll(entries: ProjectEntry[]): void {
       const sorted = deduped
         .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))
         .slice(0, 5);
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(sorted));
+      localStorage.setItem(key, JSON.stringify(sorted));
     } catch {
-      // ignore — in-memory still works for this session
+      // ignore
     }
   }
 }
 
-export function loadProjectEntries(): ProjectEntry[] {
-  return readAll().sort((a, b) => b.createdAt - a.createdAt);
+export function loadProjectEntries(userId?: string): ProjectEntry[] {
+  return readAll(userId).sort((a, b) => b.createdAt - a.createdAt);
 }
 
 export function notifyProjectsChanged(): void {
@@ -264,13 +338,19 @@ export function isReplayableUrl(url: string): boolean {
 export async function getProjectVideoUrl(
   entry: ProjectEntry
 ): Promise<string | null> {
-  if (entry.videoUrl && isReplayableUrl(entry.videoUrl)) return entry.videoUrl;
+  // 1. ALWAYS check if the user uploaded their own video file stored in IndexedDB!
   try {
     const blob = await getProjectBlob(entry.id);
     if (blob) return URL.createObjectURL(blob);
   } catch {
     // ignore
   }
+
+  // 2. If no blob, use entry.videoUrl if valid and NOT a kling fallback
+  if (entry.videoUrl && isReplayableUrl(entry.videoUrl) && !entry.videoUrl.includes("kling")) {
+    return entry.videoUrl;
+  }
+
   return null;
 }
 

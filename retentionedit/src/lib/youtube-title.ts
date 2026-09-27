@@ -67,7 +67,7 @@ export function generateYouTubeTitle(params: {
       const candidates = [
         "Ho Scoperto il Segreto della Retention al 100% (Non Farlo Mai!)",
         "Come Rendere Virale Qualsiasi Video nel 2026 (Metodo Segreto)",
-        "L'Errore che Distrugge i Tuoi Video nei Primi 3 Secondi!",
+        "La Tecnica di Montaggio che Trattiene il Pubblico al 100% (2026)",
         "Ecco Come Trattenere il 100% degli Spettatori (Regola 2026)",
       ];
       return candidates[Math.abs(hashString(rawTitle)) % candidates.length];
