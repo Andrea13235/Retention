@@ -26,9 +26,8 @@ interface HomeWorkspaceProps {
 /**
  * Authentic OpusClip dashboard hero.
  *
- * - One big pill (760px x 60px) whose content is the upload source:
- *   [folder-icon] Upload
- *   ("or Try a sample project?" underneath, exactly like the reference).
+ * - One big pill (720px x 56px): the REAL edit engine (LocalRenderCard).
+ *   [folder-icon] Upload → Muse STT → silence cuts → MP4 download.
  * - No typed link input anywhere: the user always loads the video to edit
  *   via file picker.
  * - My projects: the user's edited videos with their covers already set,
