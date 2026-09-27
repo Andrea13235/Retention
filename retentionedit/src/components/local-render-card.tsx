@@ -138,6 +138,12 @@ export function LocalRenderCard() {
     pollRef.current = setInterval(tick, 1500);
   };
 
+  /**
+   * Upload strategy (413-proof on Vercel serverless, 4.5MB body cap):
+   *  1. R2 presigned PUT (browser→R2 direct, key raw/<userId>/…) then
+   *     /api/local-render/start with { r2Key } JSON — works for GB files.
+   *  2. Fallback: direct multipart to /start (small files, local dev).
+   */
   const handleFile = async (files: FileList | null) => {
     if (!files || files.length === 0) return;
     const file = files[0];
@@ -146,17 +152,55 @@ export function LocalRenderCard() {
     setStatus(null);
     setStage("uploading");
     setProgress(3);
+    const authHeaders: Record<string, string> = { ...(user?.id ? { "x-retentionedit-session": user.id } : {}) };
     try {
       if (typeof document !== "undefined" && user?.id) {
         document.cookie = `retentionedit_session=${encodeURIComponent(user.id)}; path=/; max-age=28800; SameSite=Lax`;
       }
+      const title = file.name.replace(/\.[^/.]+$/, "");
+      // 1. Try R2 direct upload (never through the serverless function body).
+      try {
+        const presignRes = await fetch("/api/r2/presign", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", ...authHeaders },
+          body: JSON.stringify({
+            filename: file.name,
+            bytes: file.size,
+            contentType: file.type || "video/mp4",
+          }),
+        });
+        if (presignRes.ok) {
+          const presigned = (await presignRes.json()) as { url: string; key: string };
+          setProgress(5);
+          const putRes = await fetch(presigned.url, {
+            method: "PUT",
+            headers: { "Content-Type": file.type || "video/mp4" },
+            body: file,
+          });
+          if (!putRes.ok) throw new Error(`R2 upload fallito (${putRes.status})`);
+          setProgress(8);
+          const startRes = await fetch("/api/local-render/start", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", ...authHeaders },
+            body: JSON.stringify({ r2Key: presigned.key, format: "short", title }),
+          });
+          const startData = await startRes.json().catch(() => ({}));
+          if (!startRes.ok) throw new Error(startData?.error || `Avvio fallito (${startRes.status})`);
+          startPoll(startData.jobId as string);
+          return;
+        }
+      } catch (e) {
+        // R2 unavailable (local dev without R2 keys?) → direct fallback below.
+        if (e instanceof Error && /R2 upload fallito|Avvio fallito/.test(e.message)) throw e;
+      }
+      // 2. Direct multipart fallback (small files / local dev).
       const form = new FormData();
       form.append("file", file);
       form.append("format", "short");
-      form.append("title", file.name.replace(/\.[^/.]+$/, ""));
+      form.append("title", title);
       const res = await fetch("/api/local-render/start", {
         method: "POST",
-        headers: { ...(user?.id ? { "x-retentionedit-session": user.id } : {}) },
+        headers: { ...authHeaders },
         body: form,
       });
       const data = await res.json().catch(() => ({}));

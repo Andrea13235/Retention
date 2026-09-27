@@ -112,14 +112,14 @@ export function buildCaptionChain(
   cues: CaptionCue[]
 ): { filter: string; outLabel: string } {
   let prev = "[v0]";
-  let filter = "";
+  const parts: string[] = [];
   cues.forEach((cue, i) => {
     const idx = pngStartIndex + i;
     const out = `[vcap${i}]`;
-    filter += `${prev}[${idx}:v]overlay=0:0:enable='between(t,${cue.start.toFixed(2)},${cue.end.toFixed(2)})'${out};`;
+    parts.push(`${prev}[${idx}:v]overlay=0:0:enable='between(t,${cue.start.toFixed(2)},${cue.end.toFixed(2)})'${out}`);
     prev = out;
   });
-  return { filter, outLabel: prev };
+  return { filter: parts.join(";"), outLabel: prev };
 }
 
 export interface KeepSegmentLike {

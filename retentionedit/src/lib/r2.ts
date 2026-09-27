@@ -99,6 +99,43 @@ export function presignR2Url(params: {
 }
 
 /**
+ * Server-side download of a private R2 object to a Buffer (SigV4 Authorization
+ * header auth, SERVER ONLY — never expose secretAccessKey to the client).
+ * Used by the local-render pipeline to fetch browser-uploaded sources.
+ */
+export async function downloadR2Object(key: string): Promise<Buffer | null> {
+  const cfg = getR2Config();
+  if (!cfg) return null;
+  const { accountId, accessKeyId, secretAccessKey, bucket } = cfg;
+  const host = `${accountId}.r2.cloudflarestorage.com`;
+  const region = "auto";
+  const service = "s3";
+  const { amzDate: amzDt, dateStamp } = amzDate();
+  const canonicalUri = `/${bucket}/${key.split("/").map(encodeURIComponent).join("/")}`;
+  const payloadHash = hashHex("");
+  const signedHeaders = "host;x-amz-content-sha256;x-amz-date";
+  const canonicalHeaders = `host:${host}\nx-amz-content-sha256:${payloadHash}\nx-amz-date:${amzDt}\n`;
+  const canonicalRequest = ["GET", canonicalUri, "", canonicalHeaders, signedHeaders, payloadHash].join("\n");
+  const credentialScope = `${dateStamp}/${region}/${service}/aws4_request`;
+  const stringToSign = ["AWS4-HMAC-SHA256", amzDt, credentialScope, hashHex(canonicalRequest)].join("\n");
+  const kDate = hmac(`AWS4${secretAccessKey}`, dateStamp);
+  const kRegion = hmac(kDate, region);
+  const kService = hmac(kRegion, service);
+  const kSigning = hmac(kService, "aws4_request");
+  const signature = hmac(kSigning, stringToSign).toString("hex");
+  const auth = `AWS4-HMAC-SHA256 Credential=${accessKeyId}/${credentialScope}, SignedHeaders=${signedHeaders}, Signature=${signature}`;
+  try {
+    const res = await fetch(`https://${host}${canonicalUri}`, {
+      headers: { Authorization: auth, "x-amz-date": amzDt, "x-amz-content-sha256": payloadHash },
+    });
+    if (!res.ok) return null;
+    return Buffer.from(await res.arrayBuffer());
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Checks whether an R2 key belongs to private user content.
  * All raw videos, rendered exports, thumbnails, and job payloads are private.
  */
