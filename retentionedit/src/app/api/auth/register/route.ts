@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin, isSupabaseConfigured } from "@/lib/supabase";
 import { registerUser, checkAuthRateLimit } from "@/lib/auth-store";
+import { setSessionCookie } from "@/lib/server-auth";
 
 export async function POST(req: NextRequest) {
   try {
@@ -59,13 +60,8 @@ export async function POST(req: NextRequest) {
       }
 
       const res = NextResponse.json({ success: true, user: data.user });
-      res.cookies.set("retentionedit_session", data.user?.id || cleanEmail, {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === "production",
-        sameSite: "lax",
-        path: "/",
-        maxAge: 60 * 60 * 8, // 8h
-      });
+      const userId = data.user?.id || cleanEmail;
+      await setSessionCookie(res, userId, cleanEmail);
       return res;
     }
 
@@ -79,13 +75,8 @@ export async function POST(req: NextRequest) {
       success: true,
       user: result.user,
     });
-    res.cookies.set("retentionedit_session", result.user?.id || cleanEmail, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "lax",
-      path: "/",
-      maxAge: 60 * 60 * 8, // 8h
-    });
+    const userId = result.user?.id || cleanEmail;
+    await setSessionCookie(res, userId, cleanEmail);
     return res;
   } catch (err: any) {
     console.error("Register route error:", err);

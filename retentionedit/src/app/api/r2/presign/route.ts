@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { isR2Configured, presignR2Url, sanitizeR2KeySegment } from "@/lib/r2";
 import { canFitUpload } from "@/lib/r2-quota";
+import { requireAuth } from "@/lib/server-auth";
 
 const MAX_UPLOAD_BYTES = 4 * 1024 * 1024 * 1024; // 4 GB
 const ALLOWED_EXT = new Set([".mp4", ".mov", ".webm", ".mkv", ".m4v"]);
@@ -12,14 +13,20 @@ function extOf(name: string): string {
 }
 
 /**
- * POST /api/r2/presign { filename, bytes, contentType?, userId?, plan? }
+ * POST /api/r2/presign { filename, bytes, contentType?, plan? }
  * Returns a presigned PUT URL for direct browser→R2 upload.
- * Auth: se userId non è passato, si considera anonimo (quota free, prefix anon).
- * Validazione: ext, mime, quota per piano, bytes > 0.
- * La chiave è SEMPRE costruita server-side (no traversal).
+ * Security: Strictly requires valid authentication. The R2 storage key
+ * is ALWAYS bound to the authenticated user's ID: raw/<userId>/<timestamp>_<file>.
  */
 export async function POST(req: NextRequest) {
   try {
+    const authResult = await requireAuth(req);
+    if ("errorResponse" in authResult && authResult.errorResponse) {
+      return authResult.errorResponse;
+    }
+    const { user } = authResult;
+    const userId = sanitizeR2KeySegment(user.userId, 50);
+
     if (!isR2Configured()) {
       return NextResponse.json(
         { error: "R2 not configured — set R2_* in .env.local or vault, then restart." },
@@ -32,7 +39,6 @@ export async function POST(req: NextRequest) {
     const filename = String(body.filename ?? "").trim().slice(0, 160) || "upload.mp4";
     const bytes = Math.floor(Number(body.bytes));
     const contentType = typeof body.contentType === "string" ? body.contentType.trim().slice(0, 80) : "";
-    const userIdRaw = typeof body.userId === "string" ? body.userId : "";
     const plan = typeof body.plan === "string" ? body.plan : "free";
 
     if (!Number.isFinite(bytes) || bytes <= 0) {
@@ -49,7 +55,6 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Invalid content type" }, { status: 415 });
     }
 
-    const userId = sanitizeR2KeySegment(userIdRaw || "anon", 40);
     const quota = canFitUpload({ userId, plan, fileBytes: bytes });
     if (!quota.ok) {
       return NextResponse.json(

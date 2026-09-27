@@ -1,8 +1,9 @@
 "use client";
-import React, { useState } from "react";
+import React, { useState, useRef } from "react";
 import {
   Loader2,
   Sparkles,
+  Wand2,
 } from "lucide-react";
 import { PipelineJob } from "@/lib/types";
 
@@ -58,28 +59,112 @@ export function VideoResultView({ job, onRevised }: VideoResultViewProps) {
     }
   };
 
-  const fallbackUrl =
-    job.format === "short"
-      ? "/videos/kling-creator-9-16.mp4"
-      : "/videos/final-horizontal.mp4";
+  const [blobUrl, setBlobUrl] = useState<string | null>(() => {
+    try {
+      // Synchronously check memory cache on mount for instant zero-latency playback
+      const { getProjectBlobSync } = require("@/lib/projects-store");
+      const b = getProjectBlobSync(job.id);
+      if (b) return URL.createObjectURL(b);
+    } catch {}
+    return null;
+  });
+
+  React.useEffect(() => {
+    let active = true;
+    (async () => {
+      try {
+        const { getProjectBlob } = await import("@/lib/projects-store");
+        const blob = await getProjectBlob(job.id);
+        if (blob && active) {
+          const url = URL.createObjectURL(blob);
+          setBlobUrl(url);
+        }
+      } catch {
+        // ignore
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, [job.id]);
 
   const getInitialSrc = () => {
+    if (blobUrl) return blobUrl;
     const v = job.renderedVideoUrl;
-    if (v && !v.includes("r2.retentionedit.com") && !v.includes("your_")) return v;
+    if (
+      v &&
+      !v.includes("r2.retentionedit.com") &&
+      !v.includes("cloudflarestorage.com") &&
+      !v.includes("your_") &&
+      !v.includes("kling") &&
+      !v.includes("raw-vlog")
+    )
+      return v;
     if (
       job.rawVideoUrl &&
       !job.rawVideoUrl.includes("r2.retentionedit.com") &&
-      !job.rawVideoUrl.includes("your_")
+      !job.rawVideoUrl.includes("cloudflarestorage.com") &&
+      !job.rawVideoUrl.includes("your_") &&
+      !job.rawVideoUrl.includes("kling") &&
+      !job.rawVideoUrl.includes("raw-vlog")
     )
       return job.rawVideoUrl;
-    return fallbackUrl;
+    return "";
   };
 
   const [currentVideoSrc, setCurrentVideoSrc] = useState(getInitialSrc());
+  const [currentTime, setCurrentTime] = useState(0);
+  const [effectsEnabled, setEffectsEnabled] = useState(true);
+  const videoRef = useRef<HTMLVideoElement>(null);
 
   React.useEffect(() => {
-    setCurrentVideoSrc(getInitialSrc());
-  }, [job.renderedVideoUrl, job.rawVideoUrl, fallbackUrl]);
+    const src = blobUrl || getInitialSrc();
+    if (src) setCurrentVideoSrc(src);
+  }, [blobUrl, job.renderedVideoUrl, job.rawVideoUrl]);
+
+  // Handle real-time silence skipping and time tracking
+  const handleTimeUpdate = (e: React.SyntheticEvent<HTMLVideoElement>) => {
+    const v = e.currentTarget;
+    const t = v.currentTime;
+    setCurrentTime(t);
+
+    if (effectsEnabled && job.editPlan?.cuts) {
+      for (const cut of job.editPlan.cuts) {
+        if (!cut.keep && t >= cut.start && t < cut.end) {
+          v.currentTime = cut.end;
+          break;
+        }
+      }
+    }
+  };
+
+  // Dynamic zoom punch from EditPlan
+  let currentScale = 1;
+  if (effectsEnabled && job.editPlan?.zooms) {
+    const activeZoom = job.editPlan.zooms.find(
+      (z) => currentTime >= z.time && currentTime < z.time + (z.duration || 0.6)
+    );
+    if (activeZoom) {
+      currentScale = activeZoom.scale || 1.15;
+    }
+  }
+
+  // Active viral hook graphic banner
+  const activeGraphic = effectsEnabled && job.editPlan?.graphics?.find(
+    (g) => currentTime >= g.time && currentTime < g.time + (g.duration || 3)
+  );
+
+  // Active karaoke subtitle words (Alex Hormozi style)
+  const words = job.editPlan?.captions?.words || [];
+  const activeWordIdx = words.findIndex(
+    (w) => currentTime >= w.start && currentTime <= w.end
+  );
+
+  let visibleWords: typeof words = [];
+  if (activeWordIdx !== -1) {
+    const startIdx = Math.max(0, activeWordIdx - (activeWordIdx % 4));
+    visibleWords = words.slice(startIdx, startIdx + 4);
+  }
 
   return (
     <div className="w-full h-full flex flex-col items-center justify-center overflow-hidden select-none py-1">
@@ -88,18 +173,88 @@ export function VideoResultView({ job, onRevised }: VideoResultViewProps) {
         {/* 1. TOP VIDEO CONTAINER — Raised, clean, 16:9, fits the viewport perfectly */}
         <div className="relative w-full aspect-[16/9] max-h-[52vh] rounded-2xl sm:rounded-3xl overflow-hidden border border-white/10 bg-black shadow-2xl flex items-center justify-center shrink">
           <video
+            ref={videoRef}
             src={currentVideoSrc}
             controls
             autoPlay
             playsInline
             loop
-            onError={() => {
-              if (currentVideoSrc !== fallbackUrl) {
-                setCurrentVideoSrc(fallbackUrl);
-              }
+            onTimeUpdate={handleTimeUpdate}
+            onError={async () => {
+              try {
+                const { getProjectBlob } = await import("@/lib/projects-store");
+                const b = await getProjectBlob(job.id);
+                if (b) {
+                  const recoveredUrl = URL.createObjectURL(b);
+                  if (recoveredUrl !== currentVideoSrc) {
+                    setCurrentVideoSrc(recoveredUrl);
+                    return;
+                  }
+                }
+              } catch {}
+              console.warn("Video failed to load source:", currentVideoSrc);
             }}
             className="w-full h-full object-contain"
+            style={{
+              transform: `scale(${currentScale})`,
+              transition: "transform 0.22s cubic-bezier(0.2, 0.9, 0.2, 1)",
+            }}
           />
+
+          {/* Retention Edit Active Indicator & Toggle */}
+          <div className="absolute top-3 right-3 flex items-center gap-2 pointer-events-auto z-20">
+            <button
+              type="button"
+              onClick={() => setEffectsEnabled((prev) => !prev)}
+              className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-bold tracking-wider backdrop-blur-md border transition cursor-pointer ${
+                effectsEnabled
+                  ? "bg-emerald-500/20 border-emerald-500/40 text-emerald-400 shadow-[0_0_12px_rgba(16,185,129,0.35)]"
+                  : "bg-black/60 border-white/20 text-zinc-400"
+              }`}
+              title="Attiva/Disattiva effetti di ritenzione (Zoom, Subtitles, Silenzi)"
+            >
+              <Wand2 size={11} className={effectsEnabled ? "animate-pulse" : ""} />
+              <span>{effectsEnabled ? "RETENTION AI ON" : "RAW FOOTAGE"}</span>
+            </button>
+          </div>
+
+          {/* Dynamic Graphic Banner (Act Title / Hook) */}
+          {activeGraphic && (
+            <div className="absolute top-3 left-3 sm:left-4 z-20 max-w-[70%] animate-in fade-in slide-in-from-top-2 duration-300 pointer-events-none">
+              <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-black/80 border border-emerald-500/50 shadow-2xl backdrop-blur-md">
+                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
+                <span className="text-[11px] sm:text-xs font-black uppercase tracking-wider text-white truncate">
+                  {activeGraphic.text}
+                </span>
+              </div>
+            </div>
+          )}
+
+          {/* Alex Hormozi Style Karaoke Subtitles */}
+          {effectsEnabled && visibleWords.length > 0 && (
+            <div
+              className="absolute left-0 right-0 z-20 flex justify-center items-center pointer-events-none px-4 select-none animate-in fade-in duration-100"
+              style={{ bottom: `${job.editPlan?.captions?.bottom_pct || 18}%` }}
+            >
+              <div className="inline-flex flex-wrap justify-center items-center gap-1.5 sm:gap-2 px-4 py-1.5 rounded-xl bg-black/60 backdrop-blur-sm shadow-2xl border border-white/10">
+                {visibleWords.map((w, idx) => {
+                  const isCurrent = currentTime >= w.start && currentTime <= w.end;
+                  return (
+                    <span
+                      key={`${w.word}-${idx}`}
+                      className={`font-black uppercase tracking-tight sm:tracking-wider transition-all duration-100 ${
+                        isCurrent
+                          ? "text-yellow-300 scale-110 drop-shadow-[0_2px_8px_rgba(250,204,21,0.8)] text-sm sm:text-base"
+                          : "text-white text-xs sm:text-sm drop-shadow-[0_1px_4px_rgba(0,0,0,0.9)]"
+                      }`}
+                    >
+                      {w.word}
+                    </span>
+                  );
+                })}
+              </div>
+            </div>
+          )}
         </div>
 
         {/* 2. BOTTOM CARD CONTAINER — Rounded pill card matching the wireframe */}

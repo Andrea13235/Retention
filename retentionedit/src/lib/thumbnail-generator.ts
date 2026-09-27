@@ -2,9 +2,11 @@ import sharp from "sharp";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import type { VideoFormat } from "./types";
+import { sanitizeR2KeySegment } from "./r2";
 
 export interface ThumbnailOptions {
   jobId: string;
+  userId?: string;
   title: string;
   badge?: string;
   format?: VideoFormat;
@@ -21,18 +23,19 @@ function escapeXml(unsafe: string): string {
 }
 
 /**
- * High-CTR YouTube Cover Generator
+ * High-CTR YouTube Cover Generator (Isolated & Private).
  * Generates an eye-catching YouTube thumbnail composite with:
  * - Rich dark vignette / background
  * - Neon emerald badge ("VIRAL HOOK", "RETENTION 98%")
  * - High-contrast bold typography with drop shadow
- * Returns the public URL path: /thumbnails/<jobId>.png
+ * - Saved strictly in user-isolated private vault storage.
  */
 export async function generateYouTubeCover(options: ThumbnailOptions): Promise<string> {
-  const { jobId, title, badge = "VIRAL HOOK", format = "short", framePathOrBuffer } = options;
+  const { jobId, userId = "default", title, badge = "VIRAL HOOK", format = "short", framePathOrBuffer } = options;
   const isShort = format === "short";
   const width = isShort ? 1080 : 1280;
   const height = isShort ? 1920 : 720;
+  const safeUser = sanitizeR2KeySegment(userId, 50);
 
   // Clean title for thumbnail headline: uppercase, punchy max 4-6 words
   const words = title
@@ -47,13 +50,7 @@ export async function generateYouTubeCover(options: ThumbnailOptions): Promise<s
   const headline = words.length > 30 ? words.slice(0, 28) + "..." : words || "VIRAL EDIT";
   const badgeText = (badge || "VIRAL HOOK").toUpperCase().slice(0, 18);
 
-  const outDir = path.join(process.cwd(), "public", "thumbnails");
-  try {
-    mkdirSync(outDir, { recursive: true });
-  } catch {}
-
   const outFilename = `${jobId}.png`;
-  const outPath = path.join(outDir, outFilename);
 
   const badgeWidth = Math.max(160, badgeText.length * 14 + 40);
   const badgeX = isShort ? 80 : 70;
@@ -105,31 +102,26 @@ export async function generateYouTubeCover(options: ThumbnailOptions): Promise<s
     ) {
       base = sharp(framePathOrBuffer).resize(width, height, { fit: "cover" });
     } else {
-      // Find a sample frame in public/videos or public/images
-      const sampleFrame = isShort
-        ? path.join(process.cwd(), "public", "videos", "raw-vlog.jpg")
-        : path.join(process.cwd(), "public", "videos", "final-horizontal.jpg");
-      if (existsSync(sampleFrame)) {
-        base = sharp(sampleFrame).resize(width, height, { fit: "cover" });
-      } else {
-        base = sharp({
-          create: {
-            width,
-            height,
-            channels: 4,
-            background: { r: 16, g: 17, b: 24, alpha: 1 },
-          },
-        });
-      }
+      // Sleek cinematic studio dark backdrop (no mock face)
+      base = sharp({
+        create: {
+          width,
+          height,
+          channels: 4,
+          background: { r: 14, g: 15, b: 21, alpha: 1 },
+        },
+      });
     }
 
     const outputBuffer = await base
       .composite([{ input: svgOverlay, top: 0, left: 0 }])
       .png({ quality: 90 })
       .toBuffer();
+
+    // PRIVACY: Save to user-isolated vault directory
     const candidateDirs = [
-      path.join(process.cwd(), "public", "thumbnails"),
-      path.join(process.env.TMPDIR || "/tmp", "thumbnails"),
+      path.join(process.cwd(), ".vault", "thumbnails", safeUser),
+      path.join(process.env.TMPDIR || "/tmp", "thumbnails", safeUser),
     ];
     for (const d of candidateDirs) {
       try {
@@ -138,19 +130,22 @@ export async function generateYouTubeCover(options: ThumbnailOptions): Promise<s
       } catch {}
     }
 
-    // Cloud backup to Supabase storage if available
+    // Cloud backup to Supabase storage under user prefix
     try {
       const { supabaseAdmin } = await import("@/lib/supabase");
       if (supabaseAdmin) {
         await supabaseAdmin.storage
           .from("retentionedit_jobs")
-          .upload(`thumbnails/${outFilename}`, outputBuffer, { contentType: "image/png", upsert: true });
+          .upload(`${safeUser}/thumbnails/${outFilename}`, outputBuffer, {
+            contentType: "image/png",
+            upsert: true,
+          });
       }
     } catch {}
 
     return `/thumbnails/${outFilename}`;
   } catch (err) {
     console.warn("Error generating sharp thumbnail cover:", err);
-    return isShort ? "/videos/raw-vlog.jpg" : "/videos/final-horizontal.jpg";
+    return "/images/hero-preview.png";
   }
 }

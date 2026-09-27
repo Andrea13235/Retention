@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSecret, isVaultProvider, secretSource } from "@/lib/vault-store";
+import { requireAuth } from "@/lib/server-auth";
 
 /**
  * POST /api/vault/test { provider }
@@ -9,6 +10,11 @@ import { getSecret, isVaultProvider, secretSource } from "@/lib/vault-store";
  */
 export async function POST(req: NextRequest) {
   try {
+    const authResult = await requireAuth(req);
+    if ("errorResponse" in authResult && authResult.errorResponse) {
+      return authResult.errorResponse;
+    }
+
     const body = await req.json();
     const provider = String(body?.provider || "");
     if (!isVaultProvider(provider)) {

@@ -1,27 +1,70 @@
 import { NextRequest, NextResponse } from "next/server";
-import { isR2Configured, presignR2Url, r2ObjectUrl, sanitizeR2KeySegment } from "@/lib/r2";
+import { isR2Configured, presignPrivateGetUrl, sanitizeR2KeySegment } from "@/lib/r2";
+import { requireAuth } from "@/lib/server-auth";
 
-function isR2Key(key: string): boolean {
-  return key.startsWith("r2://");
-}
 function stripR2Prefix(key: string): string {
   return key.startsWith("r2://") ? key.slice(5) : key;
 }
 
+/**
+ * GET /api/r2/download?key=<r2Key>&redirect=1
+ * Generates a private, short-lived presigned GET URL for the authenticated owner.
+ * Total privacy guarantee:
+ * - Requires authenticated session.
+ * - Enforces that the key MUST belong to the user's isolated prefix:
+ *   raw/<userId>/..., exports/<userId>/..., thumbnails/<userId>/...
+ * - Never returns or uses public bucket URLs.
+ * - Short expiry (900 seconds / 15 mins).
+ */
 export async function GET(req: NextRequest) {
+  const authResult = await requireAuth(req);
+  if ("errorResponse" in authResult && authResult.errorResponse) {
+    return authResult.errorResponse;
+  }
+  const userId = sanitizeR2KeySegment(authResult.user.userId, 50);
+
   const rawKey = (new URL(req.url).searchParams.get("key") || "").trim().slice(0, 600);
   const key = stripR2Prefix(rawKey);
-  const userId = sanitizeR2KeySegment((new URL(req.url).searchParams.get("userId") || "anon").trim(), 40);
   const redirect = new URL(req.url).searchParams.get("redirect") === "1";
-  if (!key) return NextResponse.json({ error: "key required" }, { status: 400 });
-  if (!isR2Configured()) return NextResponse.json({ error: "R2 not configured" }, { status: 503 });
-  // raw/ and exports/ and thumbnails/ are all valid; enforce per-user prefix
-  if (!key.startsWith(`raw/${userId}/`) && !key.startsWith(`exports/${userId}/`) && !key.startsWith(`thumbnails/${userId}/`)) {
-    return NextResponse.json({ error: "key does not match your user prefix" }, { status: 403 });
+
+  if (!key) {
+    return NextResponse.json({ error: "key required" }, { status: 400 });
   }
-  // Prefer public base URL if configured (no signing), else presigned GET
-  const resolved = r2ObjectUrl(key) ?? presignR2Url({ method: "GET", key, expiresSec: 3600 });
-  if (!resolved) return NextResponse.json({ error: "Failed to presign" }, { status: 500 });
-  if (redirect) return NextResponse.redirect(resolved, 302);
-  return NextResponse.json({ url: resolved, key, expiresInSec: 3600 });
+  if (!isR2Configured()) {
+    return NextResponse.json({ error: "R2 not configured" }, { status: 503 });
+  }
+
+  // Strict ownership check: key must belong to this authenticated user
+  const isOwner =
+    key.startsWith(`raw/${userId}/`) ||
+    key.startsWith(`exports/${userId}/`) ||
+    key.startsWith(`thumbnails/${userId}/`);
+
+  if (!isOwner) {
+    return NextResponse.json(
+      { error: "Forbidden — You do not have permission to access this private video." },
+      { status: 403 }
+    );
+  }
+
+  // Always generate a private, signed GET URL with short TTL (15 minutes)
+  const resolved = presignPrivateGetUrl(key, 900);
+  if (!resolved) {
+    return NextResponse.json({ error: "Failed to generate secure download link" }, { status: 500 });
+  }
+
+  if (redirect) {
+    const res = NextResponse.redirect(resolved, 302);
+    res.headers.set("Cache-Control", "private, no-cache, no-store, must-revalidate");
+    return res;
+  }
+
+  const res = NextResponse.json({
+    url: resolved,
+    key,
+    expiresInSec: 900,
+    private: true,
+  });
+  res.headers.set("Cache-Control", "private, no-cache, no-store, must-revalidate");
+  return res;
 }

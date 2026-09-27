@@ -87,7 +87,7 @@ export function ProjectCard({ project, onClearCover, onOpen }: ProjectCardProps)
         ) : (
           // eslint-disable-next-line @next/next/no-img-element
           <img
-            src={project.format === "short" ? "/videos/raw-vlog.jpg" : "/images/hero-preview.png"}
+            src="/images/hero-preview.png"
             alt={project.title}
             className="w-full h-full object-cover"
           />

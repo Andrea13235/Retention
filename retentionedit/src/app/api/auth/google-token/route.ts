@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin, isSupabaseConfigured } from "@/lib/supabase";
 import { getOrCreateGoogleUser } from "@/lib/auth-store";
+import { setSessionCookie } from "@/lib/server-auth";
 
 type GoogleUserInfo = {
   sub?: string;
@@ -130,14 +131,8 @@ export async function POST(req: NextRequest) {
         : fallbackUser,
     });
 
-    res.cookies.set("retentionedit_session", supabaseUser?.id || fallbackUser?.id || "google", {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "lax",
-      path: "/",
-      maxAge: 60 * 60 * 8, // 8h
-    });
-
+    const userId = supabaseUser?.id || fallbackUser?.id || "google";
+    await setSessionCookie(res, userId, email);
     return res;
   } catch (err: any) {
     console.error("Google token auth route error:", err);

@@ -72,28 +72,46 @@ export function ProcessingProjectCard({ project }: { project: ProjectEntry }) {
               headers: { "x-retentionedit-session": "active" },
             });
             const fullJob = resResult.ok ? await resResult.json() : null;
-            const { upsertProject, loadProjectEntries } = await import("@/lib/projects-store");
+            const { upsertProject, loadProjectEntries, getProjectBlob } = await import("@/lib/projects-store");
             const existing = loadProjectEntries().find((p) => p.id === project.id) || project;
             const finalTitle = fullJob?.title || data.title || existing.title;
             const rawCover = fullJob?.thumbnailUrl || fullJob?.coverUrl || data.thumbnailUrl || existing.coverUrl;
-            const isDeadCover = !rawCover || rawCover.includes("r2.retentionedit.com") || rawCover.includes("ruzza");
+            const isDeadCover = !rawCover || rawCover.includes("r2.retentionedit.com") || rawCover.includes("ruzza") || rawCover.includes("raw-vlog");
             const finalCover = !isDeadCover
               ? rawCover
-              : project.format === "short"
-              ? "/videos/raw-vlog.jpg"
-              : "/images/hero-preview.png";
+              : (existing.coverUrl && !existing.coverUrl.includes("raw-vlog")
+                ? existing.coverUrl
+                : "/images/hero-preview.png");
 
-            const rawVid =
-              fullJob?.renderedVideoUrl ||
-              fullJob?.finalVideoUrl ||
-              data.renderedVideoUrl ||
-              existing.videoUrl;
-            const isDeadVid = !rawVid || rawVid.includes("r2.retentionedit.com") || rawVid.includes("your_");
-            const finalVideo = !isDeadVid
-              ? rawVid
-              : project.format === "short"
-              ? "/videos/raw-vlog.mp4"
-              : "/videos/final-horizontal.mp4";
+            // Check if user uploaded a real video file stored in IndexedDB
+            const userBlob = await getProjectBlob(project.id).catch(() => null);
+            let finalVideo = "";
+            if (userBlob) {
+              finalVideo =
+                existing.videoUrl &&
+                !existing.videoUrl.includes("kling") &&
+                !existing.videoUrl.includes("r2.retentionedit.com") &&
+                !existing.videoUrl.includes("cloudflarestorage.com") &&
+                !existing.videoUrl.includes("raw-vlog") &&
+                !existing.videoUrl.includes("final-horizontal")
+                  ? existing.videoUrl
+                  : "";
+            } else {
+              const rawVid =
+                fullJob?.renderedVideoUrl ||
+                fullJob?.finalVideoUrl ||
+                data.renderedVideoUrl ||
+                existing.videoUrl;
+              const isDeadVid =
+                !rawVid ||
+                rawVid.includes("r2.retentionedit.com") ||
+                rawVid.includes("cloudflarestorage.com") ||
+                rawVid.includes("your_") ||
+                rawVid.includes("kling") ||
+                rawVid.includes("raw-vlog") ||
+                rawVid.includes("final-horizontal");
+              finalVideo = !isDeadVid ? rawVid : "";
+            }
 
             await upsertProject(
               {
@@ -163,7 +181,7 @@ export function ProcessingProjectCard({ project }: { project: ProjectEntry }) {
         ) : (
           // eslint-disable-next-line @next/next/no-img-element
           <img
-            src={project.format === "short" ? "/videos/raw-vlog.jpg" : "/images/hero-preview.png"}
+            src="/images/hero-preview.png"
             alt={project.title}
             className="w-full h-full object-cover filter brightness-[0.7]"
           />

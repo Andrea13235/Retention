@@ -1,14 +1,31 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getStripeServer, STRIPE_PLANS, PlanId } from "@/lib/stripe";
-import { findUserByEmail } from "@/lib/auth-store";
+import { getAuthenticatedUser } from "@/lib/server-auth";
 
 export async function GET(req: NextRequest) {
   try {
+    const authUser = await getAuthenticatedUser(req);
     const { searchParams } = new URL(req.url);
-    const emailCandidate = searchParams.get("email") || req.headers.get("x-user-email");
-    const email = typeof emailCandidate === "string" && emailCandidate.includes("@")
-      ? emailCandidate.trim().toLowerCase()
-      : null;
+    const emailCandidate = searchParams.get("email");
+
+    // Only allow querying if authenticated and querying own email
+    let email: string | null = null;
+    if (authUser?.email) {
+      email = authUser.email.toLowerCase();
+    } else if (authUser?.userId) {
+      // Find email for user
+      try {
+        const { findUserByEmail } = await import("@/lib/auth-store");
+        const fs = await import("fs");
+        const path = await import("path");
+        const usersFile = path.join(process.cwd(), "src", "data", "users.json");
+        if (fs.existsSync(usersFile)) {
+          const list = JSON.parse(fs.readFileSync(usersFile, "utf-8"));
+          const found = list.find((u: any) => u.id === authUser.userId);
+          if (found?.email) email = found.email.toLowerCase();
+        }
+      } catch {}
+    }
 
     if (!email) {
       return NextResponse.json({

@@ -435,7 +435,7 @@ export default function Landing({
 
               <div className="relative aspect-video rounded-2xl overflow-hidden bg-[#0a0a0f] border border-[#1f202b]">
                 <video
-                  src="/videos/raw-vlog.mp4"
+                  src="/videos/kling-creator-9-16.mp4"
                   autoPlay
                   loop
                   muted

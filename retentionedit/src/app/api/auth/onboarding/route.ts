@@ -1,15 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin, isSupabaseConfigured } from "@/lib/supabase";
 import { completeUserOnboarding } from "@/lib/auth-store";
+import { requireAuth } from "@/lib/server-auth";
 
 // POST /api/auth/onboarding
 // Persists the OpusClip-style onboarding answers and marks the user as done.
-// Only NEW users (onboardingCompleted === false) go through the modal;
-// this endpoint flips the flag so existing users never see it again.
+// Requires authenticated session.
 export async function POST(req: NextRequest) {
   try {
+    const authResult = await requireAuth(req);
+    if ("errorResponse" in authResult && authResult.errorResponse) {
+      return authResult.errorResponse;
+    }
+
     const body = await req.json().catch(() => ({}));
-    const email = (body.email || "").trim().toLowerCase();
+    const email = (authResult.user.email || body.email || "").trim().toLowerCase();
     if (!email) {
       return NextResponse.json({ error: "Email mancante." }, { status: 400 });
     }

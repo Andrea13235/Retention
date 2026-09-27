@@ -1,14 +1,15 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import type { PipelineJob } from "./types";
+import { sanitizeR2KeySegment } from "./r2";
 
 /**
- * Persistenza job su disco — SERVER ONLY.
+ * RetentionEdit — Isolated Job Persistence Store (Server-Only).
  *
- * I job vivono in `<project>/.vault/jobs/<jobId>.json` (gitignored).
- * Sopravvivono al restart del server dev e permettono a status/result
- * di rispondere anche dopo un reload. Scrittura atomica best-effort
- * (tmp + rename); in caso di errore I/O la pipeline continua in-memory.
+ * Guarantees 100% tenant isolation:
+ * - Jobs live in `<project>/.vault/jobs/<userId>/<jobId>.json`.
+ * - Cloud backup lives in `retentionedit_jobs/<userId>/<jobId>.json`.
+ * - Cross-user access (IDOR) is strictly rejected: a user cannot read another user's job.
  */
 function getBaseVaultDir(): string {
   const isServerless = Boolean(
@@ -23,8 +24,9 @@ function getBaseVaultDir(): string {
   return path.join(process.cwd(), ".vault");
 }
 
-function jobsDir(): string {
-  const dir = path.join(getBaseVaultDir(), "jobs");
+function userJobsDir(userId: string): string {
+  const safeUser = sanitizeR2KeySegment(userId || "default", 50);
+  const dir = path.join(getBaseVaultDir(), "jobs", safeUser);
   try {
     mkdirSync(dir, { recursive: true });
   } catch {
@@ -33,28 +35,46 @@ function jobsDir(): string {
   return dir;
 }
 
-function jobPath(id: string): string {
-  const safe = id.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 80);
-  return path.join(jobsDir(), `${safe}.json`);
+function legacyJobsDir(): string {
+  const dir = path.join(getBaseVaultDir(), "jobs");
+  try {
+    mkdirSync(dir, { recursive: true });
+  } catch {}
+  return dir;
+}
+
+function userJobPath(id: string, userId: string): string {
+  const safeId = id.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 80);
+  return path.join(userJobsDir(userId), `${safeId}.json`);
+}
+
+function legacyJobPath(id: string): string {
+  const safeId = id.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 80);
+  return path.join(legacyJobsDir(), `${safeId}.json`);
 }
 
 export function persistJob(job: PipelineJob): void {
-  const safe = job.id.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 80);
+  const safeId = job.id.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 80);
+  const safeUser = sanitizeR2KeySegment(job.userId || "default", 50);
+
   try {
-    const dest = jobPath(job.id);
+    const dest = userJobPath(job.id, job.userId);
     const tmp = `${dest}.tmp`;
     writeFileSync(tmp, JSON.stringify(job));
     renameSync(tmp, dest);
   } catch {
-    // I/O fallito → la pipeline continua in-memory
+    // I/O failed → continue in-memory
   }
 
-  // Cloud sync to Supabase storage bucket (cross-container/serverless resilience)
+  // Cloud sync to Supabase storage bucket under user-isolated prefix
   import("@/lib/supabase").then(({ supabaseAdmin }) => {
     if (supabaseAdmin) {
       supabaseAdmin.storage
         .from("retentionedit_jobs")
-        .upload(`${safe}.json`, JSON.stringify(job), { contentType: "application/json", upsert: true })
+        .upload(`${safeUser}/${safeId}.json`, JSON.stringify(job), {
+          contentType: "application/json",
+          upsert: true,
+        })
         .catch(() => {});
     }
   }).catch(() => {});
@@ -62,50 +82,83 @@ export function persistJob(job: PipelineJob): void {
 
 export async function persistJobAsync(job: PipelineJob): Promise<void> {
   persistJob(job);
-  const safe = job.id.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 80);
+  const safeId = job.id.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 80);
+  const safeUser = sanitizeR2KeySegment(job.userId || "default", 50);
+
   try {
     const { supabaseAdmin } = await import("@/lib/supabase");
     if (supabaseAdmin) {
       await supabaseAdmin.storage
         .from("retentionedit_jobs")
-        .upload(`${safe}.json`, JSON.stringify(job), { contentType: "application/json", upsert: true });
+        .upload(`${safeUser}/${safeId}.json`, JSON.stringify(job), {
+          contentType: "application/json",
+          upsert: true,
+        });
     }
   } catch {}
 }
 
-export function loadJob(id: string): PipelineJob | null {
-  const candidates = [jobPath(id), `${jobPath(id)}.tmp`];
+export function loadJob(id: string, expectedUserId?: string): PipelineJob | null {
+  const candidates: string[] = [];
+
+  if (expectedUserId) {
+    const uPath = userJobPath(id, expectedUserId);
+    candidates.push(uPath, `${uPath}.tmp`);
+  }
+
+  // Legacy fallback candidates
+  const lPath = legacyJobPath(id);
+  candidates.push(lPath, `${lPath}.tmp`);
+
   for (const p of candidates) {
     try {
       if (!existsSync(p)) continue;
       const parsed = JSON.parse(readFileSync(p, "utf8")) as PipelineJob;
-      if (parsed && parsed.id === id) return parsed;
+      if (parsed && parsed.id === id) {
+        // Strict ownership check if expectedUserId provided
+        if (expectedUserId && parsed.userId !== expectedUserId) {
+          return null; // IDOR protection: reject unauthorized access
+        }
+        return parsed;
+      }
     } catch {
-      // corrotto → prova il prossimo
+      // corrupted → try next
     }
   }
   return null;
 }
 
-export async function loadJobAsync(id: string): Promise<PipelineJob | null> {
-  const local = loadJob(id);
+export async function loadJobAsync(id: string, expectedUserId?: string): Promise<PipelineJob | null> {
+  const local = loadJob(id, expectedUserId);
   if (local) return local;
 
-  // Cloud fallback: fetch from Supabase storage bucket
-  const safe = id.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 80);
+  // Cloud fallback from Supabase storage under user prefix
+  const safeId = id.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 80);
+  const safeUser = expectedUserId ? sanitizeR2KeySegment(expectedUserId, 50) : null;
+
   try {
     const { supabaseAdmin } = await import("@/lib/supabase");
     if (supabaseAdmin) {
-      const { data, error } = await supabaseAdmin.storage
-        .from("retentionedit_jobs")
-        .download(`${safe}.json`);
-      if (!error && data) {
-        const text = await data.text();
-        const parsed = JSON.parse(text) as PipelineJob;
-        if (parsed && parsed.id === id) {
-          // Cache locally in /tmp
-          persistJob(parsed);
-          return parsed;
+      const pathsToTry = safeUser
+        ? [`${safeUser}/${safeId}.json`, `${safeId}.json`]
+        : [`${safeId}.json`];
+
+      for (const remotePath of pathsToTry) {
+        const { data, error } = await supabaseAdmin.storage
+          .from("retentionedit_jobs")
+          .download(remotePath);
+
+        if (!error && data) {
+          const text = await data.text();
+          const parsed = JSON.parse(text) as PipelineJob;
+          if (parsed && parsed.id === id) {
+            if (expectedUserId && parsed.userId !== expectedUserId) {
+              return null; // IDOR protection
+            }
+            // Cache locally in user folder
+            persistJob(parsed);
+            return parsed;
+          }
         }
       }
     }
@@ -114,10 +167,13 @@ export async function loadJobAsync(id: string): Promise<PipelineJob | null> {
   return null;
 }
 
-/** Ultimi N job persistiti (per eventuale ripresa). Mai i byte video, solo metadati. */
-export function listRecentJobs(limit = 20): Array<{ id: string; title: string; createdAt: number }> {
+/** List recent jobs for a specific user. */
+export function listRecentJobs(
+  userId?: string,
+  limit = 20
+): Array<{ id: string; title: string; createdAt: number }> {
   try {
-    const dir = jobsDir();
+    const dir = userId ? userJobsDir(userId) : legacyJobsDir();
     if (!existsSync(dir)) return [];
     return readdirSync(dir)
       .filter((f) => f.endsWith(".json"))

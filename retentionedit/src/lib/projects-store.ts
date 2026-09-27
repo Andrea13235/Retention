@@ -85,18 +85,24 @@ export function isBuggedOrStaleProject(item: ProjectEntry): boolean {
 }
 
 export function sanitizeProjectEntry(item: ProjectEntry): ProjectEntry {
-  const isShort = item.format === "short";
-  const defaultVideo = isShort ? "/videos/raw-vlog.mp4" : "/videos/final-horizontal.mp4";
-  const defaultCover = isShort ? "/videos/raw-vlog.jpg" : "/videos/final-horizontal.jpg";
-
   let videoUrl = item.videoUrl || "";
-  if (videoUrl.includes("r2.retentionedit.com") || videoUrl.includes("demo_retention") || videoUrl.includes("kling")) {
+  if (
+    videoUrl.includes("r2.retentionedit.com") ||
+    videoUrl.includes("demo_retention") ||
+    videoUrl.includes("kling") ||
+    videoUrl.includes("raw-vlog") ||
+    videoUrl.includes("cloudflarestorage.com")
+  ) {
     videoUrl = "";
   }
 
   let coverUrl = item.coverUrl || "";
-  if (coverUrl.includes("r2.retentionedit.com") || coverUrl.includes("ruzza")) {
-    coverUrl = defaultCover;
+  if (
+    coverUrl.includes("r2.retentionedit.com") ||
+    coverUrl.includes("ruzza") ||
+    coverUrl.includes("raw-vlog")
+  ) {
+    coverUrl = "";
   }
 
   return {
@@ -191,10 +197,21 @@ function readAll(userId?: string): ProjectEntry[] {
     const parsed = JSON.parse(raw) as ProjectEntry[];
     if (!Array.isArray(parsed) || parsed.length === 0) return [];
     
-    // Purge any lingering kling-creator references from previous sessions
+    // Purge any lingering kling-creator, raw-vlog, or dead cloudflarestorage references from previous sessions
     for (const p of parsed) {
-      if (p.videoUrl && p.videoUrl.includes("kling")) {
+      if (
+        p.videoUrl &&
+        (p.videoUrl.includes("kling") ||
+          p.videoUrl.includes("raw-vlog") ||
+          p.videoUrl.includes("cloudflarestorage.com"))
+      ) {
         p.videoUrl = "";
+      }
+      if (
+        p.coverUrl &&
+        (p.coverUrl.includes("raw-vlog") || p.coverUrl.includes("ruzza"))
+      ) {
+        p.coverUrl = "";
       }
     }
 
@@ -265,7 +282,7 @@ export async function upsertProject(
   const all = readAll().filter((e) => {
     if (e.id === entry.id) return false;
     if (normNew.length >= 3 && normalizeProjectTitle(e.title) === normNew) return false;
-    if (entry.videoUrl && e.videoUrl && entry.videoUrl !== "/videos/raw-vlog.mp4" && e.videoUrl === entry.videoUrl) return false;
+    if (entry.videoUrl && e.videoUrl && e.videoUrl === entry.videoUrl) return false;
     return true;
   });
   writeAll([entry, ...all]);
@@ -335,10 +352,12 @@ export function isReplayableUrl(url: string): boolean {
  * otherwise the persisted IndexedDB blob as a fresh object URL,
  * otherwise null (session expired → user must re-upload).
  */
+const MEMORY_BLOB_CACHE = new Map<string, Blob>();
+
 export async function getProjectVideoUrl(
   entry: ProjectEntry
 ): Promise<string | null> {
-  // 1. ALWAYS check if the user uploaded their own video file stored in IndexedDB!
+  // 1. ALWAYS check memory cache and IndexedDB for the user's uploaded video
   try {
     const blob = await getProjectBlob(entry.id);
     if (blob) return URL.createObjectURL(blob);
@@ -346,8 +365,14 @@ export async function getProjectVideoUrl(
     // ignore
   }
 
-  // 2. If no blob, use entry.videoUrl if valid and NOT a kling fallback
-  if (entry.videoUrl && isReplayableUrl(entry.videoUrl) && !entry.videoUrl.includes("kling")) {
+  // 2. If no blob, use entry.videoUrl if valid and NOT a fallback/mock
+  if (
+    entry.videoUrl &&
+    isReplayableUrl(entry.videoUrl) &&
+    !entry.videoUrl.includes("kling") &&
+    !entry.videoUrl.includes("raw-vlog") &&
+    !entry.videoUrl.includes("cloudflarestorage.com")
+  ) {
     return entry.videoUrl;
   }
 
@@ -355,7 +380,7 @@ export async function getProjectVideoUrl(
 }
 
 // ---------------------------------------------------------------------------
-// IndexedDB blob storage (video bytes)
+// IndexedDB blob storage (video bytes) with v3 isolation
 // ---------------------------------------------------------------------------
 
 function openDb(): Promise<IDBDatabase> {
@@ -364,7 +389,7 @@ function openDb(): Promise<IDBDatabase> {
       reject(new Error("IndexedDB unavailable"));
       return;
     }
-    const req = indexedDB.open("retentionedit-projects", 1);
+    const req = indexedDB.open("retentionedit-videos-v3", 1);
     req.onupgradeneeded = () => {
       if (!req.result.objectStoreNames.contains("videos")) {
         req.result.createObjectStore("videos");
@@ -376,43 +401,68 @@ function openDb(): Promise<IDBDatabase> {
 }
 
 export async function putProjectBlob(id: string, blob: Blob): Promise<void> {
-  const db = await openDb();
+  MEMORY_BLOB_CACHE.set(id, blob);
   try {
-    await new Promise<void>((resolve, reject) => {
-      const tx = db.transaction("videos", "readwrite");
-      tx.objectStore("videos").put(blob, id);
-      tx.oncomplete = () => resolve();
-      tx.onerror = () => reject(tx.error);
-    });
-  } finally {
-    db.close();
+    const db = await openDb();
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const tx = db.transaction("videos", "readwrite");
+        tx.objectStore("videos").put(blob, id);
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error);
+      });
+    } finally {
+      db.close();
+    }
+  } catch (err) {
+    console.warn("Failed to persist blob to IndexedDB:", err);
   }
+}
+
+export function getProjectBlobSync(id: string): Blob | null {
+  return MEMORY_BLOB_CACHE.get(id) ?? null;
 }
 
 export async function getProjectBlob(id: string): Promise<Blob | null> {
-  const db = await openDb();
+  const cached = MEMORY_BLOB_CACHE.get(id);
+  if (cached) return cached;
   try {
-    return await new Promise<Blob | null>((resolve, reject) => {
-      const tx = db.transaction("videos", "readonly");
-      const req = tx.objectStore("videos").get(id);
-      req.onsuccess = () => resolve((req.result as Blob | undefined) ?? null);
-      req.onerror = () => reject(req.error);
-    });
-  } finally {
-    db.close();
+    const db = await openDb();
+    try {
+      const blob = await new Promise<Blob | null>((resolve, reject) => {
+        const tx = db.transaction("videos", "readonly");
+        const req = tx.objectStore("videos").get(id);
+        req.onsuccess = () => resolve((req.result as Blob | undefined) ?? null);
+        req.onerror = () => reject(req.error);
+      });
+      if (blob) {
+        MEMORY_BLOB_CACHE.set(id, blob);
+        return blob;
+      }
+    } finally {
+      db.close();
+    }
+  } catch {
+    // ignore
   }
+  return null;
 }
 
 async function deleteProjectBlob(id: string): Promise<void> {
-  const db = await openDb();
+  MEMORY_BLOB_CACHE.delete(id);
   try {
-    await new Promise<void>((resolve, reject) => {
-      const tx = db.transaction("videos", "readwrite");
-      tx.objectStore("videos").delete(id);
-      tx.oncomplete = () => resolve();
-      tx.onerror = () => reject(tx.error);
-    });
-  } finally {
-    db.close();
+    const db = await openDb();
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const tx = db.transaction("videos", "readwrite");
+        tx.objectStore("videos").delete(id);
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error);
+      });
+    } finally {
+      db.close();
+    }
+  } catch {
+    // ignore
   }
 }

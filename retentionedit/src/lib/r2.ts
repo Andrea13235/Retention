@@ -98,14 +98,56 @@ export function presignR2Url(params: {
   return `https://${host}${canonicalUri}?${canonicalQs}&X-Amz-Signature=${signature}`;
 }
 
-export function r2ObjectUrl(key: string): string | null {
+/**
+ * Checks whether an R2 key belongs to private user content.
+ * All raw videos, rendered exports, thumbnails, and job payloads are private.
+ */
+export function isPrivateUserKey(key: string): boolean {
+  const clean = (key || "").trim().toLowerCase();
+  return (
+    clean.startsWith("raw/") ||
+    clean.startsWith("exports/") ||
+    clean.startsWith("thumbnails/") ||
+    clean.startsWith("jobs/") ||
+    clean.includes("/raw/") ||
+    clean.includes("/exports/")
+  );
+}
+
+/**
+ * Returns a private, time-limited presigned GET URL for secure video access.
+ * User content NEVER uses publicBaseUrl.
+ */
+export function presignPrivateGetUrl(key: string, expiresSec = 900): string | null {
+  const safeTtl = Math.max(60, Math.min(1800, expiresSec)); // 1 to 30 mins
+  return presignR2Url({ method: "GET", key, expiresSec: safeTtl });
+}
+
+/**
+ * Resolves an R2 key to an accessible URL.
+ * PRIVACY GUARANTEE: Any key matching private user content (raw, exports, thumbnails)
+ * is ALWAYS signed with a short-lived presigned GET URL and NEVER exposed via publicBaseUrl.
+ */
+export function r2ObjectUrl(
+  key: string,
+  options?: { forcePrivate?: boolean; expiresSec?: number }
+): string | null {
   const cfg = getR2Config();
   if (!cfg) return null;
+
+  const mustBePrivate = options?.forcePrivate !== false && (options?.forcePrivate === true || isPrivateUserKey(key));
+
+  if (mustBePrivate) {
+    return presignPrivateGetUrl(key, options?.expiresSec || 900);
+  }
+
+  // Only public assets (e.g. general marketing branding) can use publicBaseUrl
   if (cfg.publicBaseUrl) {
     const base = cfg.publicBaseUrl.replace(/\/+$/, "");
     return `${base}/${key.split("/").map(encodeURIComponent).join("/")}`;
   }
-  return presignR2Url({ method: "GET", key, expiresSec: 3600 });
+
+  return presignPrivateGetUrl(key, 900);
 }
 
 export function sanitizeR2KeySegment(s: string, maxLen = 80): string {

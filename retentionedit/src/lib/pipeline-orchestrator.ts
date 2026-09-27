@@ -75,6 +75,7 @@ function createInitialStages(): Record<StageId, StageInfo> {
 
 export class PipelineOrchestrator {
   public static createJob(params: {
+    userId?: string;
     title: string;
     rawVideoUrl: string;
     format: VideoFormat;
@@ -84,6 +85,7 @@ export class PipelineOrchestrator {
     const id = `job_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
     const job: PipelineJob = {
       id,
+      userId: params.userId || "default",
       title: params.title || "Untitled Autonomous Edit",
       createdAt: Date.now(),
       format: params.format,
@@ -100,21 +102,33 @@ export class PipelineOrchestrator {
     return job;
   }
 
-  public static getJob(id: string): PipelineJob | undefined {
+  public static getJob(id: string, expectedUserId?: string): PipelineJob | undefined {
     const live = ACTIVE_JOBS.get(id);
-    if (live) return live;
-    // Fallback su disco (restart server / reload): ripristina in-memory.
-    const stored = loadJob(id);
-    if (stored) ACTIVE_JOBS.set(id, stored);
+    if (live) {
+      if (expectedUserId && live.userId !== expectedUserId) return undefined;
+      return live;
+    }
+    // Fallback on disk (restart server / reload): restore in-memory.
+    const stored = loadJob(id, expectedUserId);
+    if (stored) {
+      if (expectedUserId && stored.userId !== expectedUserId) return undefined;
+      ACTIVE_JOBS.set(id, stored);
+    }
     return stored ?? undefined;
   }
 
-  public static async getJobAsync(id: string): Promise<PipelineJob | undefined> {
+  public static async getJobAsync(id: string, expectedUserId?: string): Promise<PipelineJob | undefined> {
     const live = ACTIVE_JOBS.get(id);
-    if (live) return live;
-    // Fallback asincrono (disco locale + Supabase Storage cross-container)
-    const stored = await loadJobAsync(id);
-    if (stored) ACTIVE_JOBS.set(id, stored);
+    if (live) {
+      if (expectedUserId && live.userId !== expectedUserId) return undefined;
+      return live;
+    }
+    // Asynchronous fallback (local disk + Supabase Storage cross-container)
+    const stored = await loadJobAsync(id, expectedUserId);
+    if (stored) {
+      if (expectedUserId && stored.userId !== expectedUserId) return undefined;
+      ACTIVE_JOBS.set(id, stored);
+    }
     return stored ?? undefined;
   }
 
@@ -261,19 +275,13 @@ export class PipelineOrchestrator {
       const modalClient = new ModalGPUClient();
       const renderResult = await modalClient.renderVideo({
         jobId: job.id,
+        userId: job.userId,
         rawVideoUrl: job.rawVideoUrl,
         editPlan: job.editPlan,
       });
-      const isShort = job.format === "short";
-      const sampleRenderUrl = isShort
-        ? "/videos/kling-creator-9-16.mp4"
-        : "/videos/final-horizontal.mp4";
       job.renderedVideoUrl =
-        renderResult.renderedVideoUrl ||
-        (job.rawVideoUrl.startsWith("blob:") || job.rawVideoUrl.startsWith("/")
-          ? job.rawVideoUrl
-          : sampleRenderUrl);
-      job.thumbnailUrl = renderResult.thumbnailUrl || (isShort ? "/videos/raw-vlog.jpg" : "/videos/final-horizontal.jpg");
+        renderResult.renderedVideoUrl || job.rawVideoUrl;
+      job.thumbnailUrl = renderResult.thumbnailUrl || "/images/hero-preview.png";
       job.stages.render.state = "completed";
       job.stages.render.progress = 100;
       job.logs.push(`[${new Date().toLocaleTimeString()}] Revised render complete.`);
@@ -285,6 +293,7 @@ export class PipelineOrchestrator {
           const hookText = job.transcript?.segments[0]?.text ?? job.title;
           const art = await cover.generateCover({
             jobId: job.id,
+            userId: job.userId,
             format: job.format,
             title: job.title,
             headline: job.editPlan.thumbnail.title || job.blueprint.thumbnail.title,
@@ -492,20 +501,13 @@ export class PipelineOrchestrator {
         const modalClient = new ModalGPUClient();
         const renderResult = await modalClient.renderVideo({
           jobId: job.id,
+          userId: job.userId,
           rawVideoUrl: job.rawVideoUrl,
           editPlan: job.editPlan!,
         });
-        const isShort = job.format === "short";
-        const sampleRenderUrl = isShort
-          ? "/videos/kling-creator-9-16.mp4"
-          : "/videos/final-horizontal.mp4";
         const candidateUrl = renderResult.renderedVideoUrl || "";
-        const isDeadUrl = !candidateUrl || candidateUrl.includes("r2.retentionedit.com") || candidateUrl.includes("your_");
-        job.renderedVideoUrl = !isDeadUrl
-          ? candidateUrl
-          : (job.rawVideoUrl.startsWith("blob:") || job.rawVideoUrl.startsWith("/")
-            ? job.rawVideoUrl
-            : sampleRenderUrl);
+        const isDeadUrl = !candidateUrl || candidateUrl.includes("r2.retentionedit.com") || candidateUrl.includes("your_") || candidateUrl.includes("kling") || candidateUrl.includes("raw-vlog");
+        job.renderedVideoUrl = !isDeadUrl ? candidateUrl : job.rawVideoUrl;
         if (renderResult.qualityGate) job.qualityGate = renderResult.qualityGate;
         await updateStage("render", "completed", 100, "Modal GPU render completed. Output MP4 compiled.");
 
@@ -516,6 +518,7 @@ export class PipelineOrchestrator {
           const hookText = job.transcript?.segments[0]?.text || fullText.slice(0, 140);
           const art = await cover.generateCover({
             jobId: job.id,
+            userId: job.userId,
             format: job.format,
             title: job.title,
             headline: job.editPlan?.thumbnail?.title || job.blueprint?.thumbnail.title || job.title,
@@ -528,11 +531,11 @@ export class PipelineOrchestrator {
             job.thumbnailUrl = art.coverUrl;
             job.logs.push(`[${new Date().toLocaleTimeString()}] High-CTR YouTube Cover ready: ${art.coverUrl}`);
           } else {
-            job.thumbnailUrl = isShort ? "/videos/raw-vlog.jpg" : "/videos/final-horizontal.jpg";
+            job.thumbnailUrl = "/images/hero-preview.png";
           }
         } catch (err: unknown) {
           const message = err instanceof Error ? err.message : "cover error";
-          job.thumbnailUrl = isShort ? "/videos/raw-vlog.jpg" : "/videos/final-horizontal.jpg";
+          job.thumbnailUrl = "/images/hero-preview.png";
           job.logs.push(`[${new Date().toLocaleTimeString()}] Cover fallback applied (${message}).`);
         }
 

@@ -1,16 +1,28 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getStripeServer } from "@/lib/stripe";
+import { requireAuth } from "@/lib/server-auth";
 
 export async function POST(req: NextRequest) {
   try {
-    const body = await req.json().catch(() => ({}));
-    const userEmailCandidate = body?.userEmail || req.headers.get("x-user-email");
-    const sessionCookie = req.cookies.get("retentionedit_session")?.value;
-    const sessionHeader = req.headers.get("x-retentionedit-session");
+    const authResult = await requireAuth(req);
+    if ("errorResponse" in authResult && authResult.errorResponse) {
+      return authResult.errorResponse;
+    }
 
-    const email = typeof userEmailCandidate === "string" && userEmailCandidate.includes("@")
-      ? userEmailCandidate.trim().toLowerCase()
-      : undefined;
+    const body = await req.json().catch(() => ({}));
+    let email = authResult.user.email;
+    if (!email) {
+      try {
+        const fs = await import("fs");
+        const path = await import("path");
+        const usersFile = path.join(process.cwd(), "src", "data", "users.json");
+        if (fs.existsSync(usersFile)) {
+          const list = JSON.parse(fs.readFileSync(usersFile, "utf-8"));
+          const found = list.find((u: any) => u.id === authResult.user.userId);
+          if (found?.email) email = found.email.toLowerCase();
+        }
+      } catch {}
+    }
 
     const stripe = getStripeServer();
 

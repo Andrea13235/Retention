@@ -54,7 +54,7 @@ export function Uploader({
       title: "Creator Talking Head (9:16 Vertical)",
       format: "short" as VideoFormat,
       duration: 38,
-      url: "/videos/raw-vlog.mp4",
+      url: "/videos/kling-creator-9-16.mp4",
       tag: "TikTok / Shorts",
       hookScore: 9.8,
       desc: "Fast cadence with punch zooms & karaoke words",
@@ -88,7 +88,7 @@ export function Uploader({
   const handleStart = () => {
     onStartJob({
       title: videoTitle,
-      rawVideoUrl: selectedFile ? URL.createObjectURL(selectedFile) : "/videos/raw-vlog.mp4",
+      rawVideoUrl: selectedFile ? URL.createObjectURL(selectedFile) : (urlInput || ""),
       format,
       genaiTier: tier,
       duration: selectedFile ? 45 : format === "short" ? 38 : 64,

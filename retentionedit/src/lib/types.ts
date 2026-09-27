@@ -167,6 +167,7 @@ export interface QualityGateResult {
 
 export interface PipelineJob {
   id: string;
+  userId: string;
   title: string;
   createdAt: number;
   format: VideoFormat;

@@ -23,27 +23,30 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Identificatore di prezzo Stripe non configurato" }, { status: 500 });
     }
 
-    // Determine user identity
-    const sessionCookie = req.cookies.get("retentionedit_session")?.value;
-    const sessionHeader = req.headers.get("x-retentionedit-session");
-    const userEmailHeader = req.headers.get("x-user-email");
-    const emailCandidate = body?.userEmail || userEmailHeader;
+    const { requireAuth } = await import("@/lib/server-auth");
+    const authResult = await requireAuth(req);
+    if ("errorResponse" in authResult && authResult.errorResponse) {
+      return authResult.errorResponse;
+    }
 
-    let userEmail = typeof emailCandidate === "string" && emailCandidate.includes("@") ? emailCandidate.trim().toLowerCase() : undefined;
-    let userId = sessionCookie || sessionHeader || "anon_creator";
+    const userId = authResult.user.userId;
+    let userEmail = authResult.user.email;
 
-    if (!userEmail && userId && userId.startsWith("usr_")) {
-      // Look up user email from server store if available
+    if (!userEmail && userId) {
       try {
-        const users = (await import("@/lib/auth-store")).findUserByEmail;
-        // User could also be matched by id
-        const allUsers = (await import("@/lib/auth-store"));
-        // fallback
+        const fs = await import("fs");
+        const path = await import("path");
+        const usersFile = path.join(process.cwd(), "src", "data", "users.json");
+        if (fs.existsSync(usersFile)) {
+          const list = JSON.parse(fs.readFileSync(usersFile, "utf-8"));
+          const found = list.find((u: any) => u.id === userId);
+          if (found?.email) userEmail = found.email.toLowerCase();
+        }
       } catch {}
     }
 
     if (!userEmail) {
-      userEmail = "andrea@retentionedit.com";
+      userEmail = "creator@retentionedit.com";
     }
 
     const stripe = getStripeServer();

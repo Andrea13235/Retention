@@ -88,29 +88,44 @@ export function HomeWorkspace({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const file = selectedFile;
-    // Upload path: prova R2 presigned (zero egress), fallback a /api/upload locale, fallback a blob sicuro
-    let objectUrl = "/videos/raw-vlog.mp4";
+    if (!file && !selectedName) {
+      alert("Trascina o seleziona un file video per iniziare.");
+      return;
+    }
+    const baseName = file
+      ? file.name.replace(/\.[^/.]+$/, "")
+      : selectedName || "Creator Talking Head (9:16 Vertical)";
+
+    let objectUrl = "";
     let duration = 38;
-    let uploadedFile: File | null = null;
+    let uploadedFile: File | null = file || null;
     let r2Key: string | null = null;
+    let generatedCover: string | null = null;
+
     if (file) {
       uploadedFile = file;
-      // Proba durata reale del file video direttamente nel browser
+      const localBlob = URL.createObjectURL(file);
+
+      // 1. Generate high-CTR YouTube thumbnail directly from real video frame
+      try {
+        const { captureVideoCover } = await import("@/lib/video-cover");
+        generatedCover = await captureVideoCover(localBlob, 1.2, {
+          title: baseName,
+          badge: "VIRAL HOOK",
+        });
+      } catch {}
+
+      // 2. Probe video duration
       try {
         const probed = await new Promise<number>((resolve) => {
           const v = document.createElement("video");
           v.preload = "metadata";
-          const tempUrl = URL.createObjectURL(file);
           v.onloadedmetadata = () => {
             const d = Math.round(v.duration);
-            URL.revokeObjectURL(tempUrl);
             resolve(Number.isFinite(d) && d > 0 ? d : 38);
           };
-          v.onerror = () => {
-            URL.revokeObjectURL(tempUrl);
-            resolve(38);
-          };
-          v.src = tempUrl;
+          v.onerror = () => resolve(38);
+          v.src = localBlob;
         });
         if (probed > 0) duration = probed;
       } catch {
@@ -181,22 +196,21 @@ export function HomeWorkspace({
             throw new Error("upload failed");
           }
         } catch {
-          objectUrl = URL.createObjectURL(file);
+          objectUrl = localBlob;
           uploadedFile = file;
         }
       }
     }
-    const baseName = file
-      ? file.name.replace(/\.[^/.]+$/, "")
-      : selectedName || "Creator Talking Head (9:16 Vertical)";
+
     setSubmittedToast(true);
     onStartJob({
       title: baseName,
-      rawVideoUrl: objectUrl,
+      rawVideoUrl: objectUrl || (file ? URL.createObjectURL(file) : ""),
       format: "short",
       genaiTier: "balanced",
       duration,
       file: uploadedFile,
+      coverUrl: generatedCover || undefined,
       ...(r2Key ? { r2Key } : {}),
     });
   };
@@ -236,12 +250,7 @@ export function HomeWorkspace({
                   className="w-full h-full object-cover filter brightness-75"
                 />
               ) : (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src="/videos/raw-vlog.jpg"
-                  alt=""
-                  className="w-full h-full object-cover filter brightness-75"
-                />
+                <div className="w-full h-full bg-gradient-to-tr from-zinc-900 to-zinc-800" />
               )}
               <div className="absolute inset-0 flex items-center justify-center bg-black/40">
                 <Loader2 size={16} className="animate-spin text-white" />
@@ -328,7 +337,7 @@ export function HomeWorkspace({
             setSubmittedToast(true);
             onStartJob({
               title: "Creator Talking Head (9:16 Vertical)",
-              rawVideoUrl: "/videos/raw-vlog.mp4",
+              rawVideoUrl: "/videos/kling-creator-9-16.mp4",
               format: "short",
               genaiTier: "balanced",
               duration: 38,

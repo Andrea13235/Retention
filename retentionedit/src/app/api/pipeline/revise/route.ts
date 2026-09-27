@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { PipelineOrchestrator } from "@/lib/pipeline-orchestrator";
 import { getSecret } from "@/lib/vault-store";
+import { requireAuth } from "@/lib/server-auth";
+import { sanitizeR2KeySegment } from "@/lib/r2";
 
 function isNonEmptyString(v: unknown, max = 2000): string | null {
   if (typeof v !== "string") return null;
@@ -11,20 +13,31 @@ function isNonEmptyString(v: unknown, max = 2000): string | null {
 
 /**
  * POST /api/pipeline/revise { jobId, prompt }
- * Lets the user iteratively refine a completed edit via Claude Opus 5.5:
- * the prompt is sent to Opus together with the current transcript/blueprint/editPlan,
- * Opus returns a revised EditPlan JSON, we patch the job, re-run Modal render,
- * regenerate the Higgsfield cover with the updated plan, and re-verify.
- * The revision is always executed with HyperFrames + Opus 5.5, never a heuristic shim.
- * Security: prompt sanitized, jobId allow-listed, no secret echo.
+ * Refines a completed edit via Claude Opus 5.5.
+ * Privacy & Security:
+ * - Requires authenticated session.
+ * - Strictly verifies that the requesting user owns the job before executing.
+ * - Prompt sanitized, jobId allow-listed, no secret echo.
  */
 export async function POST(req: NextRequest) {
   try {
+    const authResult = await requireAuth(req);
+    if ("errorResponse" in authResult && authResult.errorResponse) {
+      return authResult.errorResponse;
+    }
+    const userId = sanitizeR2KeySegment(authResult.user.userId, 50);
+
     const body = (await req.json()) as Record<string, unknown>;
     const rawJobId = String(body?.jobId ?? "").trim().replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 80);
     const prompt = isNonEmptyString(body?.prompt, 2000);
     if (!rawJobId) return NextResponse.json({ error: "jobId required" }, { status: 400 });
     if (!prompt) return NextResponse.json({ error: "prompt required (3–2000 chars)" }, { status: 400 });
+
+    // Verify job exists and belongs to this authenticated user
+    const existingJob = await PipelineOrchestrator.getJobAsync(rawJobId, userId);
+    if (!existingJob || existingJob.userId !== userId) {
+      return NextResponse.json({ error: "Job not found" }, { status: 404 });
+    }
 
     const anthropicKey = getSecret("anthropic");
     if (!anthropicKey) {
@@ -35,7 +48,6 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ success: true, ...revised });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : "revise failed";
-    // 4xx model/auth → 400/503 with a hint, never raw body
     let status = 500;
     let hint = "Revise failed. Try again.";
     if (/not found/i.test(msg) && /job/i.test(msg)) { status = 404; hint = msg.slice(0, 200); }

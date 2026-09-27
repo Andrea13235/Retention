@@ -3,6 +3,8 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { requireAuth } from "@/lib/server-auth";
+import { sanitizeR2KeySegment } from "@/lib/r2";
 
 const execFileAsync = promisify(execFile);
 
@@ -35,6 +37,12 @@ async function probeDuration(filePath: string): Promise<number | null> {
 
 export async function POST(req: NextRequest) {
   try {
+    const authResult = await requireAuth(req);
+    if ("errorResponse" in authResult && authResult.errorResponse) {
+      return authResult.errorResponse;
+    }
+    const userId = sanitizeR2KeySegment(authResult.user.userId, 50);
+
     const contentType = req.headers.get("content-type") || "";
 
     if (contentType.includes("multipart/form-data")) {
@@ -56,13 +64,12 @@ export async function POST(req: NextRequest) {
           { status: 415 }
         );
       }
-      // Defense: refuse path-traversal / non-video magic (light MIME sniff).
       const mimeOk = !file.type || file.type.startsWith("video/") || file.type === "application/octet-stream";
       if (file.type && !mimeOk) {
         return NextResponse.json({ error: "Invalid file type" }, { status: 415 });
       }
 
-      // Salva i byte (public/uploads in locale, /tmp in serverless)
+      // PRIVACY: NEVER store in public/ directory! Store in user-isolated private storage.
       const isServerless = Boolean(
         process.env.VERCEL ||
         process.env.AWS_LAMBDA_FUNCTION_NAME ||
@@ -70,8 +77,9 @@ export async function POST(req: NextRequest) {
         process.env.NODE_ENV === "production"
       );
       const outDir = isServerless
-        ? path.join(process.env.TMPDIR || "/tmp", "uploads")
-        : path.join(process.cwd(), "public", "uploads");
+        ? path.join(process.env.TMPDIR || "/tmp", "uploads", userId)
+        : path.join(process.cwd(), ".vault", "uploads", userId);
+
       try {
         mkdirSync(outDir, { recursive: true });
       } catch {}
@@ -89,14 +97,15 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({
         success: true,
         title: safe.replace(/\.[^/.]+$/, ""),
-        rawVideoUrl: isServerless ? `/videos/raw-vlog.mp4` : `/uploads/${stored}`,
+        rawVideoUrl: `/api/media/stream?file=${encodeURIComponent(stored)}`,
         size: bytes.length,
         duration,
         durationProbed: probed !== null,
+        private: true,
       });
     }
 
-    // JSON payload: validate + sanitize (prevents SSRF/open-redirect via arbitrary URLs).
+    // JSON payload: validate + sanitize
     let body: Record<string, unknown>;
     try {
       body = (await req.json()) as Record<string, unknown>;
@@ -105,12 +114,13 @@ export async function POST(req: NextRequest) {
     }
     const title = typeof body.title === "string" ? body.title.replace(/[\x00-\x1F\x7F]/g, "").slice(0, 160) : "Raw Creator Video";
     const rawUrl = typeof body.url === "string" ? body.url.trim() : "";
-    let rawVideoUrl = "/videos/raw-vlog.mp4";
+    let rawVideoUrl = "";
     if (rawUrl) {
       const lower = rawUrl.toLowerCase();
       if (!lower.startsWith("javascript:") && !lower.startsWith("data:") && !lower.startsWith("file:")) {
-        if (rawUrl.startsWith("/") || rawUrl.startsWith("blob:")) rawVideoUrl = rawUrl.slice(0, 400);
-        else {
+        if (rawUrl.startsWith("/") || rawUrl.startsWith("blob:") || rawUrl.startsWith("r2://")) {
+          rawVideoUrl = rawUrl.slice(0, 400);
+        } else {
           try {
             const u = new URL(rawUrl);
             if (u.protocol === "https:" || u.protocol === "http:") rawVideoUrl = rawUrl.slice(0, 600);

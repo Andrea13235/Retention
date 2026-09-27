@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { PipelineOrchestrator } from "@/lib/pipeline-orchestrator";
 import { persistJobAsync } from "@/lib/job-store";
 import type { GenAITier, VideoFormat } from "@/lib/types";
+import { requireAuth, setSessionCookie } from "@/lib/server-auth";
+import { sanitizeR2KeySegment } from "@/lib/r2";
 
 function sanitizeTitle(v: unknown): string {
   const s = typeof v === "string" ? v.trim() : "";
@@ -10,19 +12,18 @@ function sanitizeTitle(v: unknown): string {
 }
 function sanitizeUrl(v: unknown): string {
   const s = typeof v === "string" ? v.trim() : "";
-  // Allow only safe local/public or https URLs; reject javascript:, data:, file:
-  if (!s) return "/videos/raw-vlog.mp4";
+  if (!s) return "";
   const lower = s.toLowerCase();
   if (lower.startsWith("javascript:") || lower.startsWith("data:") || lower.startsWith("file:")) {
-    return "/videos/raw-vlog.mp4";
+    return "";
   }
-  if (s.startsWith("/") || s.startsWith("blob:")) return s.slice(0, 400);
+  if (s.startsWith("r2://") || s.startsWith("/") || s.startsWith("blob:")) return s.slice(0, 500);
   try {
     const u = new URL(s);
-    if (u.protocol !== "https:" && u.protocol !== "http:") return "/videos/raw-vlog.mp4";
-    return s.slice(0, 600);
+    if (u.protocol === "r2:" || u.protocol === "https:" || u.protocol === "http:") return s.slice(0, 600);
+    return "";
   } catch {
-    return "/videos/raw-vlog.mp4";
+    return "";
   }
 }
 const FORMAT_SET = new Set<VideoFormat>(["short", "long"]);
@@ -30,15 +31,31 @@ const TIER_SET = new Set<GenAITier>(["eco", "balanced", "cinematic"]);
 
 export async function POST(req: NextRequest) {
   try {
+    const authResult = await requireAuth(req);
+    if ("errorResponse" in authResult && authResult.errorResponse) {
+      return authResult.errorResponse;
+    }
+    const userId = sanitizeR2KeySegment(authResult.user.userId, 50);
+
     const body = await req.json();
     const rawTitle = sanitizeTitle(body?.title);
     const rawVideoUrl = sanitizeUrl(body?.rawVideoUrl);
     const r2Key = typeof body?.r2Key === "string" ? body.r2Key.trim().slice(0, 400) : undefined;
-    // R2 keys are opaque but must look like raw/<seg>/... or exports/<seg>/... — reject traversal.
-    const safeR2Key =
-      r2Key && /^(raw|exports)\/[a-zA-Z0-9._-]+\/[a-zA-Z0-9._-]+$/.test(r2Key) && !r2Key.includes("..")
-        ? r2Key
-        : undefined;
+
+    // R2 keys must belong to THIS authenticated user prefix (raw/<userId>/...)
+    let safeR2Key: string | undefined = undefined;
+    if (r2Key) {
+      if (!r2Key.startsWith(`raw/${userId}/`) && !r2Key.startsWith(`exports/${userId}/`)) {
+        return NextResponse.json(
+          { error: "Forbidden — R2 storage key does not belong to your account." },
+          { status: 403 }
+        );
+      }
+      if (/^(raw|exports)\/[a-zA-Z0-9._/-]+$/.test(r2Key) && !r2Key.includes("..") && !r2Key.includes("//")) {
+        safeR2Key = r2Key;
+      }
+    }
+
     const format: VideoFormat = FORMAT_SET.has(body?.format) ? (body.format as VideoFormat) : "short";
     const genaiTier: GenAITier = TIER_SET.has(body?.genaiTier) ? (body.genaiTier as GenAITier) : "balanced";
     const duration = Number.isFinite(body?.duration) ? Math.max(1, Math.min(4 * 3600, Math.round(Number(body.duration)))) : 48;
@@ -67,6 +84,7 @@ export async function POST(req: NextRequest) {
     }
 
     const job = PipelineOrchestrator.createJob({
+      userId,
       title: rawTitle,
       rawVideoUrl: safeR2Key ? `r2://${safeR2Key}` : rawVideoUrl,
       format,

@@ -26,6 +26,7 @@ const SOUL_ENDPOINT = "https://api.higgsfield.ai/higgsfield/soul/text-to-image/v
 
 export interface CoverSpec {
   jobId: string;
+  userId?: string;
   format: VideoFormat;
   title: string;
   headline: string;
@@ -98,6 +99,7 @@ export class HiggsfieldCover {
     if (!this.isConfigured()) {
       const coverUrl = await generateYouTubeCover({
         jobId: spec.jobId,
+        userId: spec.userId,
         title: spec.headline || spec.title,
         badge: spec.badge,
         format: spec.format,
@@ -149,7 +151,16 @@ export class HiggsfieldCover {
       const bytes = Buffer.from(await img.arrayBuffer());
       if (bytes.length < 2048) throw new Error("image byte length too small");
 
-      const outDir = path.join(process.cwd(), "public", "thumbnails");
+      const isServerless = Boolean(
+        process.env.VERCEL ||
+        process.env.AWS_LAMBDA_FUNCTION_NAME ||
+        process.env.LAMBDA_TASK_ROOT ||
+        process.env.NODE_ENV === "production"
+      );
+      const safeUser = (spec.userId || "default").replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 50);
+      const outDir = isServerless
+        ? path.join(process.env.TMPDIR || "/tmp", "thumbnails", safeUser)
+        : path.join(process.cwd(), ".vault", "thumbnails", safeUser);
       mkdirSync(outDir, { recursive: true });
       const filename = `${spec.jobId}.png`;
       writeFileSync(path.join(outDir, filename), bytes);
@@ -158,6 +169,7 @@ export class HiggsfieldCover {
       // Guaranteed fast fallback to Sharp-generated YouTube cover
       const coverUrl = await generateYouTubeCover({
         jobId: spec.jobId,
+        userId: spec.userId,
         title: spec.headline || spec.title,
         badge: spec.badge,
         format: spec.format,
