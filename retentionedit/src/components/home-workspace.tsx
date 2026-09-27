@@ -28,6 +28,7 @@ import {
   loadProjectEntries,
   subscribeProjectsChanged,
 } from "@/lib/projects-store";
+import { useAuth } from "@/context/auth-context";
 
 interface HomeWorkspaceProps {
   onStartJob: (params: JobRequest) => void;
@@ -57,11 +58,12 @@ export function HomeWorkspace({
   onViewAllProjects,
   onOpenJob,
 }: HomeWorkspaceProps) {
+  const { user } = useAuth();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [selectedName, setSelectedName] = useState<string>(initialUrl);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [projects, setProjects] = useState<ProjectEntry[]>(() =>
-    typeof window === "undefined" ? [] : loadProjectEntries()
+    typeof window === "undefined" ? [] : loadProjectEntries(user?.id)
   );
   const [submittedToast, setSubmittedToast] = useState(false);
 
@@ -72,9 +74,9 @@ export function HomeWorkspace({
   }, [submittedToast]);
 
   React.useEffect(() => {
-    setProjects(loadProjectEntries());
-    return subscribeProjectsChanged(() => setProjects(loadProjectEntries()));
-  }, []);
+    setProjects(loadProjectEntries(user?.id));
+    return subscribeProjectsChanged(() => setProjects(loadProjectEntries(user?.id)));
+  }, [user?.id]);
 
   const handleFiles = (files: FileList | null) => {
     if (!files || files.length === 0) return;
@@ -92,6 +94,7 @@ export function HomeWorkspace({
     let uploadedFile: File | null = null;
     let r2Key: string | null = null;
     if (file) {
+      uploadedFile = file;
       // Proba durata reale del file video direttamente nel browser
       try {
         const probed = await new Promise<number>((resolve) => {
@@ -120,14 +123,13 @@ export function HomeWorkspace({
             method: "POST",
             headers: {
               "Content-Type": "application/json",
-              "x-retentionedit-session": "active",
+              ...(user?.id ? { "x-retentionedit-session": user.id } : {}),
             },
             body: JSON.stringify({
               filename: file.name,
               bytes: file.size,
               contentType: file.type || "video/mp4",
-              userId: "anon",
-              plan: "free",
+              plan: user?.plan || "free",
             }),
           });
           if (!presignRes.ok) return null;
@@ -142,9 +144,9 @@ export function HomeWorkspace({
             method: "POST",
             headers: {
               "Content-Type": "application/json",
-              "x-retentionedit-session": "active",
+              ...(user?.id ? { "x-retentionedit-session": user.id } : {}),
             },
-            body: JSON.stringify({ r2Key: presigned.key, userId: "anon", bytes: file.size, kind: "raw" }),
+            body: JSON.stringify({ r2Key: presigned.key, bytes: file.size, kind: "raw" }),
           }).catch(() => {});
           return { url: `r2://${presigned.key}`, key: presigned.key, dur: duration };
         } catch {
@@ -162,7 +164,9 @@ export function HomeWorkspace({
           form.append("file", file);
           const res = await fetch("/api/upload", {
             method: "POST",
-            headers: { "x-retentionedit-session": "active" },
+            headers: {
+              ...(user?.id ? { "x-retentionedit-session": user.id } : {}),
+            },
             body: form,
           });
           if (res.ok) {
@@ -526,14 +530,6 @@ export function HomeWorkspace({
         )}
       </section>
 
-      {/* ========================================================================= */}
-      {/* 5. WHAT'S NEW SECTION (DESKTOP PROPORTIONS)                               */}
-      {/* ========================================================================= */}
-      <section className="flex flex-col gap-2 mt-8 opacity-90">
-        <div className="flex items-center justify-between">
-          <h2 className="text-sm sm:text-base font-bold text-white">What&apos;s new</h2>
-        </div>
-      </section>
     </div>
   );
 }
