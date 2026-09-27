@@ -13,6 +13,29 @@ const nextConfig: NextConfig = {
       bodySizeLimit: "500mb",
     },
   },
+  // Serverless needs real ffmpeg/ffprobe binaries: file-tracing does not
+  // follow the dynamic paths returned by ffmpeg-static/ffprobe-static, so
+  // include the two linux/x64 binaries explicitly (~110MB, under the 250MB
+  // function limit). media-bins.ts resolves them at runtime.
+  // Keys are ROUTE paths (not src paths).
+  outputFileTracingIncludes: {
+    "/api/local-render/start": [
+      "./node_modules/ffmpeg-static/ffmpeg",
+      "./node_modules/ffprobe-static/bin/linux/x64/ffprobe",
+    ],
+    "/api/local-render/status": [
+      "./node_modules/ffmpeg-static/ffmpeg",
+      "./node_modules/ffprobe-static/bin/linux/x64/ffprobe",
+    ],
+    "/api/local-render/file": [
+      "./node_modules/ffmpeg-static/ffmpeg",
+      "./node_modules/ffprobe-static/bin/linux/x64/ffprobe",
+    ],
+    "/api/diag": [
+      "./node_modules/ffmpeg-static/ffmpeg",
+      "./node_modules/ffprobe-static/bin/linux/x64/ffprobe",
+    ],
+  },
   async headers() {
     const securityHeaders = [
       { key: "X-Frame-Options", value: "DENY" },
