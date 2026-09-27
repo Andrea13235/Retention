@@ -45,8 +45,14 @@ export async function GET(req: NextRequest) {
   let safeRenderedUrl = job.renderedVideoUrl;
   if (safeRenderedUrl && safeRenderedUrl.startsWith("r2://")) {
     const key = safeRenderedUrl.slice(5);
-    if (key.startsWith("exports/") && job.rawVideoUrl && job.rawVideoUrl.startsWith("r2://")) {
-      safeRenderedUrl = presignPrivateGetUrl(job.rawVideoUrl.slice(5), 900) || `/api/r2/download?key=${encodeURIComponent(job.rawVideoUrl.slice(5))}`;
+    if (key.startsWith("exports/")) {
+      if (job.rawVideoUrl && job.rawVideoUrl.startsWith("r2://")) {
+        safeRenderedUrl = presignPrivateGetUrl(job.rawVideoUrl.slice(5), 900) || `/api/r2/download?key=${encodeURIComponent(job.rawVideoUrl.slice(5))}`;
+      } else if (job.rawVideoUrl && (job.rawVideoUrl.startsWith("/") || job.rawVideoUrl.startsWith("http") || job.rawVideoUrl.startsWith("blob:"))) {
+        safeRenderedUrl = job.rawVideoUrl;
+      } else {
+        safeRenderedUrl = presignPrivateGetUrl(key, 900) || `/api/r2/download?key=${encodeURIComponent(key)}`;
+      }
     } else {
       safeRenderedUrl = presignPrivateGetUrl(key, 900) || `/api/r2/download?key=${encodeURIComponent(key)}`;
     }
