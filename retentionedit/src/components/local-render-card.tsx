@@ -1,6 +1,6 @@
 "use client";
 import React, { useEffect, useRef, useState } from "react";
-import { Download, Loader2, CheckCircle2, AlertTriangle, Folder } from "lucide-react";
+import { Download, Loader2, AlertTriangle, Folder } from "lucide-react";
 import { useAuth } from "@/context/auth-context";
 
 type Stage = "idle" | "uploading" | "transcribe" | "cuts" | "render" | "done" | "error";
@@ -180,25 +180,20 @@ export function LocalRenderCard() {
   };
 
   return (
-    <div className="w-full max-w-[720px] mx-auto flex flex-col items-center mt-6 rounded-3xl border border-emerald-500/25 bg-emerald-500/[0.04] p-5 sm:p-6">
-      <div className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-widest text-emerald-400">
-        <CheckCircle2 size={13} />
-        <span>Real edit engine — tagli veri + MP4 scaricabile</span>
-      </div>
-
+    <div className="w-full flex flex-col items-center">
       {stage === "idle" || stage === "error" ? (
-        <div className="w-full mt-4">
+        <div className="w-full">
           <button
             type="button"
             onClick={() => fileRef.current?.click()}
-            className="w-full h-[56px] pl-5 pr-1.5 rounded-full bg-[#2B2B2E] flex items-center justify-between gap-3 border border-white/10 hover:border-emerald-500/40 transition cursor-pointer"
+            className="w-full h-[56px] pl-5 pr-1.5 rounded-full bg-[#2B2B2E] flex items-center justify-between gap-3 shadow-lg border border-white/10 focus-within:border-white/15 transition cursor-pointer"
           >
             <span className="flex items-center gap-2 text-[14px] text-white min-w-0">
-              <Folder size={18} className="text-emerald-400 shrink-0" />
-              <span className="font-medium truncate">{fileName || "Upload video → edit reale in un click"}</span>
+              <Folder size={18} className="text-[#38bdf8] fill-[#38bdf8] shrink-0" />
+              <span className="font-medium truncate">{fileName || "Upload"}</span>
             </span>
-            <span className="h-[44px] px-7 rounded-full bg-emerald-400 hover:bg-emerald-300 text-black font-semibold text-[13px] flex items-center shrink-0">
-              Edit with one click
+            <span className="h-[44px] px-7 rounded-full bg-white hover:bg-zinc-100 active:scale-[0.98] text-black font-semibold text-[13px] flex items-center shrink-0 shadow-md">
+              Edit in one click
             </span>
           </button>
           <input
@@ -213,9 +208,6 @@ export function LocalRenderCard() {
               <AlertTriangle size={13} /> {error}
             </p>
           )}
-          <p className="mt-2 text-center text-[11px] text-[#8c8c90]">
-            Trascrizione reale + taglio silenzi + MP4 H.264. Niente demo, niente video finto.
-          </p>
         </div>
       ) : (
         <div className="w-full mt-4">

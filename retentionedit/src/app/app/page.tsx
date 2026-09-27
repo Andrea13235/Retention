@@ -441,9 +441,6 @@ function AppWorkspaceContent() {
           <div>
             {!activeJobId && (
               <HomeWorkspace
-                onStartJob={handleStartJob}
-                loading={loading}
-                initialUrl={initialUrl}
                 onOpenPricing={() => setPricingOpen(true)}
                 onViewAllProjects={() => setActiveTab("projects")}
                 onOpenJob={async (jobId) => {
@@ -528,11 +525,11 @@ function AppWorkspaceContent() {
                       logs: ["Autonomous Edit Completed Successfully! Ready for delivery."],
                       editPlan: existing.editPlan,
                       stats: {
-                        cutsCount: existing.clipsCount || 1,
-                        timeSavedSec: 8,
-                        retentionScore: 95,
-                        brollCount: 2,
-                        zoomCount: 6,
+                        cutsCount: existing.clipsCount || 0,
+                        timeSavedSec: 0, // M5: non misurato nel flusso legacy
+                        retentionScore: 0, // M5: 0 = non misurato, mai inventato
+                        brollCount: 0,
+                        zoomCount: 0,
                       },
                     } as PipelineJob);
                     setActiveTab("home");
@@ -644,11 +641,11 @@ function AppWorkspaceContent() {
                   logs: ["Autonomous Edit Completed Successfully! Ready for delivery."],
                   editPlan: existing.editPlan,
                   stats: {
-                    cutsCount: existing.clipsCount || 1,
-                    timeSavedSec: 8,
-                    retentionScore: 95,
-                    brollCount: 2,
-                    zoomCount: 6,
+                    cutsCount: existing.clipsCount || 0,
+                    timeSavedSec: 0, // M5: non misurato nel flusso legacy
+                    retentionScore: 0, // M5: 0 = non misurato, mai inventato
+                    brollCount: 0,
+                    zoomCount: 0,
                   },
                 } as PipelineJob);
                 setActiveTab("home");
