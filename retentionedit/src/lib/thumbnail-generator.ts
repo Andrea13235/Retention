@@ -95,7 +95,7 @@ export async function generateYouTubeCover(options: ThumbnailOptions): Promise<s
   `);
 
   try {
-    let base: sharp.Sharp;
+    let base: ReturnType<typeof sharp>;
     if (
       framePathOrBuffer &&
       (typeof framePathOrBuffer === "string" ? existsSync(framePathOrBuffer) : Buffer.isBuffer(framePathOrBuffer))
