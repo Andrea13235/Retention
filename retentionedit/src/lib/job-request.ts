@@ -12,6 +12,7 @@ export interface JobRequest {
   genaiTier: GenAITier;
   duration: number;
   file?: File | null;
+  coverUrl?: string;
   /** R2 object key (raw/<userId>/...) quando il sorgente è su R2. */
   r2Key?: string;
 }

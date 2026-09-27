@@ -14,11 +14,13 @@ function LoginContent() {
 
   const initialMode = searchParams.get("mode") === "login" ? "login" : "signup";
 
+  const destination = searchParams.get("redirect") || "/app";
+
   React.useEffect(() => {
     if (isLoggedIn) {
-      router.push("/");
+      router.push(destination);
     }
-  }, [isLoggedIn, router]);
+  }, [isLoggedIn, router, destination]);
 
   if (isLoading) {
     return (
@@ -44,7 +46,7 @@ function LoginContent() {
       isStandalone={true}
       initialMode={initialMode}
       onClose={() => router.push("/")}
-      onSuccess={() => router.push("/")}
+      onSuccess={() => router.push(destination)}
     />
   );
 }

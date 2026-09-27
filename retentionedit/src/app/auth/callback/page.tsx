@@ -22,7 +22,7 @@ function CallbackContent() {
         }
 
         const code = searchParams.get("code");
-        const next = searchParams.get("next") || "/?view=app";
+        const next = searchParams.get("next") || "/app";
 
         if (code) {
           const { error } = await supabase.auth.exchangeCodeForSession(code);

@@ -22,6 +22,7 @@ import {
   RotateCcw,
 } from "lucide-react";
 import { Brand } from "./brand";
+import { useAuth } from "@/context/auth-context";
 
 interface LandingProps {
   onOpenStudio: () => void;
@@ -34,6 +35,7 @@ export default function Landing({
   onOpenLogin,
   onOpenPricing,
 }: LandingProps) {
+  const { isLoggedIn } = useAuth();
   const [selectedFeature, setSelectedFeature] = useState<string>("editing");
   const [linkInput, setLinkInput] = useState("");
   const [isPlaying, setIsPlaying] = useState(true);
@@ -174,20 +176,32 @@ export default function Landing({
 
         {/* Right CTA Actions */}
         <div className="flex items-center gap-5">
-          <button
-            type="button"
-            onClick={onOpenLogin}
-            className="text-[13px] font-semibold text-[#8c8f9f] hover:text-white transition-colors cursor-pointer"
-          >
-            Sign in
-          </button>
-          <button
-            type="button"
-            onClick={onOpenStudio}
-            className="inline-flex items-center justify-center px-4 py-2 rounded-full bg-white hover:bg-neutral-200 text-black text-xs font-bold transition-all shadow-md active:scale-95 cursor-pointer"
-          >
-            Sign up - It's FREE
-          </button>
+          {isLoggedIn ? (
+            <Link
+              href="/app"
+              className="inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-full bg-[#d1fe17] hover:bg-[#bce414] text-black text-xs font-black transition-all shadow-md shadow-[#d1fe17]/20 active:scale-95 cursor-pointer"
+            >
+              <span>Vai all'App</span>
+              <ArrowRight size={13} strokeWidth={2.5} />
+            </Link>
+          ) : (
+            <>
+              <button
+                type="button"
+                onClick={onOpenLogin}
+                className="text-[13px] font-semibold text-[#8c8f9f] hover:text-white transition-colors cursor-pointer"
+              >
+                Sign in
+              </button>
+              <button
+                type="button"
+                onClick={onOpenStudio}
+                className="inline-flex items-center justify-center px-4 py-2 rounded-full bg-white hover:bg-neutral-200 text-black text-xs font-bold transition-all shadow-md active:scale-95 cursor-pointer"
+              >
+                Sign up - It's FREE
+              </button>
+            </>
+          )}
         </div>
       </nav>
 
@@ -665,7 +679,11 @@ export default function Landing({
           </Link>
           <a href="#faq" className="hover:text-white transition">FAQ</a>
           <button type="button" onClick={onOpenPricing} className="hover:text-white transition cursor-pointer">Pricing</button>
-          <button type="button" onClick={onOpenLogin} className="hover:text-white transition cursor-pointer">Sign in</button>
+          {isLoggedIn ? (
+            <Link href="/app" className="hover:text-white transition">Vai all'App</Link>
+          ) : (
+            <button type="button" onClick={onOpenLogin} className="hover:text-white transition cursor-pointer">Sign in</button>
+          )}
         </div>
       </footer>
     </div>
