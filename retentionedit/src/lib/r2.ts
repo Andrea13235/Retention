@@ -2,7 +2,11 @@
  * Minimal Cloudflare R2 (S3-compatible) helper — SigV4 presigned URLs.
  * No external deps. Server-only (uses node:crypto). Secrets never leave the server.
  */
-import { createHmac, createHash } from "node:crypto";
+import { createHash, createHmac } from "node:crypto";
+
+function hashBuffer(b: Buffer): string {
+  return createHash("sha256").update(b).digest("hex");
+}
 import { getSecret } from "./vault-store";
 
 export type R2Config = {
@@ -96,6 +100,52 @@ export function presignR2Url(params: {
   const kSigning = hmac(kService, "aws4_request");
   const signature = hmac(kSigning, stringToSign).toString("hex");
   return `https://${host}${canonicalUri}?${canonicalQs}&X-Amz-Signature=${signature}`;
+}
+
+/**
+ * Server-side upload of a Buffer to a private R2 key (SigV4 Authorization
+ * header auth, SERVER ONLY). Used to persist job state + media so serverless
+ * invocations share the same source of truth (/tmp is per-instance).
+ * Returns the key on success, null on failure.
+ */
+export async function uploadR2Object(key: string, body: Buffer, contentType: string): Promise<string | null> {
+  const cfg = getR2Config();
+  if (!cfg) return null;
+  const { accountId, accessKeyId, secretAccessKey, bucket } = cfg;
+  const host = `${accountId}.r2.cloudflarestorage.com`;
+  const region = "auto";
+  const service = "s3";
+  const { amzDate: amzDt, dateStamp } = amzDate();
+  const canonicalUri = `/${bucket}/${key.split("/").map(encodeURIComponent).join("/")}`;
+  const payloadHash = hashBuffer(body);
+  const signedHeaders = "host;x-amz-content-sha256;x-amz-date";
+  const canonicalHeaders = `host:${host}\nx-amz-content-sha256:${payloadHash}\nx-amz-date:${amzDt}\n`;
+  const canonicalRequest = ["PUT", canonicalUri, "", canonicalHeaders, signedHeaders, payloadHash].join("\n");
+  const credentialScope = `${dateStamp}/${region}/${service}/aws4_request`;
+  const stringToSign = ["AWS4-HMAC-SHA256", amzDt, credentialScope, hashHex(canonicalRequest)].join("\n");
+  const kDate = hmac(`AWS4${secretAccessKey}`, dateStamp);
+  const kRegion = hmac(kDate, region);
+  const kService = hmac(kRegion, service);
+  const kSigning = hmac(kService, "aws4_request");
+  const signature = hmac(kSigning, stringToSign).toString("hex");
+  const auth = `AWS4-HMAC-SHA256 Credential=${accessKeyId}/${credentialScope}, SignedHeaders=${signedHeaders}, Signature=${signature}`;
+  try {
+    const res = await fetch(`https://${host}${canonicalUri}`, {
+      method: "PUT",
+      headers: {
+        Authorization: auth,
+        "x-amz-date": amzDt,
+        "x-amz-content-sha256": payloadHash,
+        "Content-Type": contentType,
+        "Content-Length": String(body.length),
+      },
+      body: new Uint8Array(body),
+    });
+    if (!res.ok) return null;
+    return key;
+  } catch {
+    return null;
+  }
 }
 
 /**

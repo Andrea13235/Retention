@@ -66,6 +66,22 @@ export interface LocalJob {
     bytes: number;
   } | null;
   brollsApplied?: number;
+  /**
+   * Pending Higgsfield SOUL request (submit once, poll across invocations).
+   * Null/absent = no pending generation.
+   */
+  soul?: {
+    requestId: string;
+    prompt: string;
+    aspectRatio: "9:16" | "16:9" | "4:3" | "3:4" | "1:1" | "2:3" | "3:2";
+    finalStart: number;
+    finalEnd: number;
+    brollPrompt: string;
+  } | null;
+  /** R2 key of the uploaded source (serverless source of truth). */
+  r2SourceKey?: string;
+  /** Epoch ms when an invocation claimed exclusive stepping (serverless lock). */
+  claimedAt?: number;
   silences?: Array<{ start: number; end: number }>;
   cuts?: Array<{ start: number; end: number }>;
   keepCount?: number;

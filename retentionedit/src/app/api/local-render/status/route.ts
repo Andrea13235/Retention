@@ -1,14 +1,23 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth } from "@/lib/server-auth";
 import { sanitizeR2KeySegment } from "@/lib/r2";
-import { loadLocalJob } from "@/lib/local-jobs";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
+/** How long one poll may drive the pipeline (leaves headroom under maxDuration). */
+const STEP_BUDGET_MS = 25_000;
+/** Another invocation owns stepping when its claim is fresher than this. */
+const CLAIM_TTL_MS = 90_000;
+
 /**
  * GET /api/local-render/status?jobId=<id>
- * Authenticated, owner-only. Returns stage/progress + real stats.
+ * Authenticated, owner-only. SERVERLESS-SAFE driver:
+ *  - loads job from R2 (source of truth, survives instance changes),
+ *  - claims exclusive stepping (R2-persisted lock),
+ *  - advances the pipeline synchronously within a ~25s budget,
+ *  - persists back to R2 and returns fresh state.
+ * The browser polls every few seconds; each poll moves the job forward.
  */
 export async function GET(req: NextRequest) {
   const authResult = await requireAuth(req);
@@ -19,14 +28,46 @@ export async function GET(req: NextRequest) {
   const jobId = (new URL(req.url).searchParams.get("jobId") || "").trim().slice(0, 80);
   if (!jobId) return NextResponse.json({ error: "Missing jobId" }, { status: 400 });
 
-  const job = loadLocalJob(userId, jobId);
+  const { loadR2Job, saveR2Job, persistArtifact, scratchFilePath } = await import("@/lib/local-jobs-r2");
+  const { advanceJob } = await import("@/lib/local-pipeline");
+  const { localFilePath } = await import("@/lib/local-jobs");
+  const { existsSync } = await import("node:fs");
+
+  let job = await loadR2Job(userId, jobId);
   if (!job) return NextResponse.json({ error: "Job not found" }, { status: 404 });
 
-  // Safety net: if the fire-and-forget runner never started (serverless cold
-  // start, restart), kick it from the poll. runLocalJob is idempotent via IN_FLIGHT.
-  if (job.stage === "upload") {
-    const { runLocalJob } = await import("@/lib/local-pipeline");
-    runLocalJob(job.jobId, userId).catch(() => {});
+  // Drive the pipeline when the job isn't terminal and nobody else is stepping.
+  if (job.stage !== "done" && job.stage !== "error") {
+    const claimedFresh = job.claimedAt && Date.now() - job.claimedAt < CLAIM_TTL_MS;
+    if (!claimedFresh) {
+      job.claimedAt = Date.now();
+      await saveR2Job(job);
+      try {
+        job = await advanceJob(job, jobId, userId, {
+          deadlineMs: Date.now() + STEP_BUDGET_MS,
+          save: saveR2Job,
+        });
+        job.claimedAt = 0;
+        await saveR2Job(job);
+        // Persist fresh outputs so later polls (any instance) can serve them.
+        if (job.stage === "done") {
+          try {
+            const fin = localFilePath(job, "final");
+            const cov = localFilePath(job, "cover");
+            if (existsSync(fin)) await persistArtifact(job, "final", fin);
+            if (existsSync(cov)) await persistArtifact(job, "cover", cov);
+          } catch {}
+        }
+      } catch (err: unknown) {
+        job.stage = "error";
+        job.error = (err instanceof Error ? err.message : "render failed").slice(0, 300);
+        job.log.push(`[${new Date().toLocaleTimeString()}] [${jobId.slice(-6)}] Errore: ${job.error}`);
+        job.claimedAt = 0;
+        await saveR2Job(job);
+      }
+      // Re-read not needed: job object is current. Silence unused warning.
+      void scratchFilePath;
+    }
   }
 
   const res = NextResponse.json({
@@ -57,6 +98,7 @@ export async function GET(req: NextRequest) {
     timeSavedSec: job.timeSavedSec,
     bytes: job.bytes,
     error: job.error,
+    soulPending: !!job.soul,
     hasFile: job.stage === "done",
     downloadUrl: job.stage === "done" ? `/api/local-render/file?jobId=${encodeURIComponent(job.jobId)}&kind=final` : null,
     coverUrl: job.stage === "done" ? `/api/local-render/file?jobId=${encodeURIComponent(job.jobId)}&kind=cover` : null,

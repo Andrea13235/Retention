@@ -1,14 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
-import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { requireAuth } from "@/lib/server-auth";
 import { sanitizeR2KeySegment } from "@/lib/r2";
-import { storageRoot } from "@/lib/storage-root";
 
 export const dynamic = "force-dynamic";
-// Vercel free timeout is 10s/60s — local render runs on the user's machine;
-// generous maxDuration for Pro/local runtimes, harmless elsewhere.
-export const maxDuration = 300;
+// Creation is cheap (persist source) — the status polls drive the pipeline.
+export const maxDuration = 60;
 
 const MAX_BYTES = 4 * 1024 * 1024 * 1024; // 4 GB
 const ALLOWED_EXT = new Set([".mp4", ".mov", ".webm", ".mkv", ".m4v"]);
@@ -20,11 +17,12 @@ function sanitizeFilename(name: string): string {
 
 /**
  * POST /api/local-render/start
- * Two input modes (both return jobId immediately; poll status):
+ * Two input modes (both return jobId immediately; STATUS POLLS drive progress):
  *  1. JSON { r2Key, format?, title? } — browser uploaded direct to R2 via
- *     presigned PUT (no 4.5MB serverless body cap). Server downloads from R2.
+ *     presigned PUT (no 4.5MB serverless body cap). Server fetches from R2.
  *  2. multipart file + format — direct small-file upload (local dev).
- * Real M1 engine: whisper.cpp STT → silencedetect cuts → ffmpeg H.264 MP4.
+ * Persists source + job.json to R2 (serverless source of truth).
+ * Real engine: Muse STT → silencedetect cuts → ffmpeg H.264 MP4 (+ SOUL broll).
  */
 export async function POST(req: NextRequest) {
   try {
@@ -54,7 +52,7 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: "Forbidden — key fuori dal tuo spazio" }, { status: 403 });
       }
       if (String(body?.format) === "long") format = "long";
-      title = String(body?.title || "").replace(/[�-�]/g, "").slice(0, 160);
+      title = String(body?.title || "").replace(/[^\x20-\x7E]/g, "").slice(0, 160);
       const { downloadR2Object } = await import("@/lib/r2");
       sourceBytes = await downloadR2Object(r2Key);
       if (!sourceBytes || sourceBytes.length === 0) {
@@ -67,7 +65,7 @@ export async function POST(req: NextRequest) {
       const file = formData.get("file") as File | null;
       const formatRaw = String(formData.get("format") || "short");
       format = formatRaw === "long" ? "long" : "short";
-      title = String(formData.get("title") || "").replace(/[�-�]/g, "").slice(0, 160);
+      title = String(formData.get("title") || "").replace(/[^\x20-\x7E]/g, "").slice(0, 160);
 
       if (!file || file.size <= 0) {
         return NextResponse.json({ error: "No file provided" }, { status: 400 });
@@ -86,20 +84,11 @@ export async function POST(req: NextRequest) {
     const safe = sanitizeFilename(sourceName);
     const finalTitle = title || safe.replace(/\.[^/.]+$/, "");
     const jobId = `local_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
-    const jobDir = path.join(storageRoot(), "local-renders", userId, jobId);
-    mkdirSync(jobDir, { recursive: true });
-    const srcPath = path.join(jobDir, `source_${safe}`);
-    writeFileSync(srcPath, sourceBytes);
 
-    const { createLocalJob } = await import("@/lib/local-jobs");
-    createLocalJob({ jobId, userId, title: finalTitle, format, sourcePath: srcPath });
-
-    // Fire-and-forget: status polling drives progress.
-    // NOTE: userId is required — runLocalJob is a no-op without it.
-    const { runLocalJob } = await import("@/lib/local-pipeline");
-    runLocalJob(jobId, userId).catch((err: unknown) => {
-      console.error(`[local-render:${jobId}] failed:`, err instanceof Error ? err.message : err);
-    });
+    // Persist source + job.json (R2 on serverless, .vault locally).
+    // No background work here: the browser's status polls advance the job.
+    const { createR2Job } = await import("@/lib/local-jobs-r2");
+    await createR2Job({ jobId, userId, title: finalTitle, format, sourceBytes, sourceName: safe });
 
     return NextResponse.json({ success: true, jobId, title: finalTitle, format });
   } catch (err: unknown) {
