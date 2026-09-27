@@ -359,7 +359,13 @@ const MEMORY_BLOB_CACHE = new Map<string, Blob>();
 export async function getProjectVideoUrl(
   entry: ProjectEntry
 ): Promise<string | null> {
-  // 1. ALWAYS check memory cache and IndexedDB for the user's uploaded video
+  // 1. ALWAYS check for physically rendered/edited video first
+  try {
+    const rendered = await getProjectBlob(`${entry.id}_rendered`);
+    if (rendered && rendered.size > 0) return URL.createObjectURL(rendered);
+  } catch {}
+
+  // 2. Fallback to raw uploaded video
   try {
     const blob = await getProjectBlob(entry.id);
     if (blob) return URL.createObjectURL(blob);

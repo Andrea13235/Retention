@@ -193,28 +193,6 @@ export async function bakeEditedVideo(
     target: z.target || "face",
   }));
 
-  const graphics = (plan.graphics || []).map((g: any) => ({
-    time: timeToSec(g.time),
-    duration: g.duration || 3.0,
-    type: g.type,
-    text: g.text,
-    tag: g.tag,
-    icon: g.icon,
-    subtitle: g.subtitle,
-    isScreen: g.isScreen,
-  }));
-
-  const shots = (plan.shots || []).map((s: any) => ({
-    start: timeToSec(s.start),
-    end: timeToSec(s.end),
-    type: s.type,
-    title: s.title,
-    subtitle: s.subtitle,
-    pip_position: s.pip_position || "bottom_right",
-  }));
-
-  const words = plan.captions?.words || [];
-
   // Helper to draw a single frame
   const renderFrame = (curTime: number) => {
     ctx.clearRect(0, 0, width, height);
@@ -256,68 +234,6 @@ export async function bakeEditedVideo(
 
     ctx.drawImage(video, drawX, drawY, drawW, drawH);
     ctx.restore();
-
-    // 4. Alex Hormozi Karaoke Subtitles (Parked strictly at bottom: 18%)
-    const activeWordIdx = words.findIndex(
-      (w: any) => curTime >= w.start && curTime <= w.end
-    );
-
-    if (activeWordIdx !== -1) {
-      const windowStart = Math.max(0, activeWordIdx - (activeWordIdx % 4));
-      const phraseWords = words.slice(windowStart, windowStart + 4);
-
-      const subY = height * 0.82; // 18% from bottom
-      ctx.save();
-      ctx.font = "900 52px Inter, Montserrat, Arial Black, sans-serif";
-      ctx.textAlign = "center";
-      ctx.lineJoin = "round";
-
-      // Measure total phrase width to center it
-      const wordSpacings: Array<{ word: string; isCurrent: boolean; width: number }> = phraseWords.map((w: any, idx: number) => ({
-        word: w.word.toUpperCase(),
-        isCurrent: windowStart + idx === activeWordIdx,
-        width: ctx.measureText(w.word.toUpperCase()).width,
-      }));
-
-      const spaceWidth = 24;
-      const totalPhraseWidth =
-        wordSpacings.reduce((sum: number, item: any) => sum + item.width, 0) +
-        (wordSpacings.length - 1) * spaceWidth;
-
-      let startX = (width - totalPhraseWidth) / 2;
-
-      for (const item of wordSpacings) {
-        const itemCenterX = startX + item.width / 2;
-
-        if (item.isCurrent) {
-          // Yellow glowing highlight
-          ctx.save();
-          ctx.shadowColor = "rgba(253, 224, 71, 0.95)";
-          ctx.shadowBlur = 24;
-
-          // Black stroke
-          ctx.lineWidth = 10;
-          ctx.strokeStyle = "#000000";
-          ctx.strokeText(item.word, itemCenterX, subY);
-
-          // Yellow fill
-          ctx.fillStyle = "#fde047";
-          ctx.fillText(item.word, itemCenterX, subY);
-          ctx.restore();
-        } else {
-          // White text with solid black outline
-          ctx.lineWidth = 8;
-          ctx.strokeStyle = "#000000";
-          ctx.strokeText(item.word, itemCenterX, subY);
-
-          ctx.fillStyle = "#ffffff";
-          ctx.fillText(item.word, itemCenterX, subY);
-        }
-
-        startX += item.width + spaceWidth;
-      }
-      ctx.restore();
-    }
   };
 
   // 8. Start Recording Process across KEEP Spans

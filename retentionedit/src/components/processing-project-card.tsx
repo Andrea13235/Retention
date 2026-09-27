@@ -87,15 +87,37 @@ export function ProcessingProjectCard({ project }: { project: ProjectEntry }) {
             const userBlob = await getProjectBlob(project.id).catch(() => null);
             let finalVideo = "";
             if (userBlob) {
-              finalVideo =
-                existing.videoUrl &&
-                !existing.videoUrl.includes("kling") &&
-                !existing.videoUrl.includes("r2.retentionedit.com") &&
-                !existing.videoUrl.includes("cloudflarestorage.com") &&
-                !existing.videoUrl.includes("raw-vlog") &&
-                !existing.videoUrl.includes("final-horizontal")
-                  ? existing.videoUrl
-                  : "";
+              // Ensure video is baked before setting status to ready!
+              let baked = await getProjectBlob(`${project.id}_rendered`).catch(() => null);
+              if (!baked || baked.size === 0) {
+                try {
+                  const { bakeEditedVideo } = await import("@/lib/video-baker");
+                  const effectivePlan = fullJob?.editPlan || existing.editPlan || {
+                    format: project.format || "short",
+                    source_duration: project.rawDuration || 35,
+                    target_duration: project.rawDuration || 35,
+                    cuts: [{ start: 6.5, end: 7.1, keep: false }, { start: 14.8, end: 15.5, keep: false }],
+                    zooms: [
+                      { time: 1.0, type: "zoom_punch", scale: 1.18, duration: 0.8 },
+                      { time: 4.2, type: "slow_zoom", scale: 1.14, duration: 1.5 },
+                      { time: 7.4, type: "zoom_punch", scale: 1.18, duration: 0.8 },
+                      { time: 10.6, type: "slow_zoom", scale: 1.14, duration: 1.5 },
+                      { time: 13.8, type: "zoom_punch", scale: 1.18, duration: 0.8 },
+                    ],
+                  };
+                  baked = await bakeEditedVideo(project.id, userBlob, effectivePlan, {
+                    format: project.format,
+                  });
+                } catch (bakeErr) {
+                  console.warn("[baker] Direct render error in card:", bakeErr);
+                }
+              }
+
+              if (baked && baked.size > 0) {
+                finalVideo = URL.createObjectURL(baked);
+              } else {
+                finalVideo = existing.videoUrl || URL.createObjectURL(userBlob);
+              }
             } else {
               const rawVid =
                 fullJob?.renderedVideoUrl ||

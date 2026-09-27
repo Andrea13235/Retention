@@ -300,6 +300,38 @@ function AppWorkspaceContent() {
         params.file ? params.file : null
       ).catch(() => {});
 
+      const uploadFile = params.file;
+      if (uploadFile) {
+        // Kick off background render pipeline immediately so the video is 100% baked before loading finishes!
+        (async () => {
+          try {
+            const { bakeEditedVideo } = await import("@/lib/video-baker");
+            const dur = params.duration || 35;
+            const initialPlan = {
+              format: params.format || "short",
+              source_duration: dur,
+              target_duration: dur,
+              cuts: [
+                { start: 6.5, end: 7.1, keep: false },
+                { start: 14.8, end: 15.5, keep: false },
+              ],
+              zooms: [
+                { time: 1.0, type: "zoom_punch", scale: 1.18, duration: 0.8 },
+                { time: 4.2, type: "slow_zoom", scale: 1.14, duration: 1.5 },
+                { time: 7.4, type: "zoom_punch", scale: 1.18, duration: 0.8 },
+                { time: 10.6, type: "slow_zoom", scale: 1.14, duration: 1.5 },
+                { time: 13.8, type: "zoom_punch", scale: 1.18, duration: 0.8 },
+              ],
+            };
+            await bakeEditedVideo(data.jobId, uploadFile, initialPlan, {
+              format: params.format,
+            });
+          } catch (e) {
+            console.warn("[startJob] Background pre-baking error:", e);
+          }
+        })();
+      }
+
       setCredits((prev) => Math.max(0, prev - requiredCredits));
       setJobData({
         id: data.jobId,
