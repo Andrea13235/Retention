@@ -12,6 +12,7 @@ import { SettingsModal } from "@/components/settings-modal";
 import { ProjectsView } from "@/components/projects-view";
 import { SubscriptionView } from "@/components/subscription-view";
 import { AuthModal } from "@/components/auth-modal";
+import { useRealEdit } from "@/hooks/use-real-edit";
 import { OnboardingModal } from "@/components/onboarding-modal";
 import { ToastContainer, showToast } from "@/components/toast-notification";
 import { Loader2 } from "lucide-react";
@@ -39,6 +40,7 @@ function AppWorkspaceContent() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [authModalOpen, setAuthModalOpen] = useState(false);
   const [onboardingOpen, setOnboardingOpen] = useState(false);
+  const realEdit = useRealEdit();
 
   // If not logged in and not loading, prompt login
   useEffect(() => {
@@ -441,8 +443,32 @@ function AppWorkspaceContent() {
           <div>
             {!activeJobId && (
               <HomeWorkspace
+                onStartJob={handleStartJob}
+                loading={loading}
                 onOpenPricing={() => setPricingOpen(true)}
                 onViewAllProjects={() => setActiveTab("projects")}
+                realEdit={async (file, title) => {
+                  if (!isLoggedIn) {
+                    setAuthModalOpen(true);
+                    return;
+                  }
+                  await realEdit.startEdit(file, title);
+                }}
+                realEditBusy={realEdit.stage !== "idle" && realEdit.stage !== "done" && realEdit.stage !== "error"}
+                realEditStatus={
+                  realEdit.stage === "done"
+                    ? "Pronto — MP4 scaricabile"
+                    : realEdit.stage === "error" || realEdit.stage === "idle"
+                      ? null
+                      : realEdit.stage === "uploading"
+                        ? `Caricamento ${realEdit.progress}%…`
+                        : realEdit.stage === "transcribe"
+                          ? "Trascrizione reale (Muse Voice)…"
+                          : realEdit.stage === "cuts"
+                            ? "Taglio silenzi reali…"
+                            : `Render MP4 ${realEdit.progress}%…`
+                }
+                realEditError={realEdit.error}
                 onOpenJob={async (jobId) => {
                   const { loadProjectEntries, getProjectBlob } = await import(
                     "@/lib/projects-store"
@@ -536,6 +562,43 @@ function AppWorkspaceContent() {
                   }
                 }}
               />
+            )}
+
+            {/* Risultato motore reale: player + DOWNLOAD MP4 */}
+            {!activeJobId && realEdit.stage === "done" && realEdit.status?.downloadUrl && (
+              <div className="w-full max-w-[720px] mx-auto mt-4 rounded-2xl overflow-hidden border border-white/10 bg-black">
+                <div className="p-4 flex items-center gap-3 justify-between">
+                  <div className="min-w-0">
+                    <p className="text-sm font-bold text-white truncate">{realEdit.status.title}</p>
+                    <p className="text-[11px] text-[#8c8c90] mt-0.5">
+                      {realEdit.status.sourceDuration?.toFixed(1)}s → {realEdit.status.finalDuration?.toFixed(1)}s
+                      {typeof realEdit.status.timeSavedSec === "number" && realEdit.status.timeSavedSec > 0 && (
+                        <span> · −{realEdit.status.timeSavedSec.toFixed(1)}s di silenzi</span>
+                      )}
+                      {typeof realEdit.status.captionsBurned === "number" && realEdit.status.captionsBurned > 0 && (
+                        <span> · {realEdit.status.captionsBurned} caption</span>
+                      )}
+                      {typeof realEdit.status.zoomsApplied === "number" && realEdit.status.zoomsApplied > 0 && (
+                        <span> · {realEdit.status.zoomsApplied} zoom</span>
+                      )}
+                      {typeof realEdit.status.brollsApplied === "number" && realEdit.status.brollsApplied > 0 && (
+                        <span> · {realEdit.status.brollsApplied} B-roll</span>
+                      )}
+                      {typeof realEdit.status.bytes === "number" && (
+                        <span> · {(realEdit.status.bytes / 1048576).toFixed(1)} MB</span>
+                      )}
+                    </p>
+                  </div>
+                  <a
+                    href={realEdit.status.downloadUrl}
+                    download
+                    className="shrink-0 inline-flex items-center gap-1.5 px-5 py-2.5 rounded-full bg-emerald-400 hover:bg-emerald-300 text-black text-xs font-bold transition"
+                  >
+                    DOWNLOAD MP4
+                  </a>
+                </div>
+                <video src={realEdit.status.downloadUrl} controls playsInline preload="metadata" className="w-full aspect-video bg-black" />
+              </div>
             )}
 
             {activeJobId && jobData && jobData.currentStage !== "done" && (
