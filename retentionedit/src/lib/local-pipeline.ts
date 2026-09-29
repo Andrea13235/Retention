@@ -317,7 +317,8 @@ export async function advanceJob(
       const outPng = path.join(jobDir, "broll_soul.png");
       const got = await pollSoulImage(
         { requestId: job.soul.requestId, prompt: job.soul.prompt, aspectRatio: job.soul.aspectRatio },
-        outPng
+        outPng,
+        90_000 // SOUL 720p ≈ 40s di generazione: un singolo poll deve poter aspettare
       ).catch(() => ({ done: false as const }));
       if (!got.done) {
         if (soulWaited > SOUL_FAILSOFT_MS) {
