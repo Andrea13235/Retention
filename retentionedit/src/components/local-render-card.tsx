@@ -154,11 +154,16 @@ export function LocalRenderCard() {
     setProgress(3);
     const authHeaders: Record<string, string> = { ...(user?.id ? { "x-retentionedit-session": user.id } : {}) };
     try {
-      if (typeof document !== "undefined" && user?.id) {
-        document.cookie = `retentionedit_session=${encodeURIComponent(user.id)}; path=/; max-age=28800; SameSite=Lax`;
-      }
+      // Session: server-minted signed HttpOnly cookie is sent automatically.
+      // Never overwrite it with the raw id (destroys auth → 401 → 413).
       const title = file.name.replace(/\.[^/.]+$/, "");
       // 1. Try R2 direct upload (never through the serverless function body).
+      //    FAIL-LOUD: if presign fails and the file exceeds the serverless
+      //    body cap (~4.5MB on Vercel), do NOT fall back to multipart — the
+      //    platform would answer 413 and hide the real cause. Surface it.
+      const MULTIPART_SAFE_BYTES = 4_000_000;
+      let presigned: { url: string; key: string } | null = null;
+      let presignError: string | null = null;
       try {
         const presignRes = await fetch("/api/r2/presign", {
           method: "POST",
@@ -170,30 +175,53 @@ export function LocalRenderCard() {
           }),
         });
         if (presignRes.ok) {
-          const presigned = (await presignRes.json()) as { url: string; key: string };
-          setProgress(5);
-          const putRes = await fetch(presigned.url, {
+          presigned = (await presignRes.json()) as { url: string; key: string };
+        } else {
+          const errBody = (await presignRes.json().catch(() => ({}))) as { error?: string };
+          presignError =
+            presignRes.status === 401
+              ? "Sessione scaduta — effettua di nuovo il login e riprova."
+              : presignRes.status === 503
+                ? "Storage R2 non configurato sul server — contatta il supporto."
+                : (typeof errBody?.error === "string" && errBody.error) ||
+                  `Presign upload fallito (${presignRes.status})`;
+        }
+      } catch (e) {
+        presignError =
+          e instanceof Error && e.message
+            ? e.message
+            : "Presign non raggiungibile — controlla la connessione e riprova.";
+      }
+      if (presignError && file.size > MULTIPART_SAFE_BYTES) {
+        throw new Error(presignError);
+      }
+      if (presigned) {
+        setProgress(5);
+        let putRes: Response;
+        try {
+          putRes = await fetch(presigned.url, {
             method: "PUT",
             headers: { "Content-Type": file.type || "video/mp4" },
             body: file,
           });
-          if (!putRes.ok) throw new Error(`R2 upload fallito (${putRes.status})`);
-          setProgress(8);
-          const startRes = await fetch("/api/local-render/start", {
-            method: "POST",
-            headers: { "Content-Type": "application/json", ...authHeaders },
-            body: JSON.stringify({ r2Key: presigned.key, format: "short", title }),
-          });
-          const startData = await startRes.json().catch(() => ({}));
-          if (!startRes.ok) throw new Error(startData?.error || `Avvio fallito (${startRes.status})`);
-          startPoll(startData.jobId as string);
-          return;
+        } catch {
+          throw new Error(
+            "Upload verso R2 bloccato dal browser (CORS del bucket o rete) — ricarica la pagina e riprova."
+          );
         }
-      } catch (e) {
-        // R2 unavailable (local dev without R2 keys?) → direct fallback below.
-        if (e instanceof Error && /R2 upload fallito|Avvio fallito/.test(e.message)) throw e;
+        if (!putRes.ok) throw new Error(`R2 upload fallito (${putRes.status})`);
+        setProgress(8);
+        const startRes = await fetch("/api/local-render/start", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", ...authHeaders },
+          body: JSON.stringify({ r2Key: presigned.key, format: "short", title }),
+        });
+        const startData = await startRes.json().catch(() => ({}));
+        if (!startRes.ok) throw new Error(startData?.error || `Avvio fallito (${startRes.status})`);
+        startPoll(startData.jobId as string);
+        return;
       }
-      // 2. Direct multipart fallback (small files / local dev).
+      // 2. Direct multipart fallback (small files / local dev ONLY).
       const form = new FormData();
       form.append("file", file);
       form.append("format", "short");

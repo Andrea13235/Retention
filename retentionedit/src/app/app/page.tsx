@@ -239,9 +239,8 @@ function AppWorkspaceContent() {
 
     setLoading(true);
     try {
-      if (typeof document !== "undefined" && user?.id) {
-        document.cookie = `retentionedit_session=${encodeURIComponent(user.id)}; path=/; max-age=28800; SameSite=Lax`;
-      }
+      // Session: the server minted a signed HttpOnly cookie at login — the
+      // browser sends it automatically. Never overwrite it with the raw id.
 
       const sourceUrl = params.rawVideoUrl;
       let coverUrl = params.coverUrl || null;

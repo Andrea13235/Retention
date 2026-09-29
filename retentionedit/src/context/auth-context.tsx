@@ -50,10 +50,11 @@ function syncProfileToStorage(profile: UserProfile, done: boolean): void {
     } else {
       localStorage.removeItem(ONBOARDING_KEY);
     }
-    // Synchronize session cookie so middleware server-side gates allow active sessions
-    if (typeof document !== "undefined" && profile?.id) {
-      document.cookie = `retentionedit_session=${encodeURIComponent(profile.id)}; path=/; max-age=28800; SameSite=Lax`;
-    }
+    // NEVER write retentionedit_session here: it is a server-minted HMAC-signed
+    // HttpOnly cookie (see setSessionCookie in lib/server-auth). Overwriting it
+    // with the raw user id destroys the session: every authenticated API call
+    // then 401s (presign → silent fallback → Vercel 413 on big uploads).
+    // The browser sends the signed cookie automatically on same-origin fetch.
   } catch {
     // ignore storage errors
   }
@@ -161,9 +162,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                   parsed.onboardingCompleted === true ||
                     localStorage.getItem(ONBOARDING_KEY) === "true"
                 );
-                if (typeof document !== "undefined") {
-                  document.cookie = `retentionedit_session=${encodeURIComponent(parsed.id)}; path=/; max-age=28800; SameSite=Lax`;
-                }
+                // Signed session cookie is server-managed (HttpOnly) — never
+                // overwrite it with the raw id (see syncProfileToStorage).
               }
             } catch (err) {
               console.error("Failed to parse stored profile:", err);

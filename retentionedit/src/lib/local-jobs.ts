@@ -82,6 +82,8 @@ export interface LocalJob {
   r2SourceKey?: string;
   /** Epoch ms when an invocation claimed exclusive stepping (serverless lock). */
   claimedAt?: number;
+  /** Epoch ms when the SOUL B-roll request was submitted (fail-soft timeout clock). */
+  soulSubmittedAt?: number;
   silences?: Array<{ start: number; end: number }>;
   cuts?: Array<{ start: number; end: number }>;
   keepCount?: number;

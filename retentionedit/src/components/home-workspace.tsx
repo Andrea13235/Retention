@@ -147,6 +147,10 @@ export function HomeWorkspace({
         // keep default
       }
 
+      // FAIL-LOUD: se il presign fallisce e il file supera il body-cap
+      // serverless (~4.5MB), non ripiegare sul multipart (→ 413 muto).
+      // Riporta la causa vera e conserva comunque il blob locale.
+      const MULTIPART_SAFE_BYTES = 4_000_000;
       const useR2 = async (): Promise<{ url: string; key: string; dur: number } | null> => {
         try {
           const presignRes = await fetch("/api/r2/presign", {
@@ -162,7 +166,18 @@ export function HomeWorkspace({
               plan: user?.plan || "free",
             }),
           });
-          if (!presignRes.ok) return null;
+          if (!presignRes.ok) {
+            if (file.size > MULTIPART_SAFE_BYTES) {
+              const msg =
+                presignRes.status === 401
+                  ? "Sessione scaduta — effettua di nuovo il login e riprova."
+                  : presignRes.status === 503
+                    ? "Storage R2 non configurato sul server — contatta il supporto."
+                    : `Presign upload fallito (${presignRes.status})`;
+              alert(msg);
+            }
+            return null;
+          }
           const presigned = (await presignRes.json()) as { url: string; key: string };
           const putRes = await fetch(presigned.url, {
             method: "PUT",

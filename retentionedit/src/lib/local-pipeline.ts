@@ -247,6 +247,7 @@ export async function advanceJob(
                   finalEnd: Number((finalStart + bDur).toFixed(2)),
                   brollPrompt,
                 },
+                soulSubmittedAt: Date.now(),
                 progress: 85,
               },
               "B-roll sottomesso — controllo avanzamento al prossimo poll"
@@ -307,6 +308,10 @@ export async function advanceJob(
       }
 
       // Pending SOUL → single status check (cheap GET, resumable).
+      // Fail-soft timeout: SOUL 720p ≈ 40s; se dopo 6 minuti non è pronto,
+      // consegna la base (video reale montato) invece di restare al 91%.
+      const SOUL_FAILSOFT_MS = 6 * 60_000;
+      const soulWaited = Date.now() - (job.soulSubmittedAt || Date.now());
       const { pollSoulImage } = await import("./higgsfield-soul");
       const jobDir = path.dirname(localFilePath(job, "final"));
       const outPng = path.join(jobDir, "broll_soul.png");
@@ -315,10 +320,17 @@ export async function advanceJob(
         outPng
       ).catch(() => ({ done: false as const }));
       if (!got.done) {
-        await touch({ progress: 91 }, "Higgsfield sta generando — ricontrollo al prossimo poll");
-        return job;
-      }
-      if (got.image) {
+        if (soulWaited > SOUL_FAILSOFT_MS) {
+          await touch(
+            { broll: null, soul: null, progress: 94 },
+            "Higgsfield troppo lento (>6 min) — consegno il video senza B-roll"
+          );
+          // Fall through to finalizeFromBase with overlay=null below.
+        } else {
+          await touch({ progress: 91 }, "Higgsfield sta generando — ricontrollo al prossimo poll");
+          return job;
+        }
+      } else if (got.done && got.image) {
         const s = job.soul;
         await touch(
           {

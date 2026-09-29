@@ -95,8 +95,10 @@ export async function createR2Job(params: {
 export async function saveR2Job(job: LocalJob): Promise<void> {
   saveFsJob(job); // always keep local scratch copy too
   if (!isR2Configured()) return;
-  const { _keep, ...persisted } = job as LocalJob & { _keep?: unknown };
-  void _keep;
+  // Type-guard: LocalJob serializes cleanly (Strip ephemeral in-memory fields).
+  const persisted = JSON.parse(
+    JSON.stringify(job, (k, v) => (k === "_keep" ? undefined : v))
+  ) as LocalJob;
   await uploadR2Object(jobKey(job.userId, job.jobId), Buffer.from(JSON.stringify(persisted)), "application/json");
 }
 

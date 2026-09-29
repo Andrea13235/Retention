@@ -8,5 +8,20 @@ export async function GET(req: NextRequest) {
   if ("errorResponse" in authResult && authResult.errorResponse) {
     return authResult.errorResponse;
   }
-  return NextResponse.json({ providers: vaultStatus() });
+  // Non-sensitive env diagnostics: booleans + lengths only, NEVER values.
+  // Lets an authenticated user check prod config (R2, session secret) without
+  // ever exposing secrets. Values stay server-side.
+  const { getR2Config } = await import("@/lib/r2");
+  const r2Configured = getR2Config() !== null;
+  const sessionSecretSet =
+    ((process.env.SESSION_SECRET || process.env.VAULT_MASTER_KEY || "").trim().length >= 16);
+  return NextResponse.json({
+    providers: vaultStatus(),
+    diag: {
+      r2Configured,
+      sessionSecretSet,
+      isVercel: Boolean(process.env.VERCEL),
+      nodeEnv: process.env.NODE_ENV || null,
+    },
+  });
 }
