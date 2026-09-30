@@ -147,54 +147,30 @@ export function HomeWorkspace({
         // keep default
       }
 
-      // FAIL-LOUD: se il presign fallisce e il file supera il body-cap
-      // serverless (~4.5MB), non ripiegare sul multipart (→ 413 muto).
-      // Riporta la causa vera e conserva comunque il blob locale.
-      const MULTIPART_SAFE_BYTES = 4_000_000;
+      // Upload CORS-immune: chunk 4MB stessa-origin → relay server → R2
+      // (S3 MPU assemblato server-side + verify HEAD). Niente presigned PUT
+      // browser→R2 (richiede CORS sul bucket) e niente multipart diretto
+      // (413 oltre il body-cap serverless). FAIL-LOUD con causa vera.
       const useR2 = async (): Promise<{ url: string; key: string; dur: number } | null> => {
         try {
-          const presignRes = await fetch("/api/r2/presign", {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              ...(user?.id ? { "x-retentionedit-session": user.id } : {}),
-            },
-            body: JSON.stringify({
-              filename: file.name,
-              bytes: file.size,
-              contentType: file.type || "video/mp4",
-              plan: user?.plan || "free",
-            }),
+          const { uploadFileChunked } = await import("@/lib/chunked-upload");
+          const uploaded = await uploadFileChunked(file, {
+            userId: user?.id,
+            plan: user?.plan || "free",
           });
-          if (!presignRes.ok) {
-            if (file.size > MULTIPART_SAFE_BYTES) {
-              const msg =
-                presignRes.status === 401
-                  ? "Sessione scaduta — effettua di nuovo il login e riprova."
-                  : presignRes.status === 503
-                    ? "Storage R2 non configurato sul server — contatta il supporto."
-                    : `Presign upload fallito (${presignRes.status})`;
-              alert(msg);
-            }
-            return null;
-          }
-          const presigned = (await presignRes.json()) as { url: string; key: string };
-          const putRes = await fetch(presigned.url, {
-            method: "PUT",
-            headers: { "Content-Type": file.type || "video/mp4" },
-            body: file,
-          });
-          if (!putRes.ok) return null;
+          if (!uploaded.verified) return null;
           await fetch("/api/r2/confirm", {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
               ...(user?.id ? { "x-retentionedit-session": user.id } : {}),
             },
-            body: JSON.stringify({ r2Key: presigned.key, bytes: file.size, kind: "raw" }),
+            body: JSON.stringify({ r2Key: uploaded.key, bytes: uploaded.bytes, kind: "raw" }),
           }).catch(() => {});
-          return { url: `r2://${presigned.key}`, key: presigned.key, dur: duration };
-        } catch {
+          return { url: `r2://${uploaded.key}`, key: uploaded.key, dur: duration };
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : `Upload fallito`;
+          alert(msg);
           return null;
         }
       };
@@ -204,31 +180,9 @@ export function HomeWorkspace({
         objectUrl = r2.url;
         r2Key = r2.key;
       } else {
-        try {
-          const form = new FormData();
-          form.append("file", file);
-          const res = await fetch("/api/upload", {
-            method: "POST",
-            headers: {
-              ...(user?.id ? { "x-retentionedit-session": user.id } : {}),
-            },
-            body: form,
-          });
-          if (res.ok) {
-            const data = await res.json();
-            if (typeof data.rawVideoUrl === "string" && data.rawVideoUrl.length > 0) {
-              objectUrl = data.rawVideoUrl as string;
-              if (typeof data.duration === "number") duration = data.duration;
-            } else {
-              throw new Error("empty upload response");
-            }
-          } else {
-            throw new Error("upload failed");
-          }
-        } catch {
-          objectUrl = localBlob;
-          uploadedFile = file;
-        }
+        // Upload fallito e utente già avvisato: conserva il blob locale
+        // invece di procedere con un job senza sorgente.
+        return;
       }
     }
 

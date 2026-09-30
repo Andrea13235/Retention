@@ -91,86 +91,31 @@ export function useRealEdit() {
         // Session: server-minted signed HttpOnly cookie is sent automatically.
         // Never overwrite it with the raw id (destroys auth → 401 → 413).
         const cleanTitle = title || file.name.replace(/\.[^/.]+$/, "");
-        // 1. R2 presigned PUT diretto browser→R2 (mai body grandi nella function).
-        //    FAIL-LOUD: se il presign fallisce e il file supera il body-cap
-        //    serverless (~4.5MB su Vercel), NON ripiegare sul multipart: la
-        //    platform risponderebbe 413 e l'errore reale (sessione/R2/CORS)
-        //    resterebbe nascosto. Riporta la causa vera.
-        //    Soglia multipart: 4_000_000 byte (sotto il cap Vercel di ~4.5MB).
-        const MULTIPART_SAFE_BYTES = 4_000_000;
-        let presigned: { url: string; key: string } | null = null;
-        let presignError: string | null = null;
-        try {
-          const presignRes = await fetch("/api/r2/presign", {
-            method: "POST",
-            headers: { "Content-Type": "application/json", ...authHeaders },
-            body: JSON.stringify({
-              filename: file.name,
-              bytes: file.size,
-              contentType: file.type || "video/mp4",
-            }),
-          });
-          if (presignRes.ok) {
-            presigned = (await presignRes.json()) as { url: string; key: string };
-          } else {
-            const errBody = (await presignRes.json().catch(() => ({}))) as { error?: string };
-            presignError =
-              presignRes.status === 401
-                ? "Sessione scaduta — effettua di nuovo il login e riprova."
-                : presignRes.status === 503
-                  ? "Storage R2 non configurato sul server — contatta il supporto."
-                  : (typeof errBody?.error === "string" && errBody.error) ||
-                    `Presign upload fallito (${presignRes.status})`;
-          }
-        } catch (e) {
-          presignError =
-            e instanceof Error && e.message
-              ? e.message
-              : "Presign non raggiungibile — controlla la connessione e riprova.";
-        }
-        if (presignError && file.size > MULTIPART_SAFE_BYTES) {
-          throw new Error(presignError);
-        }
-        if (presigned) {
-          setProgress(5);
-          let putRes: Response;
-          try {
-            putRes = await fetch(presigned.url, {
-              method: "PUT",
-              headers: { "Content-Type": file.type || "video/mp4" },
-              body: file,
-            });
-          } catch {
-            throw new Error(
-              "Upload verso R2 bloccato dal browser (CORS del bucket o rete) — ricarica la pagina e riprova."
-            );
-          }
-          if (!putRes.ok) throw new Error(`R2 upload fallito (${putRes.status})`);
-          setProgress(8);
-          const startRes = await fetch("/api/local-render/start", {
-            method: "POST",
-            headers: { "Content-Type": "application/json", ...authHeaders },
-            body: JSON.stringify({ r2Key: presigned.key, format: "short", title: cleanTitle }),
-          });
-          const startData = await startRes.json().catch(() => ({}));
-          if (!startRes.ok) throw new Error(startData?.error || `Avvio fallito (${startRes.status})`);
-          startPoll(startData.jobId as string);
-          return;
-        }
-        // 2. Fallback multipart diretto (SOLO file piccoli / dev locale).
-        const form = new FormData();
-        form.append("file", file);
-        form.append("format", "short");
-        form.append("title", cleanTitle);
-        const res = await fetch("/api/local-render/start", {
-          method: "POST",
-          headers: { ...authHeaders },
-          body: form,
+        // Upload CORS-immune: chunk 4MB stessa-origin → relay server → R2
+        // (S3 MPU assemblato server-side). Niente presigned PUT browser→R2:
+        // richiede CORS sul bucket e falliva con token senza bucket-config.
+        const { uploadFileChunked } = await import("@/lib/chunked-upload");
+        setProgress(5);
+        const uploaded = await uploadFileChunked(file, {
+          userId: user?.id,
+          onProgress: (pct) => setProgress(5 + Math.round(pct * 0.15)),
         });
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(data?.error || `Upload fallito (${res.status})`);
-        setProgress(8);
-        startPoll(data.jobId as string);
+        if (!uploaded.verified) throw new Error("Upload non verificato su R2 — riprova.");
+        await fetch("/api/r2/confirm", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", ...authHeaders },
+          body: JSON.stringify({ r2Key: uploaded.key, bytes: uploaded.bytes, kind: "raw" }),
+        }).catch(() => {});
+        setProgress(20);
+        const startRes = await fetch("/api/local-render/start", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", ...authHeaders },
+          body: JSON.stringify({ r2Key: uploaded.key, format: "short", title: cleanTitle }),
+        });
+        const startData = await startRes.json().catch(() => ({}));
+        if (!startRes.ok) throw new Error(startData?.error || `Avvio fallito (${startRes.status})`);
+        startPoll(startData.jobId as string);
+        return;
       } catch (e) {
         setStage("error");
         setError(e instanceof Error ? e.message : "Errore imprevisto");

@@ -6,6 +6,8 @@
     "src/app/api/local-render/start/route.ts": { "maxDuration": 300 },
     "src/app/api/local-render/status/route.ts": { "maxDuration": 300 },
     "src/app/api/local-render/file/route.ts": { "maxDuration": 120 },
+    "src/app/api/r2/mpu/chunk/route.ts": { "maxDuration": 60 },
+    "src/app/api/r2/mpu/complete/route.ts": { "maxDuration": 300 },
     "src/app/api/pipeline/start/route.ts": { "maxDuration": 300 },
     "src/app/api/pipeline/status/route.ts": { "maxDuration": 60 }
   }

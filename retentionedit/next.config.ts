@@ -58,7 +58,7 @@ const nextConfig: NextConfig = {
           "img-src 'self' data: blob: https:",
           "media-src 'self' blob: https:",
           "frame-src 'self' https://accounts.google.com",
-          "connect-src 'self' https://api.anthropic.com https://api.elevenlabs.io https://api.higgsfield.ai https://*.modal.run https://*.supabase.co https://accounts.google.com https://www.googleapis.com https://oauth2.googleapis.com",
+          "connect-src 'self' https://api.anthropic.com https://api.elevenlabs.io https://api.higgsfield.ai https://*.modal.run https://*.supabase.co https://*.r2.cloudflarestorage.com https://accounts.google.com https://www.googleapis.com https://oauth2.googleapis.com",
           "frame-ancestors 'none'",
         ].join("; "),
       },
