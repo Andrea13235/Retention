@@ -7,7 +7,7 @@ import {
   Folder,
 } from "lucide-react";
 import { ProjectCard } from "@/components/project-card";
-import { ProcessingProjectCard } from "@/components/processing-project-card";
+import { ProcessingProjectCard, UploadingProjectCard } from "@/components/processing-project-card";
 import {
   ProjectEntry,
   deleteProject,
@@ -247,7 +247,9 @@ export function ProjectsView({ onNewEdit, onOpenPricing, onOpenJob }: ProjectsVi
             </button>
 
             {displayedProjects.map((project) =>
-              project.status === "processing" ? (
+              project.status === "uploading" ? (
+                <UploadingProjectCard key={project.id} project={project} />
+              ) : project.status === "processing" ? (
                 <ProcessingProjectCard key={project.id} project={project} />
               ) : (
                 <ProjectCard

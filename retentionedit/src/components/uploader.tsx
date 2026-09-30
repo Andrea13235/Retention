@@ -54,7 +54,7 @@ export function Uploader({
       title: "Creator Talking Head (9:16 Vertical)",
       format: "short" as VideoFormat,
       duration: 38,
-      url: "/videos/kling-creator-9-16.mp4",
+      url: "/videos/raw-desktalk.mp4",
       tag: "TikTok / Shorts",
       hookScore: 9.8,
       desc: "Fast cadence with punch zooms & karaoke words",

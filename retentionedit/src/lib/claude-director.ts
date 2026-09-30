@@ -34,7 +34,7 @@ export class ClaudeDirector {
   private apiKey: string;
   private model: string;
 
-  constructor(apiKey?: string, model = "claude-3-opus-20240229") {
+  constructor(apiKey?: string, model = "claude-opus-4-20250514") {
     this.apiKey = apiKey || getSecret("anthropic") || "";
     this.model = process.env.ANTHROPIC_MODEL || model;
   }
@@ -53,21 +53,21 @@ export class ClaudeDirector {
     if (this.apiKey) {
       try {
         const response = await fetch("https://api.anthropic.com/v1/messages", {
-          method: "POST",
-          headers: {
-            "x-api-key": this.apiKey,
-            "anthropic-version": "2023-06-01",
-            "content-type": "application/json",
-          },
-          body: JSON.stringify({
-            model: this.model,
-            max_tokens: 1500,
-            system:
-              "You are Claude Opus, the Chief Video Editor and Retention Director. Your job is to maximize watch-time, eliminate drop-offs, and formulate 4K photorealistic still-image prompts (85mm macro lens, cinematic depth of field, dramatic lighting, 8k) and 2.5D Ken Burns camera drift directions (zoom_in_drift_right, zoom_in_drift_left, slow_pull_back, subtle_drift_up, cinematic_pan). Always respond in valid JSON format.",
-            messages: [
-              {
-                role: "user",
-                content: `Analyze this ${format.toUpperCase()} video transcript in the '${niche}' niche:
+            method: "POST",
+            headers: {
+              "x-api-key": this.apiKey,
+              "anthropic-version": "2023-06-01",
+              "content-type": "application/json",
+            },
+            body: JSON.stringify({
+              model: this.model,
+              max_tokens: 16000,
+              system:
+                "You are Claude Code 5.5 Opus (high) — Chief Video Editor and Retention Director. Maximize watch-time, eliminate drop-offs, and formulate 4K photorealistic still-image prompts (85mm macro lens, cinematic depth of field, dramatic lighting, 8k) and 2.5D Ken Burns camera drift directions (zoom_in_drift_right, zoom_in_drift_left, slow_pull_back, subtle_drift_up, cinematic_pan). Always respond in valid JSON format. Think through the transcript step-by-step: identify every retention-critical moment (hook, stakes, payoff, CTA) and then propose prompts — do NOT artificially cap the count.",
+              messages: [
+                {
+                  role: "user",
+                  content: `Analyze this ${format.toUpperCase()} video transcript in the '${niche}' niche:
 "${transcriptText}"
 
 Sections: ${JSON.stringify(sections)}
@@ -76,12 +76,12 @@ Generate:
 1. editorialVerdict (concise assessment of retention strengths)
 2. hookStrengthScore (1 to 10)
 3. pacingNotes (array of 3 specific pacing directives)
-4. higgsfieldPrompts (2-3 cinematic photorealistic still image prompts with cameraMotion: zoom_in_drift_right, zoom_in_drift_left, slow_pull_back, subtle_drift_up, or cinematic_pan)
+4. higgsfieldPrompts (one cinematic photorealistic still image prompt PER retention-critical moment you identify — as many as the content warrants, each with cameraMotion: zoom_in_drift_right, zoom_in_drift_left, slow_pull_back, subtle_drift_up, or cinematic_pan)
 5. thumbnailConcept (headline max 4 words, badge, visualPrompt)`,
-              },
-            ],
-          }),
-        });
+                },
+              ],
+            }),
+          });
 
         if (response.ok) {
           const data = await response.json();

@@ -43,7 +43,7 @@ export interface TranscriptSegment {
 }
 
 export interface MetaMMSTranscript {
-  provider: "meta_mms" | "meta_muse_voice";
+  provider: "meta_mms" | "meta_muse_voice" | "elevenlabs_scribe";
   language: string;
   duration_sec: number;
   segments: TranscriptSegment[];

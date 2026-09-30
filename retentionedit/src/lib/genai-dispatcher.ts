@@ -1,6 +1,6 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { GenAIBRoll, GenAITier, NarrativeSection, VideoFormat } from "./types";
+import { GenAIBRoll, NarrativeSection, VideoFormat } from "./types";
 import { ClaudeDirector } from "./claude-director";
 import { getSecret } from "./vault-store";
 
@@ -135,13 +135,12 @@ export class GenAIDispatcher {
    * Plans and synthesizes 4K Still Images with 2.5D Ken Burns camera drift using Higgsfield.
    */
   public async planBRolls(params: {
-    tier: GenAITier;
     format: VideoFormat;
     sections: NarrativeSection[];
     transcriptText: string;
     niche?: string;
   }): Promise<{ brolls: GenAIBRoll[]; directorVerdict: string; hookScore: number }> {
-    const { tier, format, sections, transcriptText, niche = "productivity" } = params;
+    const { format, sections, transcriptText, niche = "productivity" } = params;
 
     // Consult Claude Opus for editorial verdict and prompt synthesis
     const direction = await this.director.directEdit({
@@ -151,20 +150,14 @@ export class GenAIDispatcher {
       niche,
     });
 
-    // Eco Tier: Zero GenAI Video costs, 100% HyperFrames code animations
-    if (tier === "eco") {
-      return {
-        brolls: [],
-        directorVerdict: direction.editorialVerdict,
-        hookScore: direction.hookStrengthScore,
-      };
-    }
-
-    const maxClips = tier === "balanced" ? 2 : 4;
+    // Unico hot path balanced: Opus high a 5.5 + Higgsfield illimitati (RetentionVolt).
+    // Nessun ramo eco: locale è un'opzione eco esplicita fuori dal bottone.
     const isShort = format === "short";
-
-    // Map Claude Opus prompts to 2.5D Ken Burns Cutaway timeline events using Higgsfield SOUL
-    const brollPromises = direction.higgsfieldPrompts.slice(0, maxClips).map(async (item, idx) => {
+    const prompts = direction.higgsfieldPrompts;
+    // Map Claude Opus high prompts to 2.5D Ken Burns Cutaway timeline events — distribute
+    // across the full video using RetentionVolt-adapted blueprint events as anchors where
+    // available, otherwise spread evenly across sections.
+    const brollPromises = prompts.map(async (item, idx) => {
       const isHook = item.targetSection === "hook";
       const targetSec = sections.find((s) => (isHook ? s.importance === "hook" : s.importance === "climax")) || sections[0];
       const startSec = isHook ? Number((targetSec.start + 1.2).toFixed(2)) : Number((targetSec.start + 2.0).toFixed(2));

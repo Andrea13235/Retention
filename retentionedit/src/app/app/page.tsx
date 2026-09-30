@@ -17,6 +17,7 @@ import { OnboardingModal } from "@/components/onboarding-modal";
 import { ToastContainer, showToast } from "@/components/toast-notification";
 import { Loader2 } from "lucide-react";
 import { PipelineJob } from "@/lib/types";
+import type { GenAITier } from "@/lib/types";
 import { JobRequest } from "@/lib/job-request";
 import { calculateJobCredits } from "@/lib/credits";
 import { captureVideoCover } from "@/lib/video-cover";
@@ -146,33 +147,30 @@ function AppWorkspaceContent() {
                 const { loadProjectEntries, upsertProject } = await import("@/lib/projects-store");
                 const allEntries = loadProjectEntries();
                 const existing = allEntries.find((p) => p.id === activeJobId);
-                const { captureVideoCover } = await import("@/lib/video-cover");
                 const renderedUrl: string | undefined = fullJob.renderedVideoUrl;
+                // SOLO video reale: MP4 montato dal server (Modal GPU) oppure presigned/relay.
+                // Niente più blacklist kling/raw-vlog/final-horizontal (demo rimossi).
                 const isSafeRendered =
                   renderedUrl &&
-                  /^(https?:\/\/|\/)/.test(renderedUrl) &&
+                  /^(https?:\/\/|\/|r2:\/\/)/.test(renderedUrl) &&
                   !renderedUrl.startsWith("blob:") &&
-                  !renderedUrl.includes("r2.retentionedit.com") &&
-                  !renderedUrl.includes("cloudflarestorage.com") &&
-                  !renderedUrl.includes("kling") &&
-                  !renderedUrl.includes("raw-vlog") &&
-                  !renderedUrl.includes("final-horizontal");
+                  !renderedUrl.includes("cloudflarestorage.com");
+                // A fine lavoro: copertina ad-hoc + titolo YouTube dal server.
+                // Il server li ha già composti (frame reale + headline); qui
+                // prendiamo SOLO quelli finali — niente cover provvisorie.
                 const freshCover =
-                  (existing?.coverUrl && !existing.coverUrl.includes("raw-vlog") ? existing.coverUrl : null) ||
-                  (fullJob.thumbnailUrl && !fullJob.thumbnailUrl.includes("raw-vlog") ? fullJob.thumbnailUrl : null) ||
-                  (fullJob.coverUrl && !fullJob.coverUrl.includes("raw-vlog") ? fullJob.coverUrl : null) ||
+                  (fullJob.thumbnailUrl ? fullJob.thumbnailUrl : null) ||
+                  (fullJob.coverUrl ? fullJob.coverUrl : null) ||
+                  (existing?.coverUrl ? existing.coverUrl : null) ||
                   "";
+                const finalTitle = fullJob.title || existing?.title || "Untitled edit";
                 const realClips =
                   typeof fullJob?.stats?.cutsCount === "number" && fullJob.stats.cutsCount > 0
                     ? fullJob.stats.cutsCount
                     : existing?.clipsCount || 1;
                 const safeExistingVideo =
                   existing?.videoUrl &&
-                  !existing.videoUrl.includes("kling") &&
-                  !existing.videoUrl.includes("r2.retentionedit.com") &&
-                  !existing.videoUrl.includes("cloudflarestorage.com") &&
-                  !existing.videoUrl.includes("raw-vlog") &&
-                  !existing.videoUrl.includes("final-horizontal")
+                  !existing.videoUrl.includes("cloudflarestorage.com")
                     ? existing.videoUrl
                     : "";
                 await upsertProject(
@@ -180,7 +178,7 @@ function AppWorkspaceContent() {
                     id: activeJobId,
                     createdAt: existing?.createdAt || Date.now(),
                     format: fullJob.format || existing?.format || "short",
-                    title: fullJob.title || existing?.title || "Untitled edit",
+                    title: finalTitle,
                     coverUrl: freshCover || existing?.coverUrl || "/images/hero-preview.png",
                     videoUrl: isSafeRendered ? renderedUrl! : safeExistingVideo,
                     clipsCount: realClips,
@@ -189,6 +187,9 @@ function AppWorkspaceContent() {
                   },
                   null
                 ).catch(() => {});
+                // La card "Recent projects" ora è pronta con cover ad-hoc +
+                // titolo YouTube: apri subito la schematica video (deciso).
+                setActiveTab("home");
               } catch {
                 // non-blocking
               }
@@ -209,20 +210,11 @@ function AppWorkspaceContent() {
       return;
     }
 
-    // Feature gating per plan
-    const { checkFeatureAccess } = await import("@/lib/stripe");
-    if (params.genaiTier === "cinematic") {
-      const gate = checkFeatureAccess(userPlan, "cinematic_tier");
-      if (!gate.allowed) {
-        showToast(
-          gate.reason || "Il tier Cinematic Pro richiede un abbonamento Pro Studio o Agency.",
-          5000
-        );
-        setPricingOpen(true);
-        return;
-      }
-    } else if (params.genaiTier === "balanced") {
-      const gate = checkFeatureAccess(userPlan, "balanced_tier");
+    // Edit in one click è SEMPRE balanced Opus high a 5.5 — forza qui a prescindere da cosa passa la UI.
+    const effectiveTier: GenAITier = "balanced";
+    // Feature gating per plan — sempre su balanced (unico tier attivo)
+    {
+      const gate = await import("@/lib/stripe").then((m) => m.checkFeatureAccess(userPlan, "balanced_tier" as any));
       if (!gate.allowed && userPlan === "free") {
         showToast(gate.reason || "Il tier Balanced richiede almeno il piano Creator Starter.", 5000);
         setPricingOpen(true);
@@ -230,7 +222,7 @@ function AppWorkspaceContent() {
       }
     }
 
-    const requiredCredits = calculateJobCredits(params.genaiTier);
+    const requiredCredits = calculateJobCredits(effectiveTier);
     if (credits < requiredCredits) {
       showToast(`Crediti insufficienti (${credits}/${requiredCredits} pts). Effettua l'upgrade!`, 4000);
       setPricingOpen(true);
@@ -238,6 +230,33 @@ function AppWorkspaceContent() {
     }
 
     setLoading(true);
+    // Card istantanea: se il chiamante (home-workspace) l'ha già creata al click
+    // (status "uploading"), riusa il suo pendingId — altrimenti creane una qui.
+    // In OGNI caso l'utente vede il progetto in My Projects SUBITO.
+    const pendingId =
+      params.pendingId ||
+      (typeof crypto !== "undefined" && "randomUUID" in crypto
+        ? `pending_${crypto.randomUUID()}`
+        : `pending_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`);
+    if (!params.pendingId) {
+    try {
+      const { upsertProject } = await import("@/lib/projects-store");
+      await upsertProject(
+        {
+          id: pendingId,
+          title: params.title || "Untitled edit",
+          coverUrl: "",
+          videoUrl: "",
+          clipsCount: 1,
+          createdAt: Date.now(),
+          format: params.format || "short",
+          status: "processing",
+          rawDuration: params.duration,
+        },
+        params.file ? params.file : null
+      ).catch(() => {});
+    } catch {}
+    }
     try {
       // Session: the server minted a signed HttpOnly cookie at login — the
       // browser sends it automatically. Never overwrite it with the raw id.
@@ -270,7 +289,7 @@ function AppWorkspaceContent() {
           title: params.title,
           rawVideoUrl: sourceUrl,
           format: params.format,
-          genaiTier: params.genaiTier,
+          genaiTier: effectiveTier,
           duration: params.duration,
           userPlan,
           ...(params.r2Key ? { r2Key: params.r2Key } : {}),
@@ -286,59 +305,43 @@ function AppWorkspaceContent() {
       const data = await res.json();
 
       const isReplayable = /^(https?:\/\/|\/)/.test(sourceUrl) && !sourceUrl.startsWith("blob:");
-      await upsertProject(
-        {
-          id: data.jobId as string,
-          title: params.title || "Untitled edit",
-          coverUrl: coverUrl ?? "",
-          videoUrl: isReplayable ? sourceUrl : "",
-          clipsCount: 1,
-          createdAt: Date.now(),
-          format: params.format,
-          status: "processing",
-          rawDuration: params.duration,
-        },
-        params.file ? params.file : null
-      ).catch(() => {});
+      // Riconcilia la card istantanea (pendingId) col jobId reale: sposta cover/blob,
+      // aggiorna la card e cancella il pending — MAI duplicare.
+      try {
+        const store = await import("@/lib/projects-store");
+        const pending = store.loadProjectEntries().find((p) => p.id === pendingId);
+        const pendingBlob = await store.getProjectBlob(pendingId).catch(() => null);
+        await upsertProject(
+          {
+            id: data.jobId as string,
+            title: params.title || pending?.title || "Untitled edit",
+            coverUrl: coverUrl ?? pending?.coverUrl ?? "",
+            videoUrl: isReplayable ? sourceUrl : (pending?.videoUrl ?? ""),
+            clipsCount: 1,
+            createdAt: pending?.createdAt || Date.now(),
+            format: params.format,
+            status: "processing",
+            rawDuration: params.duration,
+          },
+          params.file ? params.file : pendingBlob
+        ).catch(() => {});
+        if (pending) {
+          try { await store.deleteProject(pendingId); } catch {}
+          // deleteProject notifica; re-inserisci il job reale se la delete lo avesse toccato
+          // (delete filtra per id, quindi il job reale resta — nessuna azione extra).
+        }
+      } catch {}
 
       const uploadFile = params.file;
-      if (uploadFile) {
-        // Kick off background render pipeline immediately so the video is 100% baked before loading finishes!
-        (async () => {
-          try {
-            const { bakeEditedVideo } = await import("@/lib/video-baker");
-            const dur = params.duration || 35;
-            const initialPlan = {
-              format: params.format || "short",
-              source_duration: dur,
-              target_duration: dur,
-              cuts: [
-                { start: 6.5, end: 7.1, keep: false },
-                { start: 14.8, end: 15.5, keep: false },
-              ],
-              zooms: [
-                { time: 1.0, type: "zoom_punch", scale: 1.18, duration: 0.8 },
-                { time: 4.2, type: "slow_zoom", scale: 1.14, duration: 1.5 },
-                { time: 7.4, type: "zoom_punch", scale: 1.18, duration: 0.8 },
-                { time: 10.6, type: "slow_zoom", scale: 1.14, duration: 1.5 },
-                { time: 13.8, type: "zoom_punch", scale: 1.18, duration: 0.8 },
-              ],
-            };
-            await bakeEditedVideo(data.jobId, uploadFile, initialPlan, {
-              format: params.format,
-            });
-          } catch (e) {
-            console.warn("[startJob] Background pre-baking error:", e);
-          }
-        })();
-      }
+      // NIENTE pre-bake con piano finto: il montaggio parte solo col piano
+      // REALE del server (il pre-bake inventava tagli 6.5s prima del vero edit).
 
       setCredits((prev) => Math.max(0, prev - requiredCredits));
       setJobData({
         id: data.jobId,
         title: params.title || "Untitled edit",
         format: params.format || "short",
-        genaiTier: params.genaiTier || "balanced",
+        genaiTier: effectiveTier,
         rawDuration: params.duration || 30,
         rawVideoUrl: sourceUrl,
         currentStage: "ingest",
@@ -400,6 +403,17 @@ function AppWorkspaceContent() {
       setActiveJobId(null);
       setActiveTab("home");
     } catch (err: any) {
+      // Il backend ha fallito: la card istantanea resta visibile ma marcata come fallita
+      // (titolo con ⚠) invece di sparire in silenzio — l'utente sa sempre che è successo.
+      try {
+        const store = await import("@/lib/projects-store");
+        const pending = store.loadProjectEntries().find((p) => p.id === pendingId);
+        if (pending) {
+          store.updateProject(pendingId, {
+            title: `${pending.title} — ⚠ avvio fallito, riprova`,
+          });
+        }
+      } catch {}
       alert(`Errore avvio job: ${err.message}`);
     } finally {
       setLoading(false);
@@ -500,18 +514,14 @@ function AppWorkspaceContent() {
                         j.rawVideoUrl = userBlobUrl;
                         j.renderedVideoUrl = userBlobUrl;
                       } else {
+                        // SOLO video reale — niente blacklist demo (rimossi).
                         const isDead =
                           !j.renderedVideoUrl ||
-                          j.renderedVideoUrl.includes("cloudflarestorage.com") ||
-                          j.renderedVideoUrl.includes("r2.retentionedit.com") ||
-                          j.renderedVideoUrl.includes("kling") ||
-                          j.renderedVideoUrl.includes("raw-vlog") ||
-                          j.renderedVideoUrl.includes("final-horizontal");
+                          j.renderedVideoUrl.includes("cloudflarestorage.com");
                         if (isDead) {
                           j.renderedVideoUrl =
                             j.rawVideoUrl &&
-                            !j.rawVideoUrl.includes("cloudflarestorage.com") &&
-                            !j.rawVideoUrl.includes("raw-vlog")
+                            !j.rawVideoUrl.includes("cloudflarestorage.com")
                               ? j.rawVideoUrl
                               : "";
                         }
@@ -525,13 +535,10 @@ function AppWorkspaceContent() {
 
                   if (existing) {
                     setActiveJobId(jobId);
+                    // SOLO video reale — niente blacklist demo (rimossi).
                     const safeVid =
                       existing.videoUrl &&
-                      !existing.videoUrl.includes("kling") &&
-                      !existing.videoUrl.includes("r2.retentionedit.com") &&
-                      !existing.videoUrl.includes("cloudflarestorage.com") &&
-                      !existing.videoUrl.includes("raw-vlog") &&
-                      !existing.videoUrl.includes("final-horizontal")
+                      !existing.videoUrl.includes("cloudflarestorage.com")
                         ? existing.videoUrl
                         : null;
                     const fallbackVideo = userBlobUrl || safeVid || "";
@@ -563,42 +570,9 @@ function AppWorkspaceContent() {
               />
             )}
 
-            {/* Risultato motore reale: player + DOWNLOAD MP4 */}
-            {!activeJobId && realEdit.stage === "done" && realEdit.status?.downloadUrl && (
-              <div className="w-full max-w-[720px] mx-auto mt-4 rounded-2xl overflow-hidden border border-white/10 bg-black">
-                <div className="p-4 flex items-center gap-3 justify-between">
-                  <div className="min-w-0">
-                    <p className="text-sm font-bold text-white truncate">{realEdit.status.title}</p>
-                    <p className="text-[11px] text-[#8c8c90] mt-0.5">
-                      {realEdit.status.sourceDuration?.toFixed(1)}s → {realEdit.status.finalDuration?.toFixed(1)}s
-                      {typeof realEdit.status.timeSavedSec === "number" && realEdit.status.timeSavedSec > 0 && (
-                        <span> · −{realEdit.status.timeSavedSec.toFixed(1)}s di silenzi</span>
-                      )}
-                      {typeof realEdit.status.captionsBurned === "number" && realEdit.status.captionsBurned > 0 && (
-                        <span> · {realEdit.status.captionsBurned} caption</span>
-                      )}
-                      {typeof realEdit.status.zoomsApplied === "number" && realEdit.status.zoomsApplied > 0 && (
-                        <span> · {realEdit.status.zoomsApplied} zoom</span>
-                      )}
-                      {typeof realEdit.status.brollsApplied === "number" && realEdit.status.brollsApplied > 0 && (
-                        <span> · {realEdit.status.brollsApplied} B-roll</span>
-                      )}
-                      {typeof realEdit.status.bytes === "number" && (
-                        <span> · {(realEdit.status.bytes / 1048576).toFixed(1)} MB</span>
-                      )}
-                    </p>
-                  </div>
-                  <a
-                    href={realEdit.status.downloadUrl}
-                    download
-                    className="shrink-0 inline-flex items-center gap-1.5 px-5 py-2.5 rounded-full bg-emerald-400 hover:bg-emerald-300 text-black text-xs font-bold transition"
-                  >
-                    DOWNLOAD MP4
-                  </a>
-                </div>
-                <video src={realEdit.status.downloadUrl} controls playsInline preload="metadata" className="w-full aspect-video bg-black" />
-              </div>
-            )}
+            {/* A fine lavoro la card "Recent projects" è già pronta con
+                copertina ad-hoc + titolo YouTube: il click sulla card
+                (onOpenJob) apre la schematica video. Niente box separato. */}
 
             {activeJobId && jobData && jobData.currentStage !== "done" && (
               <div className="py-6">
@@ -653,18 +627,14 @@ function AppWorkspaceContent() {
                     j.rawVideoUrl = userBlobUrl;
                     j.renderedVideoUrl = userBlobUrl;
                   } else {
+                    // SOLO video reale — niente blacklist demo (rimossi).
                     const isDead =
                       !j.renderedVideoUrl ||
-                      j.renderedVideoUrl.includes("cloudflarestorage.com") ||
-                      j.renderedVideoUrl.includes("r2.retentionedit.com") ||
-                      j.renderedVideoUrl.includes("kling") ||
-                      j.renderedVideoUrl.includes("raw-vlog") ||
-                      j.renderedVideoUrl.includes("final-horizontal");
+                      j.renderedVideoUrl.includes("cloudflarestorage.com");
                     if (isDead) {
                       j.renderedVideoUrl =
                         j.rawVideoUrl &&
-                        !j.rawVideoUrl.includes("cloudflarestorage.com") &&
-                        !j.rawVideoUrl.includes("raw-vlog")
+                        !j.rawVideoUrl.includes("cloudflarestorage.com")
                           ? j.rawVideoUrl
                           : "";
                     }
@@ -678,13 +648,10 @@ function AppWorkspaceContent() {
 
               if (existing) {
                 setActiveJobId(jobId);
+                // SOLO video reale — niente blacklist demo (rimossi).
                 const safeVid =
                   existing.videoUrl &&
-                  !existing.videoUrl.includes("kling") &&
-                  !existing.videoUrl.includes("r2.retentionedit.com") &&
-                  !existing.videoUrl.includes("cloudflarestorage.com") &&
-                  !existing.videoUrl.includes("raw-vlog") &&
-                  !existing.videoUrl.includes("final-horizontal")
+                  !existing.videoUrl.includes("cloudflarestorage.com")
                     ? existing.videoUrl
                     : null;
                 const fallbackVideo = userBlobUrl || safeVid || "";

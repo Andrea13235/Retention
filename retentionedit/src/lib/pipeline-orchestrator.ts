@@ -15,6 +15,7 @@ import { HiggsfieldCover } from "./higgsfield-cover";
 import { loadJob, loadJobAsync, persistJob, persistJobAsync } from "./job-store";
 import { ModalGPUClient } from "./modal-client";
 import { generateYouTubeTitle } from "./youtube-title";
+import { resolveYouTubeTitle } from "./claude-title";
 
 // In-memory active jobs registry (backed by storage in production)
 const ACTIVE_JOBS: Map<string, PipelineJob> = new Map();
@@ -142,7 +143,8 @@ export class PipelineOrchestrator {
     if (o.version !== "1.3") return false;
     if (o.format !== "short" && o.format !== "long") return false;
     if (!Array.isArray(o.cuts) || !Array.isArray(o.zooms)) return false;
-    if (o.cuts.length > 200 || o.zooms.length > 80) return false;
+    // Nessun tetto rigido su tagli/zoom/B-roll: Opus high decide il meglio per video.
+    // Fail-loud solo su payload malformati, mai su quantità editoriale.
     return true;
   }
 
@@ -163,29 +165,30 @@ export class PipelineOrchestrator {
     if (!job) throw new Error(`Job ${jobId} not found`);
     if (!job.editPlan || !job.transcript) throw new Error("Job not ready for revision (missing editPlan/transcript)");
     const prevPlan = job.editPlan;
-    const transcriptText = job.transcript.segments.map((s) => s.text).join(" ").slice(0, 4000);
+    const transcriptText = job.transcript.segments.map((s) => s.text).join(" ");
 
     const system = [
-      "You are Claude Opus 5.5, senior HyperFrames editor. Your ONLY output is a valid EditPlan JSON v1.3.",
+      "You are Claude Code 5.5 Opus (high) — senior HyperFrames editor. Your ONLY output is a valid EditPlan JSON v1.3.",
       "Rules:",
       "- Preserve version=\"1.3\" and the same source_duration / format unless the user explicitly asks to change it.",
       "- Keep graphic/caption safe areas: bottom_pct 18 for short (9:16), 10 for long (16:9).",
       "- Keep brolls as image_ken_burns only; never invent video generation.",
+      "- Think step-by-step through every retention-critical moment before emitting the JSON — do NOT cap brolls artificially; emit one per moment the content warrants.",
       "- Respond ONLY with raw JSON (no markdown, no prose). The JSON must match the EditPlan shape.",
       "- If the request is ambiguous, make the minimal tasteful change that respects it.",
-      "- Keep cuts/zooms counts reasonable (≤40 cuts, ≤30 zooms).",
+      "- Keep cuts/zooms as many as the material warrants — no artificial cap. Let the edit breathe.",
       `Current blueprint niche: ${job.blueprint?.niche ?? "general"}.`,
     ].join("\n");
 
     const userMsg = [
       `CURRENT EditPlan (JSON, edit this):\n${JSON.stringify(prevPlan)}`,
-      `Transcript excerpt: "${transcriptText.slice(0, 2000)}"`,
+      `Transcript excerpt: "${transcriptText}",`,
       `USER REVISION REQUEST: ${userPrompt}`,
       "Return ONLY the revised EditPlan JSON v1.3 (full object, no diff).",
     ].join("\n\n");
 
     const primaryModel = (process.env.ANTHROPIC_MODEL || "claude-opus-4-20250514").trim();
-    const fallbackModel = "claude-3-opus-20240229";
+    const fallbackModel = "claude-opus-4-20250514";
     const tryModels = [primaryModel, fallbackModel].filter((m, i, a) => m && a.indexOf(m) === i);
     let lastErr = "";
     let rawText = "";
@@ -199,7 +202,7 @@ export class PipelineOrchestrator {
         },
         body: JSON.stringify({
           model,
-          max_tokens: 4096,
+          max_tokens: 16000,
           system,
           messages: [{ role: "user", content: userMsg }],
         }),
@@ -238,7 +241,7 @@ export class PipelineOrchestrator {
     revised.format = job.format;
     revised.source_duration = prevPlan.source_duration;
     revised.genai_tier = prevPlan.genai_tier;
-    revised.brolls = Array.isArray(revised.brolls) ? revised.brolls.slice(0, 6) : prevPlan.brolls;
+    revised.brolls = Array.isArray(revised.brolls) ? revised.brolls : prevPlan.brolls;
     revised.captions = (revised.captions as EditPlan["captions"]) ?? prevPlan.captions;
     revised.version = "1.3";
 
@@ -434,13 +437,21 @@ export class PipelineOrchestrator {
         });
         job.blueprint = rvMatch.blueprint;
 
-        // Generate high-CTR YouTube title from transcript, hook, and blueprint
-        const ytTitle = generateYouTubeTitle({
+        // Titolo YouTube perfetto in funzione di cosa parla il video:
+        // Claude legge il transcript reale (chiave dal vault, server-only),
+        // fallback euristico quando chiave/API/transcript mancano.
+        const ytTitle = await resolveYouTubeTitle({
           rawTitle: job.title,
           transcriptText: fullText,
           niche: job.blueprint?.niche,
-          blueprint: job.blueprint,
-        });
+        }).catch(() =>
+          generateYouTubeTitle({
+            rawTitle: job.title,
+            transcriptText: fullText,
+            niche: job.blueprint?.niche,
+            blueprint: job.blueprint,
+          })
+        );
         if (ytTitle) {
           job.title = ytTitle;
           job.logs.push(`[${new Date().toLocaleTimeString()}] YouTube Title Optimized: "${ytTitle}"`);
@@ -465,7 +476,6 @@ export class PipelineOrchestrator {
         const fullText = (job.transcript?.segments || []).map((s) => s.text).join(" ");
         const genAiDispatcher = new GenAIDispatcher();
         const { brolls, directorVerdict, hookScore } = await genAiDispatcher.planBRolls({
-          tier: job.genaiTier,
           format: job.format,
           sections: job.analysis?.sections || [],
           transcriptText: fullText,
@@ -506,7 +516,7 @@ export class PipelineOrchestrator {
           editPlan: job.editPlan!,
         });
         const candidateUrl = renderResult.renderedVideoUrl || "";
-        const isDeadUrl = !candidateUrl || candidateUrl.includes("r2.retentionedit.com") || candidateUrl.includes("your_") || candidateUrl.includes("kling") || candidateUrl.includes("raw-vlog");
+        const isDeadUrl = !candidateUrl || candidateUrl.includes("your_");
         job.renderedVideoUrl = !isDeadUrl ? candidateUrl : job.rawVideoUrl;
         if (renderResult.qualityGate) job.qualityGate = renderResult.qualityGate;
         await updateStage("render", "completed", 100, "Modal GPU render completed. Output MP4 compiled.");
@@ -547,35 +557,39 @@ export class PipelineOrchestrator {
         return job;
       }
 
-      // 7. Quality Gate Verification
+      // 7. Quality Gate Verification — SOLO valori reali dal render:
+      // se il render non ha restituito un qualityGate, score 0 = non misurato
+      // (mai inventare 9.8/94). Stats = conteggi reali del piano, mai fallback.
       if (job.stages.verify.state !== "completed") {
         job.currentStage = "verify";
         job.stages.verify.state = "running";
         job.stages.verify.progress = 75;
         await saveJob();
 
-        job.qualityGate = {
-          passed: true,
-          score: 9.8,
-          pillars: {
-            beat_sync: true,
-            safe_areas: true,
-            typography_contrast: true,
-            facial_clearance: true,
-            thumbnail_magnetism: true,
-          },
-          checked_frames_count: 14,
-          verified_timestamp: new Date().toISOString(),
-        };
-        await updateStage("verify", "completed", 100, "Broadcast Quality Gate PASSED: Score 9.8/10 across 14 frames");
+        if (!job.qualityGate || job.qualityGate.checked_frames_count === 0) {
+          job.qualityGate = {
+            passed: false,
+            score: 0,
+            pillars: {
+              beat_sync: false,
+              safe_areas: false,
+              typography_contrast: false,
+              facial_clearance: false,
+              thumbnail_magnetism: false,
+            },
+            checked_frames_count: 0,
+            verified_timestamp: new Date().toISOString(),
+          };
+        }
+        await updateStage("verify", "completed", 100, "Quality Gate recorded (real render values only)");
 
         job.currentStage = "done";
         job.stats = {
-          cutsCount: job.editPlan?.cuts.length || 12,
-          timeSavedSec: job.analysis?.estimated_time_saved_sec || 8,
-          retentionScore: 94,
-          brollCount: job.editPlan?.brolls?.length || 2,
-          zoomCount: job.editPlan?.zooms.length || 6,
+          cutsCount: job.editPlan?.cuts.length || 0,
+          timeSavedSec: job.analysis?.estimated_time_saved_sec || 0,
+          retentionScore: 0, // 0 = non misurato, mai inventato
+          brollCount: job.editPlan?.brolls?.length || 0,
+          zoomCount: job.editPlan?.zooms.length || 0,
         };
         job.logs.push(`[${new Date().toLocaleTimeString()}] Autonomous Edit Completed Successfully! Ready for delivery.`);
         await saveJob();

@@ -289,8 +289,8 @@ export default function Landing({
           <div className="relative aspect-video rounded-2xl overflow-hidden bg-[#0c0d12] border border-[#1d1f29] group">
             <video
               ref={videoRef}
-              src="/videos/kling-podcast-16-9.mp4"
-              poster="/videos/final-horizontal.jpg"
+              src="/videos/raw-podcast.mp4"
+              poster="/videos/raw-podcast.jpg"
               autoPlay
               loop
               muted
@@ -435,7 +435,7 @@ export default function Landing({
 
               <div className="relative aspect-video rounded-2xl overflow-hidden bg-[#0a0a0f] border border-[#1f202b]">
                 <video
-                  src="/videos/kling-creator-9-16.mp4"
+                  src="/videos/raw-desktalk.mp4"
                   autoPlay
                   loop
                   muted
@@ -474,7 +474,7 @@ export default function Landing({
 
               <div className="relative aspect-video rounded-2xl overflow-hidden bg-[#0a0a0f] border border-[#1f202b]">
                 <video
-                  src="/videos/kling-podcast-16-9.mp4"
+                  src="/videos/raw-podcast.mp4"
                   autoPlay
                   loop
                   muted
@@ -549,7 +549,7 @@ export default function Landing({
             <div className="space-y-4">
               <div className="aspect-video rounded-2xl bg-[#181924] border border-[#282a39] overflow-hidden relative flex items-center justify-center">
                 <video
-                  src="/videos/final-horizontal.mp4"
+                  src="/videos/raw-podcast.mp4"
                   autoPlay
                   loop
                   muted

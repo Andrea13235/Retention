@@ -15,4 +15,7 @@ export interface JobRequest {
   coverUrl?: string;
   /** R2 object key (raw/<userId>/...) quando il sorgente è su R2. */
   r2Key?: string;
+  /** Id della card istantanea creata al click (status "uploading") — il parent la
+   *  riconcilia col jobId reale invece di crearne una seconda. */
+  pendingId?: string;
 }

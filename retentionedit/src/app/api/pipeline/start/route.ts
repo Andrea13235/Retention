@@ -27,7 +27,6 @@ function sanitizeUrl(v: unknown): string {
   }
 }
 const FORMAT_SET = new Set<VideoFormat>(["short", "long"]);
-const TIER_SET = new Set<GenAITier>(["eco", "balanced", "cinematic"]);
 
 export async function POST(req: NextRequest) {
   try {
@@ -57,23 +56,15 @@ export async function POST(req: NextRequest) {
     }
 
     const format: VideoFormat = FORMAT_SET.has(body?.format) ? (body.format as VideoFormat) : "short";
-    const genaiTier: GenAITier = TIER_SET.has(body?.genaiTier) ? (body.genaiTier as GenAITier) : "balanced";
+    const genaiTier: GenAITier = "balanced"; // Unico hot path: Opus high a 5.5 + Higgsfield illimitati
     const duration = Number.isFinite(body?.duration) ? Math.max(1, Math.min(4 * 3600, Math.round(Number(body.duration)))) : 48;
 
-    // Feature gating per plan (Free, Starter, Pro, Agency)
+    // Feature gating per plan (Free, Starter, Pro, Agency) — unico tier attivo: balanced
     const { checkFeatureAccess } = await import("@/lib/stripe");
     const userPlanHeader = req.headers.get("x-user-plan");
     const userPlan = (body?.userPlan || userPlanHeader || "free") as any;
 
-    if (genaiTier === "cinematic") {
-      const gate = checkFeatureAccess(userPlan, "cinematic_tier");
-      if (!gate.allowed) {
-        return NextResponse.json(
-          { error: gate.reason, code: "PLAN_UPGRADE_REQUIRED", requiredPlan: gate.requiredPlan },
-          { status: 403 }
-        );
-      }
-    } else if (genaiTier === "balanced") {
+    {
       const gate = checkFeatureAccess(userPlan, "balanced_tier");
       if (!gate.allowed && body?.userPlan && body.userPlan === "free") {
         return NextResponse.json(

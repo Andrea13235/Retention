@@ -71,7 +71,7 @@ export class ModalGPUClient {
           let safeRenderedUrl = modalVideo;
           if (modalVideo.includes("r2.retentionedit.com")) {
             safeRenderedUrl = `r2://exports/${userId}/${jobId}_final.mp4`;
-          } else if (!modalVideo || modalVideo.includes("your_") || modalVideo.includes("kling") || modalVideo.includes("raw-vlog")) {
+          } else if (!modalVideo || modalVideo.includes("your_")) {
             safeRenderedUrl = rawVideoUrl;
           }
 
@@ -79,24 +79,26 @@ export class ModalGPUClient {
           let safeThumbUrl = modalThumb;
           if (modalThumb.includes("r2.retentionedit.com")) {
             safeThumbUrl = `r2://thumbnails/${userId}/${jobId}_cover.png`;
-          } else if (!modalThumb || modalThumb.includes("your_") || modalThumb.includes("raw-vlog")) {
+          } else if (!modalThumb || modalThumb.includes("your_")) {
             safeThumbUrl = "/images/hero-preview.png";
           }
 
           return {
             renderedVideoUrl: safeRenderedUrl || rawVideoUrl,
             thumbnailUrl: safeThumbUrl,
+            // Quality gate REALE del worker — niente score inventato: se il
+            // worker non lo restituisce, passato=false (mai 9.8 finto).
             qualityGate: result.quality_gate || result.qualityGate || {
-              passed: true,
-              score: 9.8,
+              passed: false,
+              score: 0,
               pillars: {
-                beat_sync: true,
-                safe_areas: true,
-                typography_contrast: true,
-                facial_clearance: true,
-                thumbnail_magnetism: true,
+                beat_sync: false,
+                safe_areas: false,
+                typography_contrast: false,
+                facial_clearance: false,
+                thumbnail_magnetism: false,
               },
-              checked_frames_count: 14,
+              checked_frames_count: 0,
               verified_timestamp: new Date().toISOString(),
             },
           };
@@ -107,21 +109,23 @@ export class ModalGPUClient {
       }
     }
 
-    // Default high-performance engine for local execution & dev preview
+    // Fallback locale/dev: NESSUN render finto — restituisce il raw così com'è
+    // e qualityGate NON passato (score 0 = non misurato, mai inventato).
+    // Il video "editato" nasce solo dal montaggio reale (bake/render col piano).
     return {
       renderedVideoUrl: rawVideoUrl,
       thumbnailUrl: "/images/hero-preview.png",
       qualityGate: {
-        passed: true,
-        score: 9.8,
+        passed: false,
+        score: 0,
         pillars: {
-          beat_sync: true,
-          safe_areas: true,
-          typography_contrast: true,
-          facial_clearance: true,
-          thumbnail_magnetism: true,
+          beat_sync: false,
+          safe_areas: false,
+          typography_contrast: false,
+          facial_clearance: false,
+          thumbnail_magnetism: false,
         },
-        checked_frames_count: 14,
+        checked_frames_count: 0,
         verified_timestamp: new Date().toISOString(),
       },
     };

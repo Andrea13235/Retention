@@ -64,7 +64,8 @@ export function VideoResultView({ job, onRevised }: VideoResultViewProps) {
   const [isRenderedBaked, setIsRenderedBaked] = useState<boolean>(false);
   const [bakingPct, setBakingPct] = useState<number | null>(null);
 
-  // Guarantee full continuous editing effects across the entire video
+  // Piano REALE dal server — niente zoom ritmici inventati ogni 3.2s:
+  // senza piano reale il player mostra il video così com'è (zoom vuoti).
   const resolvedPlan = React.useMemo(() => {
     if (
       job.editPlan &&
@@ -76,16 +77,6 @@ export function VideoResultView({ job, onRevised }: VideoResultViewProps) {
       return job.editPlan;
     }
     const dur = job.rawDuration || 35;
-    const zooms: NonNullable<PipelineJob["editPlan"]>["zooms"] = [];
-    for (let t = 1.0; t < dur - 1.0; t += 3.2) {
-      const isBig = zooms.length % 2 === 0;
-      zooms.push({
-        time: Number(t.toFixed(2)),
-        type: isBig ? "zoom_punch" : "slow_zoom",
-        scale: isBig ? 1.18 : 1.14,
-        duration: isBig ? 0.8 : 1.5,
-      });
-    }
 
     const effectiveGraphics: NonNullable<PipelineJob["editPlan"]>["graphics"] = [];
 
@@ -99,12 +90,11 @@ export function VideoResultView({ job, onRevised }: VideoResultViewProps) {
       genai_tier: job.genaiTier || "balanced",
       source_duration: dur,
       target_duration: dur,
-      cuts: job.editPlan?.cuts && job.editPlan.cuts.length > 0 ? job.editPlan.cuts : [
-        { start: 6.5, end: 7.1, keep: false },
-        { start: 14.8, end: 15.5, keep: false },
-      ],
+      // SOLO piano reale dal server — niente tagli finti 6.5s: senza piano
+      // reale non si inventa nessun taglio (player mostra il video così com'è).
+      cuts: job.editPlan?.cuts && job.editPlan.cuts.length > 0 ? job.editPlan.cuts : [],
       shots: effectiveShots,
-      zooms: job.editPlan?.zooms && job.editPlan.zooms.length > 0 ? job.editPlan.zooms : zooms,
+      zooms: job.editPlan?.zooms && job.editPlan.zooms.length > 0 ? job.editPlan.zooms : [],
       graphics: effectiveGraphics,
       captions: {
         words: [],
@@ -162,25 +152,19 @@ export function VideoResultView({ job, onRevised }: VideoResultViewProps) {
     };
   }, [job.id, resolvedPlan, job.format]);
 
+  // Priorità SEMPRE al video reale editato (MP4 renderizzato dal server):
+  // 1) renderedVideoUrl dal pipeline, 2) blob baked/auto-bake, 3) raw.
+  // NIENTE più filtri "kling/raw-vlog": quei file demo non esistono più come fake —
+  // raw-desktalk/raw-podcast sono sorgenti reali che passano dal pipeline completo.
   const getInitialSrc = () => {
     if (blobUrl) return blobUrl;
     const v = job.renderedVideoUrl;
-    if (
-      v &&
-      !v.includes("r2.retentionedit.com") &&
-      !v.includes("cloudflarestorage.com") &&
-      !v.includes("your_") &&
-      !v.includes("kling") &&
-      !v.includes("raw-vlog")
-    )
+    if (v && !v.includes("cloudflarestorage.com") && !v.includes("your_"))
       return v;
     if (
       job.rawVideoUrl &&
-      !job.rawVideoUrl.includes("r2.retentionedit.com") &&
       !job.rawVideoUrl.includes("cloudflarestorage.com") &&
-      !job.rawVideoUrl.includes("your_") &&
-      !job.rawVideoUrl.includes("kling") &&
-      !job.rawVideoUrl.includes("raw-vlog")
+      !job.rawVideoUrl.includes("your_")
     )
       return job.rawVideoUrl;
     return "";

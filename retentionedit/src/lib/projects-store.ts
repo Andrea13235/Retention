@@ -21,8 +21,11 @@ export interface ProjectEntry {
   clipsCount: number;
   createdAt: number;
   format: VideoFormat;
-  /** "processing" → card con animazione di caricamento + ETA; "ready" → card normale. */
-  status?: "processing" | "ready";
+  /** "uploading" → card istantanea al click (upload chunked in corso);
+   *  "processing" → card con animazione di caricamento + ETA; "ready" → card normale. */
+  status?: "uploading" | "processing" | "ready";
+  /** Percentuale upload chunked 0–100 (solo mentre status === "uploading"). */
+  uploadPct?: number;
   /** Durata RAW (s) usata per l'ETA. */
   rawDuration?: number;
   /** Collezione a cui appartiene il progetto (es. Favorites, TikTok, ecc.) */
@@ -74,9 +77,9 @@ export function isBuggedOrStaleProject(item: ProjectEntry): boolean {
     return true;
   }
 
-  // 3. Remove bugged processing projects that load infinitely:
-  // If status is "processing" and older than 2 minutes (120s), it is stuck/abandoned from an earlier session
-  if (item.status === "processing") {
+  // 3. Remove bugged processing/uploading projects that load infinitely:
+  // If status is "processing"/"uploading" and older than 2 minutes (120s), it is stuck/abandoned from an earlier session
+  if (item.status === "processing" || item.status === "uploading") {
     const ageMs = Date.now() - (item.createdAt || 0);
     if (ageMs > 120_000 || !item.createdAt || isNaN(item.createdAt)) {
       return true;
@@ -87,23 +90,19 @@ export function isBuggedOrStaleProject(item: ProjectEntry): boolean {
 }
 
 export function sanitizeProjectEntry(item: ProjectEntry): ProjectEntry {
+  // SOLO editing reale: si azzerano solo URL oggettivamente morti
+  // (domini placeholder, bucket pubblici legacy). Niente blacklist demo:
+  // raw-desktalk/raw-podcast sono sorgenti reali del pipeline.
   let videoUrl = item.videoUrl || "";
   if (
-    videoUrl.includes("r2.retentionedit.com") ||
     videoUrl.includes("demo_retention") ||
-    videoUrl.includes("kling") ||
-    videoUrl.includes("raw-vlog") ||
     videoUrl.includes("cloudflarestorage.com")
   ) {
     videoUrl = "";
   }
 
   let coverUrl = item.coverUrl || "";
-  if (
-    coverUrl.includes("r2.retentionedit.com") ||
-    coverUrl.includes("ruzza") ||
-    coverUrl.includes("raw-vlog")
-  ) {
+  if (coverUrl.includes("ruzza")) {
     coverUrl = "";
   }
 
@@ -131,8 +130,10 @@ export function deduplicateProjects(list: ProjectEntry[]): ProjectEntry[] {
   // Filter out bugged, stale, or Ruzza projects, then sanitize paths
   const valid = list.filter((item) => !isBuggedOrStaleProject(item)).map(sanitizeProjectEntry);
 
-  // Sort: prefer ready over processing, then newest first
+  // Sort: uploading prima di tutto (l'ultimo click), poi ready, poi processing, poi newest first
   const sorted = [...valid].sort((a, b) => {
+    if (a.status === "uploading" && b.status !== "uploading") return -1;
+    if (b.status === "uploading" && a.status !== "uploading") return 1;
     if (a.status === "ready" && b.status === "processing") return -1;
     if (b.status === "ready" && a.status === "processing") return 1;
     return (b.createdAt || 0) - (a.createdAt || 0);
@@ -199,19 +200,17 @@ function readAll(userId?: string): ProjectEntry[] {
     const parsed = JSON.parse(raw) as ProjectEntry[];
     if (!Array.isArray(parsed) || parsed.length === 0) return [];
     
-    // Purge any lingering kling-creator, raw-vlog, or dead cloudflarestorage references from previous sessions
+    // Purge solo URL oggettivamente morti (bucket pubblici legacy) — niente blacklist demo.
     for (const p of parsed) {
       if (
         p.videoUrl &&
-        (p.videoUrl.includes("kling") ||
-          p.videoUrl.includes("raw-vlog") ||
-          p.videoUrl.includes("cloudflarestorage.com"))
+        p.videoUrl.includes("cloudflarestorage.com")
       ) {
         p.videoUrl = "";
       }
       if (
         p.coverUrl &&
-        (p.coverUrl.includes("raw-vlog") || p.coverUrl.includes("ruzza"))
+        p.coverUrl.includes("ruzza")
       ) {
         p.coverUrl = "";
       }
@@ -373,12 +372,11 @@ export async function getProjectVideoUrl(
     // ignore
   }
 
-  // 2. If no blob, use entry.videoUrl if valid and NOT a fallback/mock
+  // 3. If no blob, use entry.videoUrl se replayable (SOLO editing reale —
+  // sorgente o MP4 montato; niente blacklist demo, solo bucket morti).
   if (
     entry.videoUrl &&
     isReplayableUrl(entry.videoUrl) &&
-    !entry.videoUrl.includes("kling") &&
-    !entry.videoUrl.includes("raw-vlog") &&
     !entry.videoUrl.includes("cloudflarestorage.com")
   ) {
     return entry.videoUrl;

@@ -20,12 +20,14 @@ import {
 import { GenAITier, VideoFormat } from "@/lib/types";
 import { JobRequest } from "@/lib/job-request";
 import { ProjectCard } from "@/components/project-card";
-import { ProcessingProjectCard } from "@/components/processing-project-card";
+import { ProcessingProjectCard, UploadingProjectCard } from "@/components/processing-project-card";
 import {
   ProjectEntry,
   deleteProject,
   loadProjectEntries,
   subscribeProjectsChanged,
+  upsertProject,
+  updateProject,
 } from "@/lib/projects-store";
 import { useAuth } from "@/context/auth-context";
 
@@ -104,33 +106,40 @@ export function HomeWorkspace({
       ? file.name.replace(/\.[^/.]+$/, "")
       : selectedName || "Creator Talking Head (9:16 Vertical)";
 
-    // MOTORE REALE: upload → trascrizione → tagli → MP4 (stesso motore E2E).
-    if (realEdit && file) {
-      setSubmittedToast(true);
-      await realEdit(file, baseName);
-      return;
-    }
-
-    let objectUrl = "";
-    let duration = 38;
-    let uploadedFile: File | null = file || null;
-    let r2Key: string | null = null;
-    let generatedCover: string | null = null;
-
+    // Motore Opus balanced: Opus high + Higgsfield illimitati (RetentionVolt).
+    // Unico hot path del bottone "Edit in one click" — locale è solo eco on-demand.
+    // upload → /api/pipeline/start (balanced) → poll /api/pipeline/status → done.
+    //
+    // CARD ISTANTANEA: nasce QUI al click, prima di probe/upload/rete/backend —
+    // l'utente vede subito il video in My Projects con sfondo nero + animazione
+    // + % upload + tempo stimato. Id temporaneo → riconciliato in page.tsx.
     if (file) {
-      uploadedFile = file;
+      setSubmittedToast(true);
+      const instantId =
+        typeof crypto !== "undefined" && "randomUUID" in crypto
+          ? `pending_${crypto.randomUUID()}`
+          : `pending_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+      try {
+        await upsertProject(
+          {
+            id: instantId,
+            title: baseName,
+            coverUrl: "",
+            videoUrl: "",
+            clipsCount: 1,
+            createdAt: Date.now(),
+            format: "short",
+            status: "uploading",
+            uploadPct: 0,
+            rawDuration: 38,
+          },
+          file
+        ).catch(() => {});
+      } catch {}
       const localBlob = URL.createObjectURL(file);
 
-      // 1. Generate high-CTR YouTube thumbnail directly from real video frame
-      try {
-        const { captureVideoCover } = await import("@/lib/video-cover");
-        generatedCover = await captureVideoCover(localBlob, 1.2, {
-          title: baseName,
-          badge: "VIRAL HOOK",
-        });
-      } catch {}
-
-      // 2. Probe video duration
+      // Probe durata reale (per rawDuration del job) — aggiorna anche la card istantanea
+      let duration = 38;
       try {
         const probed = await new Promise<number>((resolve) => {
           const v = document.createElement("video");
@@ -143,60 +152,69 @@ export function HomeWorkspace({
           v.src = localBlob;
         });
         if (probed > 0) duration = probed;
-      } catch {
-        // keep default
-      }
+        try { updateProject(instantId, { rawDuration: duration }); } catch {}
+      } catch {}
 
-      // Upload CORS-immune: chunk 4MB stessa-origin → relay server → R2
-      // (S3 MPU assemblato server-side + verify HEAD). Niente presigned PUT
-      // browser→R2 (richiede CORS sul bucket) e niente multipart diretto
-      // (413 oltre il body-cap serverless). FAIL-LOUD con causa vera.
-      const useR2 = async (): Promise<{ url: string; key: string; dur: number } | null> => {
-        try {
-          const { uploadFileChunked } = await import("@/lib/chunked-upload");
-          const uploaded = await uploadFileChunked(file, {
-            userId: user?.id,
-            plan: user?.plan || "free",
-          });
-          if (!uploaded.verified) return null;
-          await fetch("/api/r2/confirm", {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              ...(user?.id ? { "x-retentionedit-session": user.id } : {}),
-            },
-            body: JSON.stringify({ r2Key: uploaded.key, bytes: uploaded.bytes, kind: "raw" }),
-          }).catch(() => {});
-          return { url: `r2://${uploaded.key}`, key: uploaded.key, dur: duration };
-        } catch (e) {
-          const msg = e instanceof Error ? e.message : `Upload fallito`;
-          alert(msg);
-          return null;
+      // Upload chunked CORS-immune → R2, poi pipeline Opus balanced (unica).
+      try {
+        const { uploadFileChunked } = await import("@/lib/chunked-upload");
+        const uploaded = await uploadFileChunked(file, {
+          userId: user?.id,
+          plan: user?.plan || "free",
+          onProgress: (pct) => {
+            try { updateProject(instantId, { uploadPct: pct }); } catch {}
+          },
+        });
+        if (!uploaded.verified) {
+          try { updateProject(instantId, { title: `${baseName} — ⚠ upload non verificato, riprova` }); } catch {}
+          alert("Upload non verificato su R2 — riprova.");
+          return;
         }
-      };
-
-      const r2 = await useR2();
-      if (r2) {
-        objectUrl = r2.url;
-        r2Key = r2.key;
-      } else {
-        // Upload fallito e utente già avvisato: conserva il blob locale
-        // invece di procedere con un job senza sorgente.
-        return;
+        await fetch("/api/r2/confirm", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...(user?.id ? { "x-retentionedit-session": user.id } : {}),
+          },
+          body: JSON.stringify({ r2Key: uploaded.key, bytes: uploaded.bytes, kind: "raw" }),
+        }).catch(() => {});
+        // Promuovi la card istantanea a processing PRIMA di lanciare il job —
+        // così non c'è mai un buco visivo tra upload e pipeline.
+        try { updateProject(instantId, { status: "processing", uploadPct: undefined, rawDuration: duration }); } catch {}
+        onStartJob({
+          title: baseName,
+          rawVideoUrl: `r2://${uploaded.key}`,
+          format: "short",
+          genaiTier: "balanced",
+          duration,
+          file,
+          r2Key: uploaded.key,
+          pendingId: instantId,
+        });
+      } catch (e) {
+        try { updateProject(instantId, { title: `${baseName} — ⚠ upload fallito, riprova` }); } catch {}
+        alert(e instanceof Error ? e.message : "Upload fallito");
       }
+      return;
+    }
+
+    // Non-file path (sample project o URL manuale) → invia direttamente a pipeline balanced.
+    // A questo punto file è null (il caso file è già returnato sopra) — solo sample/URL testuale.
+    if (selectedName && !file) {
+      setSubmittedToast(true);
+      onStartJob({
+        title: baseName,
+        rawVideoUrl: selectedName,
+        format: "short",
+        genaiTier: "balanced",
+        duration: 38,
+        file: null,
+      });
+      return;
     }
 
     setSubmittedToast(true);
-    onStartJob({
-      title: baseName,
-      rawVideoUrl: objectUrl || (file ? URL.createObjectURL(file) : ""),
-      format: "short",
-      genaiTier: "balanced",
-      duration,
-      file: uploadedFile,
-      coverUrl: generatedCover || undefined,
-      ...(r2Key ? { r2Key } : {}),
-    });
+    // Fallthrough non-file senza selezione: niente da fare.
   };
 
   const handleClearCover = async (project: ProjectEntry) => {
@@ -293,14 +311,15 @@ export function HomeWorkspace({
           </div>
         )}
 
-        {/* Sample project link — exactly like the reference photo */}
+        {/* Sample project link — SOLO editing reale: il sample usa il pipeline
+            balanced completo e finisce in My Projects come MP4 scaricabile. */}
         <button
           type="button"
           onClick={() => {
             setSubmittedToast(true);
             onStartJob({
               title: "Creator Talking Head (9:16 Vertical)",
-              rawVideoUrl: "/videos/kling-creator-9-16.mp4",
+              rawVideoUrl: "/videos/raw-desktalk.mp4",
               format: "short",
               genaiTier: "balanced",
               duration: 38,
@@ -483,7 +502,9 @@ export function HomeWorkspace({
         {projects.length > 0 ? (
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-x-5 gap-y-6">
             {projects.slice(0, 6).map((project) =>
-              project.status === "processing" ? (
+              project.status === "uploading" ? (
+                <UploadingProjectCard key={project.id} project={project} />
+              ) : project.status === "processing" ? (
                 <ProcessingProjectCard key={project.id} project={project} />
               ) : (
                 <ProjectCard
