@@ -517,7 +517,26 @@ export class PipelineOrchestrator {
         });
         const candidateUrl = renderResult.renderedVideoUrl || "";
         const isDeadUrl = !candidateUrl || candidateUrl.includes("your_");
-        job.renderedVideoUrl = !isDeadUrl ? candidateUrl : job.rawVideoUrl;
+        // FAIL-LOUD: se il render non ha prodotto un MP4 montato, il job va in
+        // errore VERO — mai restituire il raw spacciandolo per "editato".
+        // Solo eccezione: raw locale (blob:/..) in dev, dove il bake browser
+        // monta il video col piano reale (video-result-view auto-bake).
+        const isLocalRaw =
+          job.rawVideoUrl.startsWith("blob:") ||
+          job.rawVideoUrl.startsWith("/") ||
+          (!job.rawVideoUrl.startsWith("r2://") && !job.rawVideoUrl.startsWith("http"));
+        if (isDeadUrl || candidateUrl === job.rawVideoUrl) {
+          if (isLocalRaw && job.editPlan && (job.editPlan.cuts.length > 0 || job.editPlan.zooms.length > 0)) {
+            job.renderedVideoUrl = job.rawVideoUrl;
+            job.logs.push(`[${new Date().toLocaleTimeString()}] Render GPU non disponibile (dev) — il browser monta il piano reale (auto-bake).`);
+          } else {
+            throw new Error(
+              `Render failed: nessun MP4 montato dal worker (endpoint ${modalClient.hasEndpoint() ? "raggiunto ma output vuoto" : "non configurato/irraggiungibile"}). Riprova — il tuo raw è intatto.`
+            );
+          }
+        } else {
+          job.renderedVideoUrl = candidateUrl;
+        }
         if (renderResult.qualityGate) job.qualityGate = renderResult.qualityGate;
         await updateStage("render", "completed", 100, "Modal GPU render completed. Output MP4 compiled.");
 
@@ -618,17 +637,34 @@ export class PipelineOrchestrator {
 
   /**
    * Executes the full pipeline sequentially and deterministically.
+   * NOTA serverless: su Vercel la Lambda può morire a metà — il driver vero
+   * è il polling su /api/pipeline/status (avanza col budget 25s + claim R2).
+   * Questo resta solo come best-effort iniziale da /api/pipeline/start:
+   * NON si ferma più al primo stage che non cambia (ogni pumpNextStage
+   * completa esattamente uno stage per design — vedi pumpNextStage).
    */
   public static async executeAutonomousPipeline(jobId: string): Promise<PipelineJob> {
     let job = await PipelineOrchestrator.getJobAsync(jobId);
     if (!job) throw new Error(`Job ${jobId} not found`);
 
     let iterations = 0;
+    let sameStageCount = 0;
     while (job && job.currentStage !== "done" && job.currentStage !== "error" && iterations < 15) {
       iterations++;
       await PipelineOrchestrator.pumpNextStage(jobId);
       const next = await PipelineOrchestrator.getJobAsync(jobId);
-      if (!next || next.currentStage === job.currentStage) break;
+      if (!next) break;
+      if (next.currentStage === job.currentStage) {
+        // pumpNextStage completa UNO stage per chiamata MA resta sullo stesso
+        // currentStage finché lo stage successivo non parte (es. ingest→
+        // transcribe imposta running ma currentStage resta). Continua finché
+        // gli stage interni avanzano, molla solo se davvero fermo 3 giri.
+        sameStageCount++;
+        job = next;
+        if (sameStageCount >= 3) break;
+        continue;
+      }
+      sameStageCount = 0;
       job = next;
     }
 

@@ -26,6 +26,11 @@ export class ModalGPUClient {
     this.endpoint = isPlaceholder(fromEnv) ? "" : fromEnv;
   }
 
+  /** True quando c'è un endpoint GPU reale configurato (non placeholder). */
+  public hasEndpoint(): boolean {
+    return this.endpoint.length > 0;
+  }
+
   /**
    * Dispatches the EditPlan and source video to Modal.com serverless GPU cluster.
    * If rawVideoUrl is r2://..., it is resolved to a private short-lived presigned GET server-side.

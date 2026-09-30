@@ -85,6 +85,20 @@ export async function persistJobAsync(job: PipelineJob): Promise<void> {
   const safeId = job.id.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 80);
   const safeUser = sanitizeR2KeySegment(job.userId || "default", 50);
 
+  // R2 PRIMA (source of truth serverless — sopravvive alle invocation Vercel),
+  // Supabase dopo (best-effort legacy). Senza R2 il job muore con /tmp.
+  try {
+    const { isR2Configured, uploadR2Object } = await import("@/lib/r2");
+    if (isR2Configured()) {
+      await uploadR2Object(
+        `jobs/${safeUser}/${safeId}.json`,
+        Buffer.from(JSON.stringify(job)),
+        "application/json"
+      );
+      return;
+    }
+  } catch {}
+
   try {
     const { supabaseAdmin } = await import("@/lib/supabase");
     if (supabaseAdmin) {
@@ -132,9 +146,28 @@ export async function loadJobAsync(id: string, expectedUserId?: string): Promise
   const local = loadJob(id, expectedUserId);
   if (local) return local;
 
-  // Cloud fallback from Supabase storage under user prefix
+  // R2 PRIMA (source of truth serverless), Supabase dopo (legacy).
   const safeId = id.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 80);
   const safeUser = expectedUserId ? sanitizeR2KeySegment(expectedUserId, 50) : null;
+
+  if (safeUser) {
+    try {
+      const { isR2Configured, downloadR2Object } = await import("@/lib/r2");
+      if (isR2Configured()) {
+        const buf = await downloadR2Object(`jobs/${safeUser}/${safeId}.json`);
+        if (buf && buf.length > 0) {
+          const parsed = JSON.parse(buf.toString("utf8")) as PipelineJob;
+          if (parsed && parsed.id === id) {
+            if (expectedUserId && parsed.userId !== expectedUserId) {
+              return null; // IDOR protection
+            }
+            persistJob(parsed); // cache locale
+            return parsed;
+          }
+        }
+      }
+    } catch {}
+  }
 
   try {
     const { supabaseAdmin } = await import("@/lib/supabase");

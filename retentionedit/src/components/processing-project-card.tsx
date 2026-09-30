@@ -113,6 +113,11 @@ export function ProcessingProjectCard({ project }: { project: ProjectEntry }) {
   // Tempo MEDIO di editing: stima calibrata sui run reali per questa durata
   // RAW — fisso per tutta la lavorazione, è il riferimento "di solito".
   const avgSec = estimateTotalSeconds(project.rawDuration ?? 38);
+  // Stage corrente dal pipeline VERO (transcribe→analyze→retentionvolt→plan→
+  // render→verify) — mostrato sotto la % così l'utente vede il processo reale,
+  // non un generico "caricamento". Errore server → messaggio visibile.
+  const [liveStage, setLiveStage] = useState<string>("ingest");
+  const [liveError, setLiveError] = useState<string | null>(null);
   const [eta, setEta] = useState(() =>
     computeEta({
       currentStage: "ingest",
@@ -149,10 +154,19 @@ export function ProcessingProjectCard({ project }: { project: ProjectEntry }) {
         failCount = 0;
 
         if (data.currentStage === "error") {
-          // Errore server: NON cancellare — l'utente deve vedere il fallimento
-          // (la card resta con s% finali, il parent mostra l'errore nel log).
+          // Errore VERO dal pipeline (es. render fallito): mostralo sulla card,
+          // MAI cancellare — l'utente deve sapere che l'editing reale si è fermato.
+          const msg =
+            (Array.isArray(data.logs) && data.logs.length > 0
+              ? String(data.logs[data.logs.length - 1])
+              : "Editing interrotto — riprova.") .slice(0, 160);
+          setLiveError(msg);
+          setLiveStage("error");
+          cancelled = true;
           return;
         }
+        setLiveStage(String(data.currentStage || "ingest"));
+        setLiveError(null);
 
         if (data.currentStage === "done") {
           cancelled = true;
@@ -315,6 +329,24 @@ export function ProcessingProjectCard({ project }: { project: ProjectEntry }) {
           </h3>
           <p className="text-xs text-[#8c8c90] mt-1 font-normal">
             Tempo medio di editing {formatEtaShort(avgSec)} · ETA {formatEtaShort(eta.remainingSec || 660)}
+          </p>
+          {/* Stage VERO del pipeline: l'utente vede il processo reale
+              (trascrizione → action plan → montaggio → rendering). */}
+          <p className="text-[11px] mt-0.5 font-medium">
+            {liveError ? (
+              <span className="text-red-400">⚠ {liveError}</span>
+            ) : (
+              <span className="text-emerald-400/90">
+                {liveStage === "ingest" && "⬆ Caricamento footage…"}
+                {liveStage === "transcribe" && "🎙 Trascrizione audio…"}
+                {liveStage === "analyze" && "🔍 Analisi narrativa…"}
+                {liveStage === "retentionvolt" && "📈 Match RetentionVolt…"}
+                {liveStage === "plan" && "✂ Action plan + Opus…"}
+                {liveStage === "render" && "🎬 Montaggio + rendering…"}
+                {liveStage === "verify" && "✅ Verifica qualità…"}
+                {!["ingest", "transcribe", "analyze", "retentionvolt", "plan", "render", "verify"].includes(liveStage) && `⚙ ${liveStage}…`}
+              </span>
+            )}
           </p>
           <p className="text-[11px] text-[#6b6b70] mt-0.5 font-normal">
             {formatProjectDate(project.createdAt)}
