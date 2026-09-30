@@ -527,13 +527,26 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  // OTP Login (optional fallback)
+  // OTP Login — FAIL-CLOSED in produzione: nessun login senza codice reale.
+  // In dev (NODE_ENV!=="production") resta il bypass 123456 per i test locali.
   const sendOtpCode = async (email: string) => {
+    if (process.env.NODE_ENV === "production") {
+      return { success: false, error: "OTP non disponibile — accedi con Google." };
+    }
     return { success: true, devCode: "123456" };
   };
 
   const verifyOtpCode = async (email: string, token: string) => {
     setIsLoading(true);
+    // Produzione: nessun token accettato senza verifica server-side reale.
+    if (process.env.NODE_ENV === "production") {
+      setIsLoading(false);
+      return { success: false, error: "OTP non disponibile — accedi con Google." };
+    }
+    if (token !== "123456") {
+      setIsLoading(false);
+      return { success: false, error: "Codice non valido." };
+    }
     const verifiedUser: UserProfile = {
       id: `user_${Date.now()}`,
       email: email.trim(),

@@ -11,6 +11,11 @@ export function getEffectiveSessionSecret(): string {
     const s = (process.env.SESSION_SECRET || process.env.VAULT_MASTER_KEY || "").trim();
     if (s.length >= 16) return s;
   }
+  // FAIL-CLOSED in produzione: senza secret reale nessuna sessione firmata.
+  // In dev/preview resta il fallback per i test locali (mai in prod).
+  if (typeof process !== "undefined" && process.env && process.env.NODE_ENV === "production") {
+    throw new Error("[session-token] SESSION_SECRET/VAULT_MASTER_KEY missing in production — refusing to sign sessions.");
+  }
   return DEFAULT_SECRET_FALLBACK;
 }
 
