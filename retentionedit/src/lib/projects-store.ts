@@ -22,12 +22,14 @@ export interface ProjectEntry {
   createdAt: number;
   format: VideoFormat;
   /** "uploading" → card istantanea al click (upload chunked in corso);
-   *  "processing" → card con animazione di caricamento + ETA; "ready" → card normale. */
+   *  "processing" → card con animazione di caricamento; "ready" → card normale. */
   status?: "uploading" | "processing" | "ready";
   /** Percentuale upload chunked 0–100 (solo mentre status === "uploading"). */
   uploadPct?: number;
   /** Durata RAW (s) usata per l'ETA. */
   rawDuration?: number;
+  /** Job reale su R2 (local_…): serve al resume dopo reload. */
+  renderJobId?: string;
   /** Collezione a cui appartiene il progetto (es. Favorites, TikTok, ecc.) */
   collection?: string;
   /** Flag salvataggio nello storage permanente (Cloudflare R2 / Archivio). */
@@ -77,14 +79,9 @@ export function isBuggedOrStaleProject(item: ProjectEntry): boolean {
     return true;
   }
 
-  // 3. Remove bugged processing/uploading projects that load infinitely:
-  // If status is "processing"/"uploading" and older than 2 minutes (120s), it is stuck/abandoned from an earlier session
-  if (item.status === "processing" || item.status === "uploading") {
-    const ageMs = Date.now() - (item.createdAt || 0);
-    if (ageMs > 120_000 || !item.createdAt || isNaN(item.createdAt)) {
-      return true;
-    }
-  }
+  // Non eliminiamo mai le card "processing": il montaggio reale è per-frame
+  // e può durare minuti. Quelle vecchie verranno riprese al prossimo resume;
+  // al limite l'utente le cancella con ☰ → Delete.
 
   return false;
 }

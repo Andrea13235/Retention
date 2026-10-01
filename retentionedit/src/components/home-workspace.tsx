@@ -18,7 +18,6 @@ import {
   CheckCircle2,
 } from "lucide-react";
 import { GenAITier, VideoFormat } from "@/lib/types";
-import { JobRequest } from "@/lib/job-request";
 import { ProjectCard } from "@/components/project-card";
 import { ProcessingProjectCard, UploadingProjectCard } from "@/components/processing-project-card";
 import {
@@ -30,19 +29,15 @@ import {
   updateProject,
 } from "@/lib/projects-store";
 import { useAuth } from "@/context/auth-context";
+import { useRealEdit } from "@/hooks/use-real-edit";
+import { showToast } from "@/components/toast-notification";
 
 interface HomeWorkspaceProps {
-  onStartJob: (params: JobRequest) => void;
   loading: boolean;
   initialUrl?: string;
   onOpenPricing?: () => void;
   onViewAllProjects?: () => void;
   onOpenJob?: (jobId: string) => void;
-  /** Motore reale: quando presente, l'upload usa /api/local-render invece del flusso demo. */
-  realEdit?: (file: File, title: string) => Promise<void>;
-  realEditBusy?: boolean;
-  realEditStatus?: string | null;
-  realEditError?: string | null;
 }
 
 /**
@@ -57,18 +52,14 @@ interface HomeWorkspaceProps {
  *   in large 3-column demo proportions like the reference photo.
  */
 export function HomeWorkspace({
-  onStartJob,
   loading,
   initialUrl = "",
   onOpenPricing,
   onViewAllProjects,
   onOpenJob,
-  realEdit,
-  realEditBusy,
-  realEditStatus,
-  realEditError,
 }: HomeWorkspaceProps) {
   const { user } = useAuth();
+  const realEdit = useRealEdit();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [selectedName, setSelectedName] = useState<string>(initialUrl);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -106,31 +97,19 @@ export function HomeWorkspace({
       ? file.name.replace(/\.[^/.]+$/, "")
       : selectedName || "Creator Talking Head (9:16 Vertical)";
 
-    // Bottone "Edit in one click" → SOLO motore REALE (upload → ElevenLabs STT
-    // → silenzi → ffmpeg MP4 scaricabile). La card istantanea nasce qui al
-    // click (sfondo nero + % + ETA), il poll live è in useRealEdit, la
-    // riconciliazione finale (ready + MP4) è nel chiamante page.tsx.
-    // Il vecchio onStartJob (/api/pipeline/*, transcript inventato) resta solo
-    // per il sample project? NO — anche quello userà realEdit (vedi sotto).
+    // Bottone "Edit in one click" → SOLO motore REALE
+    // (upload → ElevenLabs STT → silenzi → ffmpeg per frame + SOUL B-roll).
+    // La card "uploading" → "processing" → "ready" restano sulla stessa lista
+    // e usano lo stesso id del job R2: l'animazione riche dentro il riquadro.
     if (file) {
       setSubmittedToast(true);
-      if (realEdit) {
-        try {
-          await realEdit(file, baseName);
-        } catch {
-          // l'errore è già mostrato dal chiamante (toast + card ⚠)
-        }
-        return;
-      }
-      const instantId =
-        typeof crypto !== "undefined" && "randomUUID" in crypto
-          ? `pending_${crypto.randomUUID()}`
-          : `pending_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+      const cleanTitle = file.name.replace(/\.[^/.]+$/, "") || baseName;
+      const cardId = `pending_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
       try {
         await upsertProject(
           {
-            id: instantId,
-            title: baseName,
+            id: cardId,
+            title: cleanTitle,
             coverUrl: "",
             videoUrl: "",
             clipsCount: 1,
@@ -144,85 +123,73 @@ export function HomeWorkspace({
           user?.id
         ).catch(() => {});
       } catch {}
-      const localBlob = URL.createObjectURL(file);
-
-      // Probe durata reale (per rawDuration del job) — aggiorna anche la card istantanea
-      let duration = 38;
+      // Probe durata reale per aggiornare rawDuration sulla card
       try {
-        const probed = await new Promise<number>((resolve) => {
+        const blobUrl = URL.createObjectURL(file);
+        const d = await new Promise<number>((resolve) => {
           const v = document.createElement("video");
           v.preload = "metadata";
-          v.onloadedmetadata = () => {
-            const d = Math.round(v.duration);
-            resolve(Number.isFinite(d) && d > 0 ? d : 38);
-          };
+          v.onloadedmetadata = () => resolve(Number.isFinite(v.duration) && v.duration > 0 ? Math.round(v.duration) : 38);
           v.onerror = () => resolve(38);
-          v.src = localBlob;
+          v.src = blobUrl;
         });
-        if (probed > 0) duration = probed;
-        try { updateProject(instantId, { rawDuration: duration }, user?.id); } catch {}
+        try { updateProject(cardId, { rawDuration: d }, user?.id); } catch {}
       } catch {}
-
-      // Upload chunked CORS-immune → R2, poi pipeline Opus balanced (unica).
+      try { updateProject(cardId, { status: "processing", uploadPct: undefined }, user?.id); } catch {}
       try {
-        const { uploadFileChunked } = await import("@/lib/chunked-upload");
-        const uploaded = await uploadFileChunked(file, {
-          userId: user?.id,
-          plan: user?.plan || "free",
-          onProgress: (pct) => {
-            try { updateProject(instantId, { uploadPct: pct }, user?.id); } catch {}
-          },
-        });
-        if (!uploaded.verified) {
-          try { updateProject(instantId, { title: `${baseName} — ⚠ upload non verificato, riprova` }, user?.id); } catch {}
-          alert("Upload non verificato su R2 — riprova.");
-          return;
+        const final = await realEdit.startEdit(file, cleanTitle);
+        // L'upload è già dentro startEdit — qui solo promozione a ready.
+        const ytTitle = (final.title || cleanTitle).trim().slice(0, 100);
+        const ytCoverUrl = final.youtubeCoverUrl || null;
+        const frameCoverUrl = final.coverUrl || null;
+        const bestCoverUrl = ytCoverUrl || frameCoverUrl || "";
+        let mp4Blob: Blob | null = null;
+        try {
+          if (final.downloadUrl) {
+            const r = await fetch(final.downloadUrl, { headers: { ...(user?.id ? { "x-retentionedit-session": user.id } : {}) } });
+            if (r.ok) {
+              const buf = await r.blob();
+              if (buf && buf.size > 0) mp4Blob = buf;
+            }
+          }
+        } catch {}
+        if (mp4Blob) {
+          const { putProjectBlob } = await import("@/lib/projects-store");
+          try { await putProjectBlob(`${cardId}_rendered`, mp4Blob); } catch {}
         }
-        await fetch("/api/r2/confirm", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            ...(user?.id ? { "x-retentionedit-session": user.id } : {}),
-          },
-          body: JSON.stringify({ r2Key: uploaded.key, bytes: uploaded.bytes, kind: "raw" }),
-        }).catch(() => {});
-        // Promuovi la card istantanea a processing PRIMA di lanciare il job —
-        // così non c'è mai un buco visivo tra upload e pipeline.
-        try { updateProject(instantId, { status: "processing", uploadPct: undefined, rawDuration: duration }, user?.id); } catch {}
-        onStartJob({
-          title: baseName,
-          rawVideoUrl: `r2://${uploaded.key}`,
-          format: "short",
-          genaiTier: "balanced",
-          duration,
-          file,
-          r2Key: uploaded.key,
-          pendingId: instantId,
-        });
+        if (ytCoverUrl) {
+          try {
+            const rc = await fetch(ytCoverUrl, { headers: { ...(user?.id ? { "x-retentionedit-session": user.id } : {}) } });
+            if (rc.ok) {
+              const cb = await rc.blob();
+              if (cb && cb.size > 2048) {
+                const { putProjectBlob } = await import("@/lib/projects-store");
+                try { await putProjectBlob(`${cardId}_cover`, cb); } catch {}
+              }
+            }
+          } catch {}
+        }
+        updateProject(cardId, {
+          title: ytTitle,
+          coverUrl: bestCoverUrl,
+          videoUrl: final.downloadUrl || "",
+          clipsCount: (final.cutsCount ?? 0) + 1,
+          status: "ready",
+          rawDuration: final.sourceDuration,
+          renderJobId: final.jobId,
+        }, user?.id);
+        showToast("Video editato — MP4 pronto", 4000);
       } catch (e) {
-        try { updateProject(instantId, { title: `${baseName} — ⚠ upload fallito, riprova` }, user?.id); } catch {}
-        alert(e instanceof Error ? e.message : "Upload fallito");
+        try { updateProject(cardId, { title: `${cleanTitle} — ⚠ edit fallito, riprova` }, user?.id); } catch {}
+        showToast(e instanceof Error ? e.message : "Edit fallito", 5000);
       }
       return;
     }
 
-    // Non-file path (sample project o URL manuale) → invia direttamente a pipeline balanced.
-    // A questo punto file è null (il caso file è già returnato sopra) — solo sample/URL testuale.
-    if (selectedName && !file) {
-      setSubmittedToast(true);
-      onStartJob({
-        title: baseName,
-        rawVideoUrl: selectedName,
-        format: "short",
-        genaiTier: "balanced",
-        duration: 38,
-        file: null,
-      });
+    if (!file) {
+      alert("Seleziona un file video per iniziare.");
       return;
     }
-
-    setSubmittedToast(true);
-    // Fallthrough non-file senza selezione: niente da fare.
   };
 
   const handleClearCover = async (project: ProjectEntry) => {
@@ -297,58 +264,32 @@ export function HomeWorkspace({
           {/* Submit Button */}
           <button
             type="submit"
-            disabled={loading || realEditBusy}
+            disabled={loading || realEdit.stage === "uploading" || realEdit.stage === "transcribe" || realEdit.stage === "cuts" || realEdit.stage === "render"}
             className="h-[44px] px-7 rounded-full bg-white hover:bg-zinc-100 active:scale-[0.98] text-black font-semibold text-[13px] shadow-md transition-all shrink-0 cursor-pointer disabled:opacity-50"
           >
-            {realEditBusy ? (realEditStatus || "Editing...") : loading ? "Editing..." : "Edit in one click"}
+            {realEdit.stage !== "idle" && realEdit.stage !== "done" && realEdit.stage !== "error" ? "Editing..." : loading ? "Editing..." : "Edit in one click"}
           </button>
         </form>
-
-        {/* Stato motore reale: sempre visibile durante l'edit */}
-        {realEdit && (realEditBusy || realEditStatus || realEditError) && (
-          <div className="w-full mt-3 rounded-2xl border border-white/10 bg-black/40 px-4 py-3">
-            <p className="text-xs font-semibold text-white flex items-center gap-2">
-              {realEditBusy && (
-                <span className="inline-block w-3 h-3 rounded-full border-2 border-emerald-400 border-t-transparent animate-spin" />
-              )}
-              {realEditError ? "Errore" : (realEditStatus || "Editing...")}
-            </p>
-            {realEditError && (
-              <p className="mt-1 text-xs text-rose-400">{realEditError}</p>
-            )}
-          </div>
-        )}
 
         {/* Sample project link — editing REALE: il sample viene scaricato da
             /public e passa dal motore reale (realEdit) come un upload,
             finendo in My Projects come MP4 montato scaricabile. */}
         <button
           type="button"
-          disabled={realEditBusy}
+          disabled={realEdit.stage === "uploading" || realEdit.stage === "transcribe" || realEdit.stage === "cuts" || realEdit.stage === "render"}
           onClick={async () => {
             setSubmittedToast(true);
-            if (realEdit) {
-              try {
-                const r = await fetch("/videos/raw-desktalk.mp4");
-                if (!r.ok) throw new Error("Sample non scaricabile");
-                const buf = await r.blob();
-                const sampleFile = new File([buf], "raw-desktalk.mp4", {
-                  type: "video/mp4",
-                });
-                await realEdit(sampleFile, "Creator Talking Head (9:16 Vertical)");
-              } catch {
-                // l'errore è già mostrato dal chiamante (toast + card ⚠)
-              }
-              return;
+            try {
+              const r = await fetch("/videos/raw-desktalk.mp4");
+              if (!r.ok) throw new Error("Sample non scaricabile");
+              const buf = await r.blob();
+              const sampleFile = new File([buf], "raw-desktalk.mp4", {
+                type: "video/mp4",
+              });
+              await realEdit.startEdit(sampleFile, "Creator Talking Head (9:16 Vertical)");
+            } catch {
+              // l'errore è già mostrato dal chiamante (toast + card ⚠)
             }
-            onStartJob({
-              title: "Creator Talking Head (9:16 Vertical)",
-              rawVideoUrl: "/videos/raw-desktalk.mp4",
-              format: "short",
-              genaiTier: "balanced",
-              duration: 38,
-              file: null,
-            });
           }}
           className="mt-3 text-[13px] text-[#9A9AA0] hover:text-white transition cursor-pointer bg-transparent border-0"
         >

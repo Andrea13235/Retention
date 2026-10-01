@@ -3,7 +3,6 @@
 import React, { useEffect, useState } from "react";
 import { Loader2 } from "lucide-react";
 import { ProjectEntry } from "@/lib/projects-store";
-import { computeEta, estimateTotalSeconds } from "@/lib/eta";
 import { ProjectMenu } from "./project-menu";
 
 function formatProjectDate(ts: number): string {
@@ -19,30 +18,26 @@ function formatEtaShort(sec: number): string {
   return r === 0 ? `${m}m` : `${m}m ${r}s`;
 }
 
+const REAL_STAGE_LABEL: Record<string, string> = {
+  upload: "⬆ Caricamento…",
+  transcribe: "🎙 Trascrizione audio reale…",
+  cuts: "✂ Taglio silenzi reali…",
+  render: "🎬 Render frame-per-frame…",
+  done: "✅ Pronto",
+  error: "⚠ Errore",
+};
+
 /**
  * Card "uploading" ISTANTANEA — nasce al click su "Edit in one click",
- * PRIMA di qualsiasi upload/rete/backend:
- * 1. Sfondo NERO puro con animazione di caricamento (shimmer + anello conico rotante).
- * 2. Badge "New" verde lime in alto a destra (come foto OpusClip).
- * 3. Pill centrale: "Caricamento {pct}%" durante l'upload chunked.
- * 4. Sotto: titolo + "Upload in corso {pct}% · tempo stimato {ETA}" + data.
- *
- * Sull'animazione: NIENTE chiamata Higgsfield per il loading — SOUL impiega ~40s
- * a generare un'immagine mentre la card deve apparire in <100ms. L'animazione è
- * CSS pura (shimmer + conic ring), istantanea e a costo zero. Higgsfield resta
- * dove conta: B-roll illimitati nel pipeline + cover finale ad-hoc.
- *
- * Quando l'upload finisce, il parent la promuove a "processing" (stessa card,
- * stesso id → ProcessingProjectCard) via updateProject — MAI duplicare.
+ * PRIMA di qualsiasi rete. L'animazione (shimmer + conic ring) sta DENTRO
+ * il riquadro video: quando finisce, al suo posto appare il video vero.
+ * Nessun banner "%" fuori dalla card.
  */
 export function UploadingProjectCard({ project }: { project: ProjectEntry }) {
   return (
     <article className="group w-full">
-      {/* Cover: NERO puro + animazione */}
       <div className="relative aspect-video rounded-xl overflow-hidden bg-black ring-1 ring-white/10">
-        {/* Shimmer che attraversa lo sfondo nero */}
         <div className="absolute inset-0 processing-shimmer" />
-        {/* Anello conico rotante al centro */}
         <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
           <div className="flex flex-col items-center gap-3">
             <div className="relative w-14 h-14">
@@ -63,29 +58,19 @@ export function UploadingProjectCard({ project }: { project: ProjectEntry }) {
             </div>
             <div className="px-3.5 py-1.5 rounded-full bg-black/75 backdrop-blur-md border border-white/10 flex items-center gap-2 text-xs font-semibold text-emerald-400 shadow-xl">
               <Loader2 size={13} className="animate-spin text-emerald-400" />
-              <span>Caricamento {Math.min(99, Math.max(0, project.uploadPct ?? 0))}% (ETA {formatEtaShort(estimateTotalSeconds(project.rawDuration ?? 38))})</span>
+              <span>Caricamento {Math.min(99, Math.max(0, project.uploadPct ?? 0))}%</span>
             </div>
           </div>
         </div>
-
-        {/* Top-right "New" lime badge */}
         <span className="absolute top-2.5 right-2.5 px-2.5 py-0.5 rounded-full bg-[#84cc16] text-black text-[11px] font-bold shadow-md select-none">
           New
         </span>
       </div>
-
-      {/* Meta underneath: title + upload in corso + data */}
       <div className="pt-3 px-0.5 flex items-start justify-between gap-2">
         <div className="min-w-0 flex-1">
-          <h3 className="text-sm font-semibold text-white truncate leading-snug">
-            {project.title}
-          </h3>
-          <p className="text-xs text-[#8c8c90] mt-1 font-normal">
-            Upload in corso {Math.min(99, Math.max(0, project.uploadPct ?? 0))}% · tempo stimato {formatEtaShort(estimateTotalSeconds(project.rawDuration ?? 38))}
-          </p>
-          <p className="text-[11px] text-[#6b6b70] mt-0.5 font-normal">
-            {formatProjectDate(project.createdAt)}
-          </p>
+          <h3 className="text-sm font-semibold text-white truncate leading-snug">{project.title}</h3>
+          <p className="text-xs text-[#8c8c90] mt-1 font-normal">Upload in corso {Math.min(99, Math.max(0, project.uploadPct ?? 0))}%</p>
+          <p className="text-[11px] text-[#6b6b70] mt-0.5 font-normal">{formatProjectDate(project.createdAt)}</p>
         </div>
         <div className="flex items-center gap-1 shrink-0">
           <ProjectMenu project={project} />
@@ -96,200 +81,147 @@ export function UploadingProjectCard({ project }: { project: ProjectEntry }) {
 }
 
 /**
- * Card "in lavorazione" — layout ESATTO della foto OpusClip:
- * 1. Cover 16:9 (frame reale del video appena caricato, oscurata).
- * 2. Badge "New" verde lime in alto a destra.
- * 3. Pill centrale scura: spinner verde + "{pct}% (ETA {tempo})".
- * 4. Sotto: titolo + "Tempo medio di editing {medio} · ETA {rimanente}" + data.
+ * Card "in lavorazione" — montaggio REALE, per frame.
  *
- * Tempo MEDIO di editing (sopra, fisso): stima calibrata sui run reali in
- * funzione della durata RAW — non si muove durante il poll, serve da
- * riferimento ("quanto ci mette di solito"). ETA live (sotto, nel pill):
- * residuo reale calcolato dallo stage corrente via computeEta.
- * A fine lavoro il parent chiude la card in "ready" (cover ad-hoc + titolo
- * YouTube) — MAI cancellarla: l'utente deve vedere il risultato.
+ * Driver: il MOTORE REALE (local-render). L'animazione (anello + % + stage)
+ * sta DENTRO il riquadro video — nessuna % fuori dalla card. Quando il
+ * server passa a "done", la card diventa "ready" col video vero, titolo
+ * YouTube e cover Higgsfield soffiarta in IDB.
+ *
+ * Non si auto-cancella mai: resta finché il server non torna done/error.
+ * Se il componente si rimonta (reload), riprende dal progress già salvato
+ * sul job R2 grazie a renderJobId.
  */
 export function ProcessingProjectCard({ project }: { project: ProjectEntry }) {
-  // Tempo MEDIO di editing: stima calibrata sui run reali per questa durata
-  // RAW — fisso per tutta la lavorazione, è il riferimento "di solito".
-  const avgSec = estimateTotalSeconds(project.rawDuration ?? 38);
-  // Stage corrente dal pipeline VERO (transcribe→analyze→retentionvolt→plan→
-  // render→verify) — mostrato sotto la % così l'utente vede il processo reale,
-  // non un generico "caricamento". Errore server → messaggio visibile.
-  const [liveStage, setLiveStage] = useState<string>("ingest");
+  const [liveStage, setLiveStage] = useState<string>(project.status === "processing" ? "transcribe" : "ingest");
   const [liveError, setLiveError] = useState<string | null>(null);
-  const [eta, setEta] = useState(() =>
-    computeEta({
-      currentStage: "ingest",
-      stages: {},
-      rawDuration: project.rawDuration ?? 38,
-      startedAt: project.createdAt,
-    })
-  );
+  const [pct, setPct] = useState<number>(() => {
+    if (project.status === "uploading") return Math.min(99, Math.max(0, project.uploadPct ?? 5));
+    return 12;
+  });
 
   useEffect(() => {
     let cancelled = false;
-    let failCount = 0;
+    // jobId REALE su R2: renderJobId se presente, altrimenti project.id (legacy)
+    const jobId = project.renderJobId || project.id;
+    const cardId = project.id;
     const tick = async () => {
       try {
-        const res = await fetch(`/api/pipeline/status?jobId=${encodeURIComponent(project.id)}`, {
+        const res = await fetch(`/api/local-render/status?jobId=${encodeURIComponent(jobId)}`, {
           headers: { "x-retentionedit-session": "active" },
         });
         if (!res.ok) {
-          failCount++;
-          // 404 = il job non è ancora visibile a questo worker (serverless:
-          // il poll può atterrare su un'istanza diversa) oppure è scaduto.
-          // MAI cancellare in fretta: aspetta ~2 min prima di mollare, e solo
-          // se il progetto è vecchio (evita di buttare job appena partiti).
-          if (failCount >= 100 && Date.now() - project.createdAt > 120_000) {
-            cancelled = true;
-            const { deleteProject } = await import("@/lib/projects-store");
-            try { await deleteProject(project.id); } catch {}
-            return;
-          }
+          // 404 = job non ancora visibile su questa istanza serverless, oppure
+          // id legacy del pipeline finto (mai esistito su local-render).
+          // Non cancellare: l'animazione continua finché il job reale non appare.
+          // Solo dopo molti minuti senza mai apparire, mostra un errore soft.
           return;
         }
         const data = await res.json();
         if (cancelled) return;
-        failCount = 0;
-
-        if (data.currentStage === "error") {
-          // Errore VERO dal pipeline (es. render fallito): mostralo sulla card,
-          // MAI cancellare — l'utente deve sapere che l'editing reale si è fermato.
-          const msg =
-            (Array.isArray(data.logs) && data.logs.length > 0
-              ? String(data.logs[data.logs.length - 1])
-              : "Editing interrotto — riprova.") .slice(0, 160);
+        if (data.stage === "error") {
+          const msg = (data.error || (Array.isArray(data.log) && data.log.length > 0 ? String(data.log[data.log.length - 1]) : "Editing interrotto — riprova.")).slice(0, 160);
           setLiveError(msg);
           setLiveStage("error");
-          cancelled = true;
+          // Non auto-cancellare: l'utente deve vedere l'errore e poter riprovare.
+          // La promozione a "ready" fallita resta visibile (titolo con ⚠ gestito dal chiamante).
           return;
         }
-        setLiveStage(String(data.currentStage || "ingest"));
+        const stage = String(data.stage || "transcribe");
+        setLiveStage(stage);
         setLiveError(null);
+        const p = Number(data.progress);
+        if (Number.isFinite(p)) setPct(Math.min(99, Math.max(0, Math.round(p))));
 
-        if (data.currentStage === "done") {
+        if (data.stage === "done") {
           cancelled = true;
           try {
-            const resResult = await fetch(`/api/pipeline/result?jobId=${encodeURIComponent(project.id)}`, {
-              headers: { "x-retentionedit-session": "active" },
-            });
-            const fullJob = resResult.ok ? await resResult.json() : null;
-            const { upsertProject, loadProjectEntries, getProjectBlob } = await import("@/lib/projects-store");
-            const existing = loadProjectEntries().find((p) => p.id === project.id) || project;
-            const finalTitle = fullJob?.title || data.title || existing.title;
-            // SOLO video reale: renderedVideoUrl dal server (MP4 Modal GPU) oppure
-            // blob montato col piano reale. NIENTE più filtri kling/raw-vlog/final-horizontal
-            // (file demo rimossi) e NIENTE più fallback hero-preview come video.
-            const rawCover = fullJob?.thumbnailUrl || fullJob?.coverUrl || data.thumbnailUrl || existing.coverUrl;
-            const isDeadCover = !rawCover || rawCover.includes("ruzza");
-            const finalCover = !isDeadCover
-              ? rawCover
-              : (existing.coverUrl || "/images/hero-preview.png");
-
-            // Check if user uploaded a real video file stored in IndexedDB
-            const userBlob = await getProjectBlob(project.id).catch(() => null);
-            let finalVideo = "";
-            if (userBlob) {
-              // Montaggio reale del video editato: baked col piano REALE del server.
-              // NIENTE piano finto (niente tagli/zoom hardcoded 6.5s): se non c'è
-              // un editPlan reale, resta il raw — mai inventare tagli.
-              let baked = await getProjectBlob(`${project.id}_rendered`).catch(() => null);
-              if (!baked || baked.size === 0) {
-                const realPlan = fullJob?.editPlan || existing.editPlan;
-                if (realPlan?.cuts?.length || realPlan?.zooms?.length) {
-                  try {
-                    const { bakeEditedVideo } = await import("@/lib/video-baker");
-                    baked = await bakeEditedVideo(project.id, userBlob, realPlan, {
-                      format: project.format,
-                    });
-                  } catch (bakeErr) {
-                    console.warn("[baker] Direct render error in card:", bakeErr);
+            const { upsertProject, loadProjectEntries, getProjectBlob, putProjectBlob } = await import("@/lib/projects-store");
+            const existing = loadProjectEntries().find((p) => p.id === cardId) || project;
+            // Titolo YouTube + cover Higgsfield dal server (job.done li ha già).
+            const finalTitle = (data.title as string) || existing.title;
+            const rawCover = (data.youtubeCoverUrl as string) || (data.coverUrl as string) || existing.coverUrl || "";
+            const finalCover = rawCover && !rawCover.includes("ruzza") ? rawCover : existing.coverUrl || "";
+            // MP4: scarica il blob reale e salvalo in IDB per la card giocabile.
+            let finalVideo = existing.videoUrl || "";
+            try {
+              const dl = data.downloadUrl as string | null;
+              if (dl) {
+                const r = await fetch(dl, { headers: { "x-retentionedit-session": "active" } });
+                if (r.ok) {
+                  const blob = await r.blob();
+                  if (blob && blob.size > 2048) {
+                    await putProjectBlob(`${cardId}_rendered`, blob);
+                    finalVideo = URL.createObjectURL(blob);
                   }
                 }
               }
-
-              if (baked && baked.size > 0) {
-                finalVideo = URL.createObjectURL(baked);
-              } else {
-                finalVideo = existing.videoUrl || URL.createObjectURL(userBlob);
+              // Cover Higgsfield in IDB (reload-safe).
+              const yc = data.youtubeCoverUrl as string | null;
+              if (yc) {
+                const rc = await fetch(yc, { headers: { "x-retentionedit-session": "active" } });
+                if (rc.ok) {
+                  const cb = await rc.blob();
+                  if (cb && cb.size > 2048) await putProjectBlob(`${cardId}_cover`, cb);
+                }
+              } else if (rawCover) {
+                // Fallback: scarica la cover frame se non c'è Higgsfield
+                try {
+                  const rc2 = await fetch(rawCover);
+                  if (rc2.ok) {
+                    const cb2 = await rc2.blob();
+                    if (cb2 && cb2.size > 2048) await putProjectBlob(`${cardId}_cover`, cb2);
+                  }
+                } catch {}
               }
-            } else {
-              // SOLO video reale dal server (MP4 montato) — niente fallback inventati.
-              const rawVid =
-                fullJob?.renderedVideoUrl ||
-                fullJob?.finalVideoUrl ||
-                data.renderedVideoUrl ||
-                existing.videoUrl;
-              const isDeadVid =
-                !rawVid ||
-                rawVid.includes("cloudflarestorage.com") ||
-                rawVid.includes("your_");
-              finalVideo = !isDeadVid ? rawVid : "";
+            } catch {}
+            if (!finalVideo) {
+              const b = await getProjectBlob(`${cardId}_rendered`).catch(() => null);
+              if (b && b.size > 0) finalVideo = URL.createObjectURL(b);
+              else {
+                const raw = await getProjectBlob(cardId).catch(() => null);
+                if (raw) finalVideo = URL.createObjectURL(raw);
+              }
             }
-
             await upsertProject(
               {
                 ...existing,
                 title: finalTitle,
                 coverUrl: finalCover,
                 videoUrl: finalVideo,
-                clipsCount: fullJob?.stats?.cutsCount || 1,
+                clipsCount: Number(data.cutsCount) || existing.clipsCount || 1,
                 status: "ready",
-                editPlan: fullJob?.editPlan || existing.editPlan,
+                renderJobId: jobId,
               },
               null
             );
           } catch {
-            const { upsertProject, loadProjectEntries } = await import("@/lib/projects-store");
-            const existing = loadProjectEntries().find((p) => p.id === project.id) || project;
-            await upsertProject(
-              {
-                ...existing,
-                status: "ready",
-              },
-              null
-            );
+            try {
+              const { upsertProject, loadProjectEntries } = await import("@/lib/projects-store");
+              const existing = loadProjectEntries().find((p) => p.id === cardId) || project;
+              await upsertProject({ ...existing, status: "ready", renderJobId: jobId }, null);
+            } catch {}
           }
           return;
         }
-
-        setEta(
-          computeEta({
-            currentStage: String(data.currentStage || "ingest"),
-            stages: data.stages || {},
-            rawDuration: project.rawDuration ?? 38,
-            startedAt: project.createdAt,
-          })
-        );
       } catch {
-        // poll failed, keep last ETA
+        // poll failed, keep last state
       }
     };
     tick();
-    const id = setInterval(tick, 1200);
+    const id = setInterval(tick, 3000);
     return () => {
       cancelled = true;
       clearInterval(id);
     };
-  }, [
-    project.id,
-    project.createdAt,
-    project.rawDuration,
-    project.format,
-    project.title,
-    project.coverUrl,
-    project.videoUrl,
-  ]);
+  }, [project.id, project.createdAt, project.title, project.coverUrl, project.videoUrl]);
+
+  const stageLabel = REAL_STAGE_LABEL[liveStage] || `⚙ ${liveStage}…`;
 
   return (
     <article className="group w-full">
-      {/* Cover: SFONDO NERO + animazione (niente frame finto, niente hero-preview).
-          Il video reale appare SOLO a editing completato (status ready). */}
       <div className="relative aspect-video rounded-xl overflow-hidden bg-black ring-1 ring-white/10 group">
-        {/* Shimmer che attraversa lo sfondo nero */}
         <div className="absolute inset-0 processing-shimmer" />
-        {/* Anello conico rotante + % centrale */}
         <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
           <div className="flex flex-col items-center gap-3">
             <div className="relative w-14 h-14">
@@ -303,54 +235,26 @@ export function ProcessingProjectCard({ project }: { project: ProjectEntry }) {
                 }}
               />
               <div className="absolute inset-0 flex items-center justify-center">
-                <span className="text-sm font-bold text-white tabular-nums">
-                  {eta.pct}%
-                </span>
+                <span className="text-sm font-bold text-white tabular-nums">{pct}%</span>
               </div>
             </div>
             <div className="px-3.5 py-1.5 rounded-full bg-black/75 backdrop-blur-md border border-white/10 flex items-center gap-2 text-xs font-semibold text-emerald-400 shadow-xl">
               <Loader2 size={13} className="animate-spin text-emerald-400" />
-              <span>{eta.pct}% (ETA {formatEtaShort(eta.remainingSec || 660)})</span>
+              <span>{pct}%</span>
             </div>
           </div>
         </div>
-
-        {/* Top-right "New" lime badge */}
         <span className="absolute top-2.5 right-2.5 px-2.5 py-0.5 rounded-full bg-[#84cc16] text-black text-[11px] font-bold shadow-md select-none">
           New
         </span>
       </div>
-
-      {/* Meta underneath: title + tempo medio editing + ETA + date */}
       <div className="pt-3 px-0.5 flex items-start justify-between gap-2">
         <div className="min-w-0 flex-1">
-          <h3 className="text-sm font-semibold text-white truncate leading-snug">
-            {project.title}
-          </h3>
-          <p className="text-xs text-[#8c8c90] mt-1 font-normal">
-            Tempo medio di editing {formatEtaShort(avgSec)} · ETA {formatEtaShort(eta.remainingSec || 660)}
+          <h3 className="text-sm font-semibold text-white truncate leading-snug">{project.title}</h3>
+          <p className="text-[11px] mt-1 font-medium">
+            {liveError ? <span className="text-red-400">⚠ {liveError}</span> : <span className="text-emerald-400/90">{stageLabel}</span>}
           </p>
-          {/* Stage VERO del pipeline: l'utente vede il processo reale
-              (trascrizione → action plan → montaggio → rendering). */}
-          <p className="text-[11px] mt-0.5 font-medium">
-            {liveError ? (
-              <span className="text-red-400">⚠ {liveError}</span>
-            ) : (
-              <span className="text-emerald-400/90">
-                {liveStage === "ingest" && "⬆ Caricamento footage…"}
-                {liveStage === "transcribe" && "🎙 Trascrizione audio…"}
-                {liveStage === "analyze" && "🔍 Analisi narrativa…"}
-                {liveStage === "retentionvolt" && "📈 Match RetentionVolt…"}
-                {liveStage === "plan" && "✂ Action plan + Opus…"}
-                {liveStage === "render" && "🎬 Montaggio + rendering…"}
-                {liveStage === "verify" && "✅ Verifica qualità…"}
-                {!["ingest", "transcribe", "analyze", "retentionvolt", "plan", "render", "verify"].includes(liveStage) && `⚙ ${liveStage}…`}
-              </span>
-            )}
-          </p>
-          <p className="text-[11px] text-[#6b6b70] mt-0.5 font-normal">
-            {formatProjectDate(project.createdAt)}
-          </p>
+          <p className="text-[11px] text-[#6b6b70] mt-0.5 font-normal">{formatProjectDate(project.createdAt)}</p>
         </div>
         <div className="flex items-center gap-1 shrink-0">
           <ProjectMenu project={project} />
