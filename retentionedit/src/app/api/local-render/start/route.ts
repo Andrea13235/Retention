@@ -88,7 +88,23 @@ export async function POST(req: NextRequest) {
     // Persist source + job.json (R2 on serverless, .vault locally).
     // No background work here: the browser's status polls advance the job.
     const { createR2Job } = await import("@/lib/local-jobs-r2");
-    await createR2Job({ jobId, userId, title: finalTitle, format, sourceBytes, sourceName: safe });
+    const created = await createR2Job({ jobId, userId, title: finalTitle, format, sourceBytes, sourceName: safe });
+
+    // Auto-format: se il sorgente è verticale (9:16) ma il formato chiesto è
+    // long (default UI), correggi in short — altrimenti il video esce
+    // pillarboxed (bande nere laterali). Mai il contrario senza richiesta.
+    try {
+      const { probeMedia } = await import("@/lib/local-render");
+      const probed = created.sourcePath ? await probeMedia(created.sourcePath).catch(() => null) : null;
+      if (probed && probed.width > 0 && probed.height > probed.width && format === "long") {
+        const { saveR2Job } = await import("@/lib/local-jobs-r2");
+        created.format = "short";
+        await saveR2Job(created);
+        format = "short";
+      }
+    } catch {
+      // mai bloccare la creazione job per il probe
+    }
 
     return NextResponse.json({ success: true, jobId, title: finalTitle, format });
   } catch (err: unknown) {

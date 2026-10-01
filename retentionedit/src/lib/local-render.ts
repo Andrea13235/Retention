@@ -142,8 +142,10 @@ export async function renderLocalCut(params: {
   basename: string;
   timeoutMs?: number;
   /**
-   * Real caption cues on the FINAL (post-cut) timeline. Burned as PNG
-   * overlays in pass 2. Empty/undefined = no captions (STT absent).
+   * Real caption cues on the FINAL (post-cut) timeline, with per-word
+   * timings. Burned as karaoke PNG overlays in pass 2 (spoken full-white,
+   * upcoming 40%, keyword pop yellow). Empty/undefined = no captions.
+   * Cues WITHOUT words[] still render (all-words-spoken fallback PNG).
    */
   captions?: CaptionCue[];
   /**
@@ -216,22 +218,34 @@ export async function renderLocalCut(params: {
   writeFileSync(listPath, segFiles.map((f) => `file '${f.replace(/'/g, "'\\''")}'`).join("\n"));
 
   // Render caption PNGs at FINAL frame size (long 1920x1080, short 1080x1920).
+  // Karaoke: one PNG per word-boundary window (spoken vs upcoming sweep).
   const captions = (params.captions || []).filter(
     (c) => Number.isFinite(c.start) && Number.isFinite(c.end) && c.end > c.start && c.text.trim().length > 0
   );
   const capDir = path.join(workdir, "captions");
   const capPngPaths: string[] = [];
+  const capSpokenThrough: number[] = [];
   if (captions.length > 0) {
     const { mkdirSync: mkCap } = await import("node:fs");
     mkCap(capDir, { recursive: true });
-    const { renderCaptionPng } = await import("./local-captions");
+    const { renderCaptionPng, buildCaptionChain: previewChain } = await import("./local-captions");
     const fw = format === "short" ? 1080 : 1920;
     const fh = format === "short" ? 1920 : 1080;
-    const MAX_CUES = 400; // guard: pathological STT can't explode ffmpeg args
-    for (let i = 0; i < Math.min(captions.length, MAX_CUES); i++) {
+    // Word-boundary windows per cue (same tiling buildCaptionChain uses).
+    const preview = previewChain(1, captions);
+    const MAX_FRAMES = 1200; // guard: pathological STT can't explode ffmpeg args
+    const frames = preview.windows.slice(0, MAX_FRAMES);
+    for (let i = 0; i < frames.length; i++) {
+      // Owning cue = last cue whose span contains this window start.
+      let cue = captions[0];
+      for (const c of captions) {
+        if (c.start <= frames[i].start + 0.001) cue = c;
+        else break;
+      }
       const p = path.join(capDir, `cap_${String(i).padStart(4, "0")}.png`);
-      await renderCaptionPng(captions[i].text, p, fw, fh);
+      await renderCaptionPng(cue, p, fw, fh, frames[i].end);
       capPngPaths.push(p);
+      capSpokenThrough.push(frames[i].end);
     }
   }
   const burnedCues = captions.slice(0, capPngPaths.length);
@@ -255,9 +269,9 @@ export async function renderLocalCut(params: {
   // Filter graph: [0:v]vf → [v0], then caption overlays → [vout], then zoom.
   let vfChain = `[0:v]${vf}[v0]`;
   let vOut = "[v0]";
-  if (burnedCues.length > 0) {
+  if (capPngPaths.length > 0) {
     const { buildCaptionChain } = await import("./local-captions");
-    const chain = buildCaptionChain(1, burnedCues);
+    const chain = buildCaptionChain(1, captions.slice(0, burnedCues.length));
     vfChain += `;${chain.filter}`;
     vOut = chain.outLabel;
   }

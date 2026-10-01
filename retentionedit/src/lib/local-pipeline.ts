@@ -126,19 +126,52 @@ export async function advanceJob(
         opts.keepOverride ??
         (job as unknown as { _keep?: Array<{ start: number; end: number }> })._keep ??
         cutsToKeep(persistedCuts, duration).keep;
-      // M2 captions: real words → cues → remap to FINAL timeline.
-      let finalCues: Array<{ start: number; end: number; text: string }> = [];
+      // M4-first: RetentionVolt match PRIMA delle caption — Opus lo usa come
+      // RIFERIMENTO per decidere la caption policy (resto in M2). La parola
+      // finale è sempre di Opus, mai del Vault. NEVER decides cuts.
+      let voltForOpus: import("./retentionvolt-client").VoltMatch | null = null;
+      {
+        const transcriptText = (job.segments || []).map((s) => s.text).join(" ").slice(0, 4000);
+        try {
+          const { findVoltMatch } = await import("./retentionvolt-client");
+          voltForOpus = await findVoltMatch({ format: job.format, transcriptText });
+        } catch {
+          voltForOpus = null;
+        }
+      }
+      // Captions karaoke (skill parity): Opus 5.5 decide la policy guardando
+      // il Vault come riferimento (on/off, densità, keyword) — parola finale
+      // sempre sua. Parole reali → cue con per-word timings → remap FINAL.
+      let finalCues: Array<{ start: number; end: number; text: string; words?: Array<{ word: string; start: number; end: number; emphasis?: boolean }> }> = [];
+      let captionReason = "";
       try {
         const realWords = (job.words || []).filter(
           (w) => w && typeof w.word === "string" && w.word.length > 0 && Number.isFinite(w.start) && Number.isFinite(w.end) && w.end > w.start
         );
         if (realWords.length > 0) {
-          const { wordsToCues, remapCuesToFinal } = await import("./local-captions");
-          const srcCues = wordsToCues(
-            realWords.map((w) => ({ word: w.word, start: w.start, end: w.end, confidence: 1 })),
-            6
-          );
-          finalCues = remapCuesToFinal(srcCues, keep);
+          const transcriptText = (job.segments || []).map((s) => s.text).join(" ").slice(0, 4000);
+          const { decideCaptionPolicy } = await import("./opus-caption-director");
+          const policy = await decideCaptionPolicy({
+            transcriptText,
+            format: job.format,
+            volt: voltForOpus,
+          }).catch(() => null);
+          const maxWords = policy?.maxWords ?? (job.format === "short" ? 5 : 8);
+          const kwSet = policy && policy.keywords.length > 0 ? new Set(policy.keywords) : undefined;
+          captionReason = policy
+            ? `Opus: ${policy.reason}${policy.vaultReference ? ` (rif. Vault: “${policy.vaultReference.slice(0, 40)}”)` : ""}`
+            : "";
+          if (!policy || policy.enabled) {
+            const { wordsToCues, remapCuesToFinal } = await import("./local-captions");
+            const srcCues = wordsToCues(
+              realWords.map((w) => ({ word: w.word, start: w.start, end: w.end, confidence: 1 })),
+              maxWords,
+              kwSet
+            );
+            finalCues = remapCuesToFinal(srcCues, keep);
+          } else {
+            await touch({ progress: 77 }, `Caption spente — ${captionReason}`);
+          }
         }
       } catch {}
       let fontStatus = "fallback";
@@ -147,7 +180,11 @@ export async function advanceJob(
       } catch {}
       await touch(
         { captions: finalCues.slice(0, 400), progress: 78 },
-        finalCues.length > 0 ? `Caption reali: ${finalCues.length} cue da parole trascritte (font ${fontStatus})` : "Nessuna caption (STT assente)"
+        finalCues.length > 0
+          ? `Caption karaoke: ${finalCues.length} cue da parole trascritte (font ${fontStatus})${captionReason ? ` — ${captionReason}` : ""}`
+          : captionReason
+            ? `Nessuna caption — ${captionReason}`
+            : "Nessuna caption (STT assente)"
       );
       // M3 zoom: real scene cuts → remap to FINAL → plan windows.
       let finalZooms: Array<{ finalStart: number; finalEnd: number; peak: number }> = [];
@@ -166,12 +203,11 @@ export async function advanceJob(
       } catch {
         await touch({ scenes: [], zooms: [], progress: 80 }, "Scene detect non disponibile — nessuno zoom");
       }
-      // M4 RetentionVolt: real reference match (own DB, read-only, ~0 cost).
+      // Pacing zooms dal match Vault (solo dove il locale non ha trovato nulla).
       // NEVER decides cuts — only adds pacing zooms where local found none.
       try {
-        const { findVoltMatch, voltZoomsFromMatch } = await import("./retentionvolt-client");
-        const transcriptText = (job.segments || []).map((s) => s.text).join(" ").slice(0, 4000);
-        const match = await findVoltMatch({ format: job.format, transcriptText });
+        const { voltZoomsFromMatch } = await import("./retentionvolt-client");
+        const match = voltForOpus;
         if (match) {
           const finalDur = keep.reduce((a, k) => a + Math.max(0, k.end - k.start), 0);
           const extra = voltZoomsFromMatch(match, finalDur, finalZooms, keep);
