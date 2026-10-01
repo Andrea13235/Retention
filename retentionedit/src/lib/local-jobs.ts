@@ -38,8 +38,34 @@ export interface LocalJob {
   /** Real word timestamps (persisted, cap 2000) — M2 caption source. */
   words?: Array<{ word: string; start: number; end: number }>;
   /** Caption cues on FINAL timeline (real words, remapped post-cut). */
-  captions?: Array<{ start: number; end: number; text: string }>;
+  captions?: Array<{ start: number; end: number; text: string; words?: Array<{ word: string; start: number; end: number; emphasis?: boolean }> }>;
   captionsBurned?: number;
+  /** Verdetto Opus 5.5 regista (tutto l'edit: tagli/zoom/graphics/broll/cover). Null = euristica. */
+  verdict?: {
+    editorialVerdict: string;
+    hookStrengthScore: number;
+    reason: string;
+    vaultReference: string | null;
+    opusLive: boolean;
+    extraCuts: number;
+    zooms: number;
+    graphics: number;
+    brolls: number;
+    /** Caption policy decisa da Opus (on/off, maxWords, keyword vere). */
+    caption?: { enabled: boolean; maxWords: number; keywords: string[] };
+    /** Zoom Opus (source clock). Picchi, la pipeline li allarga a finestre. */
+    opusZooms?: Array<{ at: number; peak: number }>;
+    /** Cover concept Opus (headline+stile). */
+    cover?: { headline: string; style: string };
+  } | null;
+  /** Graphics/banner TOP Opus (source clock, testo transcript-verbatim). Render in M3. */
+  opusGraphics?: Array<{ kind: string; title: string; subtitle?: string; tag?: string; at: number; duration: number }>;
+  /** B-roll Opus (source clock + prompt Higgsfield). Submit in M3. */
+  opusBrolls?: Array<{ topic: string; prompt: string; at: number; duration: number; layout: string }>;
+  /** Pending SOUL requests multipli (M3: fino a 3 B-roll + cover). */
+  souls?: Array<{ requestId: string; prompt: string; aspectRatio: "9:16" | "16:9" | "4:3" | "3:4" | "1:1" | "2:3" | "3:2"; finalStart: number; finalEnd: number; brollPrompt: string; layout: string; slot: number }>;
+  /** B-roll pronti multipli (max 3, Ken Burns fullscreen/pip). */
+  brolls?: Array<{ localPath: string; finalStart: number; finalEnd: number; prompt: string; bytes: number; layout: string }>;
   /** Real scene cuts (source timeline) — M3 zoom source. */
   scenes?: Array<{ at: number }>;
   /** Zoom windows on FINAL timeline (true scene changes only). */

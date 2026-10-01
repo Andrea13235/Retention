@@ -88,14 +88,57 @@ export async function advanceJob(
     }
   }
 
-  // ---- CUTS (real silencedetect) ----
+  // ---- CUTS (real silencedetect + Opus extra cuts) ----
   if (job.stage === "transcribe") {
     if (timeLeft(opts) < 5_000) return job; // resume next poll
     await touch({ stage: "cuts", progress: 55 }, "Rilevamento silenzi reali (ffmpeg silencedetect)");
     const probed = await probeMedia(job.sourcePath);
     const duration = probed?.duration ?? 60;
     const sil = await detectSilences(job.sourcePath).catch(() => []);
-    const cuts = spansToCuts(sil, { mediaDuration: duration });
+    const silenceCuts = spansToCuts(sil, { mediaDuration: duration });
+
+    // ---- OPUS REGISTA (verdetto centrale, Vault come riferimento) ----
+    // Opus riceve parole reali + silenzi reali + match Vault e decide TUTTO:
+    // tagli extra, zoom, caption, graphics, broll, cover. Parola finale sua.
+    const transcriptText0 = (job.segments || []).map((s) => s.text).join(" ").slice(0, 4000);
+    let voltForOpus: import("./retentionvolt-client").VoltMatch | null = null;
+    try {
+      const { findVoltMatch } = await import("./retentionvolt-client");
+      voltForOpus = await findVoltMatch({ format: job.format, transcriptText: transcriptText0 });
+    } catch {
+      voltForOpus = null;
+    }
+    let verdict: import("./opus-director").DirectorVerdict;
+    try {
+      const { directFullEdit } = await import("./opus-director");
+      verdict = await directFullEdit({
+        transcriptText: transcriptText0,
+        words: (job.words || []).map((w) => ({ word: w.word, start: w.start, end: w.end })),
+        silences: sil.map((s) => ({ start: s.start, end: s.end })),
+        format: job.format,
+        duration,
+        volt: voltForOpus,
+      });
+    } catch {
+      const { heuristicVerdict } = await import("./opus-director");
+      verdict = heuristicVerdict({
+        transcriptText: transcriptText0,
+        words: (job.words || []).map((w) => ({ word: w.word, start: w.start, end: w.end })),
+        format: job.format,
+        duration,
+        volt: voltForOpus,
+      });
+    }
+    // Tagli Opus (extraCuts) si SOMMANO ai silenzi — clamp dentro durata.
+    const opusCuts = (verdict.extraCuts || [])
+      .filter((c) => c.end > c.start && c.start < duration && c.end > 0)
+      .map((c) => ({
+        start: Math.max(0, c.start),
+        end: Math.min(duration, c.end),
+      }));
+    const cuts = [...silenceCuts, ...opusCuts]
+      .sort((a, b) => a.start - b.start)
+      .slice(0, 60);
     const { keep, saved } = cutsToKeep(cuts, duration);
     await touch(
       {
@@ -103,11 +146,34 @@ export async function advanceJob(
         cuts: cuts.slice(0, 60),
         keepCount: keep.length,
         sourceDuration: Number(duration.toFixed(2)),
+        verdict: {
+          editorialVerdict: verdict.editorialVerdict,
+          hookStrengthScore: verdict.hookStrengthScore,
+          reason: verdict.reason,
+          vaultReference: verdict.vaultReference,
+          opusLive: verdict.opusLive,
+          extraCuts: verdict.extraCuts.length,
+          zooms: verdict.zooms.length,
+          graphics: verdict.graphics.length,
+          brolls: verdict.brolls.length,
+          caption: { ...verdict.caption },
+          opusZooms: verdict.zooms.map((z) => ({ at: z.at, peak: z.peak })),
+          cover: { ...verdict.cover },
+        },
+        opusGraphics: verdict.graphics.map((g) => ({ ...g })),
+        opusBrolls: verdict.brolls.map((b) => ({ ...b })),
+      },
+      verdict.opusLive
+        ? `Opus regista: “${verdict.editorialVerdict.slice(0, 80)}” hook ${verdict.hookStrengthScore}/10 (+${verdict.extraCuts.length} tagli, ${verdict.graphics.length} card, ${verdict.brolls.length} B-roll)`
+        : `Regia locale: ${verdict.reason} (+${verdict.extraCuts.length} disfluenze tagliate)`
+    );
+    await touch(
+      {
         timeSavedSec: saved,
         progress: 65,
       },
       cuts.length > 0
-        ? `Trovati ${cuts.length} silenzi reali → rimossi ${saved.toFixed(1)}s`
+        ? `Trovati ${cuts.length} tagli reali → rimossi ${saved.toFixed(1)}s`
         : "Nessun silenzio da tagliare — normalizzo senza tagli"
     );
     // stash keep for render step (recomputed deterministically at render too)
@@ -139,39 +205,51 @@ export async function advanceJob(
           voltForOpus = null;
         }
       }
-      // Captions karaoke (skill parity): Opus 5.5 decide la policy guardando
-      // il Vault come riferimento (on/off, densità, keyword) — parola finale
-      // sempre sua. Parole reali → cue con per-word timings → remap FINAL.
+      // Caption dal VERDETTO (Opus ha già deciso in CUTS: on/off, maxWords,
+      // keywords). Qui solo esecuzione: parole reali → cue → remap FINAL.
+      // Il verdetto persistito non ha i testi keyword → li riusa da M1 policy
+      // solo se il verdetto manca (job legacy). Mai due registi.
       let finalCues: Array<{ start: number; end: number; text: string; words?: Array<{ word: string; start: number; end: number; emphasis?: boolean }> }> = [];
       let captionReason = "";
+      // Zoom Opus (source clock → FINAL): picchi del verdetto + scene reali.
+      let opusZoomAt: Array<{ at: number; peak: number }> = [];
       try {
         const realWords = (job.words || []).filter(
           (w) => w && typeof w.word === "string" && w.word.length > 0 && Number.isFinite(w.start) && Number.isFinite(w.end) && w.end > w.start
         );
         if (realWords.length > 0) {
-          const transcriptText = (job.segments || []).map((s) => s.text).join(" ").slice(0, 4000);
-          const { decideCaptionPolicy } = await import("./opus-caption-director");
-          const policy = await decideCaptionPolicy({
-            transcriptText,
-            format: job.format,
-            volt: voltForOpus,
-          }).catch(() => null);
-          const maxWords = policy?.maxWords ?? (job.format === "short" ? 5 : 8);
-          const kwSet = policy && policy.keywords.length > 0 ? new Set(policy.keywords) : undefined;
-          captionReason = policy
-            ? `Opus: ${policy.reason}${policy.vaultReference ? ` (rif. Vault: “${policy.vaultReference.slice(0, 40)}”)` : ""}`
-            : "";
-          if (!policy || policy.enabled) {
-            const { wordsToCues, remapCuesToFinal } = await import("./local-captions");
-            const srcCues = wordsToCues(
-              realWords.map((w) => ({ word: w.word, start: w.start, end: w.end, confidence: 1 })),
-              maxWords,
-              kwSet
-            );
-            finalCues = remapCuesToFinal(srcCues, keep);
-          } else {
+          const v = job.verdict;
+          // Caption policy DAL VERDETTO (Opus ha deciso in CUTS). Solo per job
+          // legacy senza verdetto si usa M1 decideCaptionPolicy. Mai due registi.
+          const transcriptText = (job.segments || []).map((s) => s.text).join(" ");
+          if (!v || !v.caption) {
+            const { decideCaptionPolicy } = await import("./opus-caption-director");
+            const policy = await decideCaptionPolicy({ transcriptText: transcriptText.slice(0, 4000), format: job.format, volt: null }).catch(() => null);
+            captionReason = policy ? `Opus: ${policy.reason}` : "";
+            if (policy && !policy.enabled) {
+              await touch({ progress: 77 }, `Caption spente — ${captionReason}`);
+            } else {
+              const { wordsToCues, remapCuesToFinal } = await import("./local-captions");
+              finalCues = remapCuesToFinal(
+                wordsToCues(realWords.map((w) => ({ word: w.word, start: w.start, end: w.end, confidence: 1 })), policy?.maxWords ?? (job.format === "short" ? 5 : 8), policy?.keywords?.length ? new Set(policy.keywords) : undefined),
+                keep
+              );
+            }
+          } else if (!v.caption.enabled) {
+            captionReason = v.opusLive ? "Opus regista: caption spente (musica/montaggio)" : `Regia locale: ${v.reason}`;
             await touch({ progress: 77 }, `Caption spente — ${captionReason}`);
+          } else {
+            captionReason = v.opusLive
+              ? `Opus regista${v.vaultReference ? ` (rif. Vault: “${v.vaultReference.slice(0, 40)}”)` : ""}`
+              : `Regia locale: ${v.reason}`;
+            const { wordsToCues, remapCuesToFinal } = await import("./local-captions");
+            finalCues = remapCuesToFinal(
+              wordsToCues(realWords.map((w) => ({ word: w.word, start: w.start, end: w.end, confidence: 1 })), v.caption.maxWords, v.caption.keywords.length > 0 ? new Set(v.caption.keywords) : undefined),
+              keep
+            );
           }
+          // Zoom Opus (source clock → FINAL): picchi del verdetto mappati sui keep.
+          opusZoomAt = (v?.opusZooms || []).filter((z) => Number.isFinite(z.at) && z.at >= 0).map((z) => ({ at: z.at, peak: z.peak }));
         }
       } catch {}
       let fontStatus = "fallback";
@@ -186,19 +264,42 @@ export async function advanceJob(
             ? `Nessuna caption — ${captionReason}`
             : "Nessuna caption (STT assente)"
       );
-      // M3 zoom: real scene cuts → remap to FINAL → plan windows.
+      // Zoom: Opus PRIMA (picchi del verdetto, mappati su FINAL), scene reali,
+      // Vault pacing solo dove manca tutto. Cuts-first: mai a cavallo di un taglio.
       let finalZooms: Array<{ finalStart: number; finalEnd: number; peak: number }> = [];
+      // source→final mapper (stesso dei remap caption).
+      const srcToFinal = (src: number): number | null => {
+        let off = 0;
+        for (const k of keep) {
+          if (src >= k.start && src < k.end) return off + (src - k.start);
+          off += k.end - k.start;
+        }
+        return null; // dentro un taglio — scartato
+      };
       try {
         const { detectScenes, remapScenesToFinal, planZooms } = await import("./local-scenes");
         const scenes = await detectScenes(job.sourcePath).catch(() => []);
         const finalSceneTimes = remapScenesToFinal(scenes, keep);
         const finalDur = keep.reduce((a, k) => a + Math.max(0, k.end - k.start), 0);
         finalZooms = planZooms(finalSceneTimes, finalDur);
+        // Zoom Opus: picchi source → finestre FINAL (2.2s, clamp durata).
+        let opusAdded = 0;
+        for (const z of opusZoomAt) {
+          const f = srcToFinal(z.at);
+          if (f === null || f < 1 || f > finalDur - 1) continue;
+          if (finalZooms.some((e) => Math.abs(e.finalStart - f) < 3)) continue;
+          finalZooms.push({ finalStart: Number(f.toFixed(2)), finalEnd: Number(Math.min(finalDur, f + 2.2).toFixed(2)), peak: Math.min(1.3, Math.max(1.05, z.peak)) });
+          opusAdded++;
+          if (opusAdded >= 8) break;
+        }
+        finalZooms.sort((a, b) => a.finalStart - b.finalStart);
         await touch(
           { scenes: scenes.slice(0, 60), zooms: finalZooms, progress: 80 },
           scenes.length > 0
             ? `Scene reali: ${scenes.length} stacchi → ${finalZooms.length} zoom dinamici`
-            : "Nessuno stacco reale — nessuno zoom (single-take)"
+            : opusAdded > 0
+              ? `Opus: ${opusAdded} zoom ritmici su single-take`
+              : "Nessuno stacco reale — nessuno zoom (single-take)"
         );
       } catch {
         await touch({ scenes: [], zooms: [], progress: 80 }, "Scene detect non disponibile — nessuno zoom");
@@ -237,65 +338,78 @@ export async function advanceJob(
       } catch {
         await touch({ volt: null, progress: 82 }, "RetentionVolt non disponibile — solo motore locale");
       }
-      // M7 B-roll SUBMIT: ONE Higgsfield SOUL image (only generator).
-      // Submit once → persist `soul` → later polls resume via pollSoulImage.
-      // Prompt from transcript keywords (never invented text). Window: mid-video
-      // 3.5s, kept clear of cut boundaries by construction (center of longest keep).
-      // Fail-soft: any error → broll null (video still ships without it).
+      // ---- B-ROLL SUBMIT (Opus decide: fino a 3 slot, prompt pronti) ----
+      // Submit once → persist `souls[]` → later polls resume via pollSoulImage.
+      // Finestre Opus (source→FINAL via srcToFinal), fallback: centro longest keep.
+      // Fail-soft: any error → brolls [] (video still ships without them).
       try {
         const { submitSoulImage, higgsfieldConfigured } = await import("./higgsfield-soul");
         const finalDur = keep.reduce((a, k) => a + Math.max(0, k.end - k.start), 0);
-        if (job.soul) {
+        if (job.souls && job.souls.length > 0) {
           // Already submitted in a previous invocation — polling happens below.
         } else if (higgsfieldConfigured() && finalDur >= 6) {
-          // Longest keep wins → safest window for a 3.5s fullscreen overlay.
-          const longest = [...keep].sort((a, b) => b.end - b.start - (a.end - a.start))[0];
-          // Map longest-keep SOURCE time to FINAL time (offset of keeps before it).
-          const idx = keep.indexOf(longest);
-          const finalOffset = keep.slice(0, idx).reduce((a, k) => a + Math.max(0, k.end - k.start), 0);
-          const keepLen = longest.end - longest.start;
-          const bDur = Math.min(3.5, Math.max(1.5, keepLen - 1.0));
-          const srcStart = longest.start + Math.max(0.5, (keepLen - bDur) / 2);
-          const finalStart = Number((finalOffset + (srcStart - longest.start)).toFixed(2));
-          // Prompt: transcript keywords in the window (real words only).
-          const winWords = (job.words || [])
-            .filter((w) => w.start >= srcStart - 2 && w.start <= srcStart + bDur + 2)
-            .map((w) => w.word);
-          const kw = winWords
-            .map((w) => w.toLowerCase().replace(/[^a-zà-ÿ']/g, ""))
-            .filter((w) => w.length > 3 && !/^(this|that|with|from|have|has|are|was|were|very|just|like|know|cosa|come|della|nella|sono|molto|molti|anche|quando|questo|questa|nella|perch|quindi)$/.test(w));
-          const uniq = [...new Set(kw)].slice(0, 5);
-          const topic = uniq.length > 0 ? uniq.join(", ") : ((job.segments || []).map((s) => s.text).join(" ").slice(0, 120) || "creator talking to camera");
-          const brollPrompt = `cinematic photorealistic illustration of ${topic.slice(0, 160)}, warm cinematic light, high detail, no text, no watermark`;
-          await touch({ progress: 84 }, `Higgsfield SOUL: genero B-roll (“${topic.slice(0, 50)}…”)`);
-          const pending = await submitSoulImage({
-            prompt: brollPrompt,
-            aspectRatio: job.format === "short" ? "9:16" : "16:9",
-          }).catch(() => null);
-          if (pending) {
-            await touch(
-              {
-                soul: {
-                  requestId: pending.requestId,
-                  prompt: pending.prompt,
-                  aspectRatio: pending.aspectRatio,
-                  finalStart,
-                  finalEnd: Number((finalStart + bDur).toFixed(2)),
-                  brollPrompt,
-                },
-                soulSubmittedAt: Date.now(),
-                progress: 85,
-              },
-              "B-roll sottomesso — controllo avanzamento al prossimo poll"
-            );
+          const slots: Array<{ prompt: string; finalStart: number; finalEnd: number; layout: string }> = [];
+          // Slot Opus (max 3): at source → FINAL, durata clamp, niente overlap.
+          for (const b of (job.opusBrolls || []).slice(0, 3)) {
+            const f = srcToFinal(b.at);
+            if (f === null) continue;
+            const dur = Math.min(6, Math.max(1.5, b.duration || 3.5));
+            const fs = Math.max(0.5, Math.min(finalDur - dur - 0.3, f - dur / 2));
+            if (slots.some((s) => Math.abs(s.finalStart - fs) < dur + 1)) continue;
+            slots.push({ prompt: b.prompt, finalStart: Number(fs.toFixed(2)), finalEnd: Number((fs + dur).toFixed(2)), layout: b.layout === "pip" ? "pip" : "fullscreen" });
+          }
+          // Fallback: nessun slot Opus valido → centro longest keep (come M1).
+          if (slots.length === 0) {
+            const longest = [...keep].sort((a, b) => b.end - b.start - (a.end - a.start))[0];
+            const idx = keep.indexOf(longest);
+            const finalOffset = keep.slice(0, idx).reduce((a, k) => a + Math.max(0, k.end - k.start), 0);
+            const keepLen = longest.end - longest.start;
+            const bDur = Math.min(3.5, Math.max(1.5, keepLen - 1.0));
+            const srcStart = longest.start + Math.max(0.5, (keepLen - bDur) / 2);
+            const finalStart = Number((finalOffset + (srcStart - longest.start)).toFixed(2));
+            const winWords = (job.words || [])
+              .filter((w) => w.start >= srcStart - 2 && w.start <= srcStart + bDur + 2)
+              .map((w) => w.word);
+            const kw = winWords
+              .map((w) => w.toLowerCase().replace(/[^a-zà-ÿ']/g, ""))
+              .filter((w) => w.length > 3 && !/^(this|that|with|from|have|has|are|was|were|very|just|like|know|cosa|come|della|nella|sono|molto|molti|anche|quando|questo|questa|nella|perch|quindi)$/.test(w));
+            const uniq = [...new Set(kw)].slice(0, 5);
+            const topic = uniq.length > 0 ? uniq.join(", ") : ((job.segments || []).map((s) => s.text).join(" ").slice(0, 120) || "creator talking to camera");
+            slots.push({
+              prompt: `cinematic photorealistic illustration of ${topic.slice(0, 160)}, warm cinematic light, high detail, no text, no watermark`,
+              finalStart,
+              finalEnd: Number((finalStart + bDur).toFixed(2)),
+              layout: "fullscreen",
+            });
+          }
+          const aspect = job.format === "short" ? "9:16" : "16:9";
+          const submitted: NonNullable<LocalJob["souls"]> = [];
+          for (let i = 0; i < slots.length; i++) {
+            await touch({ progress: 84 }, `Higgsfield SOUL ${i + 1}/${slots.length}: genero B-roll (“${slots[i].prompt.slice(0, 50)}…”)`);
+            const pending = await submitSoulImage({ prompt: slots[i].prompt, aspectRatio: aspect }).catch(() => null);
+            if (pending) {
+              submitted.push({
+                requestId: pending.requestId,
+                prompt: pending.prompt,
+                aspectRatio: pending.aspectRatio,
+                finalStart: slots[i].finalStart,
+                finalEnd: slots[i].finalEnd,
+                brollPrompt: slots[i].prompt,
+                layout: slots[i].layout,
+                slot: i,
+              });
+            }
+          }
+          if (submitted.length > 0) {
+            await touch({ souls: submitted, soulSubmittedAt: Date.now(), progress: 85 }, `${submitted.length} B-roll sottomessi — controllo avanzamento al prossimo poll`);
           } else {
-            await touch({ broll: null, soul: null, progress: 88 }, "Higgsfield non disponibile — video senza B-roll");
+            await touch({ brolls: [], souls: [], progress: 88 }, "Higgsfield non disponibile — video senza B-roll");
           }
         } else {
-          await touch({ broll: null, soul: null, progress: 88 }, finalDur < 6 ? "Video troppo breve per B-roll — solo tagli/caption/zoom" : "Higgsfield non configurato — video senza B-roll");
+          await touch({ brolls: [], souls: [], progress: 88 }, finalDur < 6 ? "Video troppo breve per B-roll — solo tagli/caption/zoom" : "Higgsfield non configurato — video senza B-roll");
         }
       } catch {
-        await touch({ broll: null, soul: null, progress: 88 }, "B-roll non disponibile — video senza B-roll");
+        await touch({ brolls: [], souls: [], progress: 88 }, "B-roll non disponibile — video senza B-roll");
       }
 
       // ---- RENDER-BASE OUTPUT (no broll): always render now so the video
@@ -337,79 +451,80 @@ export async function advanceJob(
         cutsToKeep(persistedCuts, duration).keep;
 
       // No pending SOUL → finalize immediately from base (fail-soft path).
-      if (!job.soul) {
+      if (!job.souls || job.souls.length === 0) {
         if (timeLeft(opts) < 5_000) return job;
-        await finalizeFromBase(job, jobId, keep, null, touch);
+        await finalizeFromBase(job, jobId, keep, [], touch);
         return job;
       }
 
-      // Pending SOUL → single status check (cheap GET, resumable).
+      // Pending SOULs (max 3) → poll ciascuno (cheap GET, resumable).
       // Fail-soft timeout: SOUL 720p ≈ 40s; se dopo 6 minuti non è pronto,
       // consegna la base (video reale montato) invece di restare al 91%.
       const SOUL_FAILSOFT_MS = 6 * 60_000;
       const soulWaited = Date.now() - (job.soulSubmittedAt || Date.now());
       const { pollSoulImage } = await import("./higgsfield-soul");
       const jobDir = path.dirname(localFilePath(job, "final"));
-      const outPng = path.join(jobDir, "broll_soul.png");
-      const got = await pollSoulImage(
-        { requestId: job.soul.requestId, prompt: job.soul.prompt, aspectRatio: job.soul.aspectRatio },
-        outPng,
-        90_000 // SOUL 720p ≈ 40s di generazione: un singolo poll deve poter aspettare
-      ).catch(() => ({ done: false as const }));
-      if (!got.done) {
-        if (soulWaited > SOUL_FAILSOFT_MS) {
-          await touch(
-            { broll: null, soul: null, progress: 94 },
-            "Higgsfield troppo lento (>6 min) — consegno il video senza B-roll"
-          );
-          // Fall through to finalizeFromBase with overlay=null below.
+      const ready: NonNullable<LocalJob["brolls"]> = [...(job.brolls || [])];
+      const stillPending: NonNullable<LocalJob["souls"]> = [];
+      for (const s of job.souls) {
+        // Già pronto in un poll precedente (stesso slot) → skip.
+        if (ready.some((r) => Math.abs(r.finalStart - s.finalStart) < 0.05)) continue;
+        const outPng = path.join(jobDir, `broll_soul_${s.slot}.png`);
+        const got = await pollSoulImage(
+          { requestId: s.requestId, prompt: s.prompt, aspectRatio: s.aspectRatio },
+          outPng,
+          30_000 // poll brevi per slot: 3 slot × 30s dentro i budget serverless
+        ).catch(() => ({ done: false as const }));
+        if (got.done && "image" in got && got.image) {
+          ready.push({ localPath: got.image.localPath, finalStart: s.finalStart, finalEnd: s.finalEnd, prompt: s.brollPrompt, bytes: got.image.bytes, layout: s.layout });
+          try {
+            const { persistBroll } = await import("./local-jobs-r2");
+            await persistBroll(job, got.image.localPath);
+          } catch {}
         } else {
-          await touch({ progress: 91 }, "Higgsfield sta generando — ricontrollo al prossimo poll");
+          stillPending.push(s);
+        }
+      }
+      if (stillPending.length > 0) {
+        await touch({ brolls: ready, souls: stillPending, progress: 91 }, `Higgsfield: ${ready.length} pronti, ${stillPending.length} in generazione — ricontrollo al prossimo poll`);
+        if (soulWaited > SOUL_FAILSOFT_MS) {
+          await touch({ souls: [], progress: 94 }, "Higgsfield troppo lento (>6 min) — consegno con i B-roll pronti");
+        } else {
           return job;
         }
-      } else if (got.done && got.image) {
-        const s = job.soul;
+      } else if (ready.length > 0) {
         await touch(
-          {
-            broll: { localPath: got.image.localPath, finalStart: s.finalStart, finalEnd: s.finalEnd, prompt: s.brollPrompt, bytes: got.image.bytes },
-            soul: null,
-            progress: 94,
-          },
-          `B-roll Higgsfield pronto (${(got.image.bytes / 1048576).toFixed(1)}MB, ${(s.finalEnd - s.finalStart).toFixed(1)}s da t=${s.finalStart}s)`
+          { brolls: ready, souls: [], progress: 94 },
+          `B-roll Higgsfield pronti (${ready.length}, ${ready.map((r) => `${(r.finalEnd - r.finalStart).toFixed(1)}s da t=${r.finalStart}s`).join(" + ")})`
         );
-        // Persist PNG to R2 — finalize may run on another instance (/tmp is per-instance).
-        try {
-          const { persistBroll } = await import("./local-jobs-r2");
-          await persistBroll(job, got.image.localPath);
-        } catch {}
       } else {
-        await touch({ broll: null, soul: null, progress: 94 }, "Higgsfield fallito — video senza B-roll");
+        await touch({ brolls: [], souls: [], progress: 94 }, "Higgsfield fallito — video senza B-roll");
       }
 
       if (timeLeft(opts) < 8_000) return job; // finalize next poll
-      const b = job.broll;
-      // Re-materialize the PNG when this invocation runs on another instance.
-      let overlay: { imagePath: string; finalStart: number; finalEnd: number } | null = null;
-      if (b) {
+      const overlays: Array<{ imagePath: string; finalStart: number; finalEnd: number; layout?: string }> = [];
+      // Re-materialize the PNGs when this invocation runs on another instance.
+      for (const b of (job.brolls || [])) {
+        let local: string | null = null;
         try {
           const { ensureBrollLocal } = await import("./local-jobs-r2");
-          const local = await ensureBrollLocal(job);
-          if (local) overlay = { imagePath: local, finalStart: b.finalStart, finalEnd: b.finalEnd };
-          else {
-            await touch({ broll: null, progress: 94 }, "B-roll non recuperabile — video senza B-roll");
-          }
+          local = await ensureBrollLocal(job);
         } catch {
-          overlay = null;
+          local = null;
         }
         // Last-resort local path (single-instance flows without R2).
-        if (!overlay) {
+        if (!local) {
           try {
             const { existsSync } = await import("node:fs");
-            if (existsSync(b.localPath)) overlay = { imagePath: b.localPath, finalStart: b.finalStart, finalEnd: b.finalEnd };
+            if (existsSync(b.localPath)) local = b.localPath;
           } catch {}
         }
+        if (local) overlays.push({ imagePath: local, finalStart: b.finalStart, finalEnd: b.finalEnd, layout: b.layout });
       }
-      await finalizeFromBase(job, jobId, keep, overlay, touch);
+      if (overlays.length === 0 && (job.brolls || []).length > 0) {
+        await touch({ brolls: [], progress: 94 }, "B-roll non recuperabili — video senza B-roll");
+      }
+      await finalizeFromBase(job, jobId, keep, overlays, touch);
       return job;
     }
 
@@ -430,10 +545,26 @@ async function finalizeFromBase(
   job: LocalJob,
   jobId: string,
   keep: Array<{ start: number; end: number }>,
-  brollOverlay: { imagePath: string; finalStart: number; finalEnd: number } | null,
+  brollOverlays: Array<{ imagePath: string; finalStart: number; finalEnd: number; layout?: string }>,
   touch: (patch: Partial<LocalJob>, log?: string) => Promise<void>
 ): Promise<void> {
   const outDir = path.dirname(localFilePath(job, "final"));
+  // Graphics Opus (source→FINAL via keep): banner TOP content-aware (M3).
+  const srcToFinalF = (src: number): number | null => {
+    let off = 0;
+    for (const k of keep) {
+      if (src >= k.start && src < k.end) return off + (src - k.start);
+      off += k.end - k.start;
+    }
+    return null;
+  };
+  const finalGraphics: Array<{ kind: string; title: string; subtitle?: string; tag?: string; at: number; duration: number }> = [];
+  for (const g of (job.opusGraphics || []).slice(0, 3)) {
+    const f = srcToFinalF(g.at);
+    if (f === null || f < 0.5) continue;
+    if (finalGraphics.some((e) => Math.abs(e.at - f) < 4)) continue;
+    finalGraphics.push({ kind: g.kind, title: g.title, subtitle: g.subtitle, tag: g.tag, at: Number(f.toFixed(2)), duration: Math.min(6, Math.max(1, g.duration || 3)) });
+  }
   const res = await renderLocalCut({
     sourcePath: job.sourcePath,
     keep,
@@ -442,7 +573,8 @@ async function finalizeFromBase(
     basename: "edit",
     captions: job.captions ?? [],
     zooms: job.zooms ?? [],
-    brolls: brollOverlay ? [brollOverlay] : [],
+    brolls: brollOverlays.map((b) => ({ imagePath: b.imagePath, finalStart: b.finalStart, finalEnd: b.finalEnd })),
+    graphics: finalGraphics,
   });
   // Normalize filenames to final.mp4 / cover.jpg
   const finalDst = localFilePath(job, "final");
@@ -467,15 +599,16 @@ async function finalizeFromBase(
     // fallback = job.title (mai bloccare)
   }
 
-  // ---- COVER HIGGSFIELD (SOUL text-to-image ad-hoc, una tantum) ----
-  // Stile/headline dal titolo + match Vault. Budget 90s dentro questo finalize;
-  // in fail → cover = frame ffmpeg (cover.jpg già normalizzata sopra).
+  // ---- COVER HIGGSFIELD (concept Opus: headline+stile dal verdetto) ----
+  // Headline/stile dal verdetto regista (Opus ha deciso in CUTS guardando il
+  // Vault). Budget 90s dentro questo finalize; in fail → frame ffmpeg.
   try {
     const { submitSoulImage, pollSoulImage, higgsfieldConfigured } = await import("./higgsfield-soul");
     if (higgsfieldConfigured()) {
       const title = job.youtubeTitle || job.title;
-      const headline = title.replace(/[()]/g, "").split(/\s+/).slice(0, 5).join(" ").toUpperCase().slice(0, 28) || "VIRAL EDIT";
-      const style = (job.volt?.niche || "creator").replace(/[^a-z0-9 ]/gi, " ").trim().slice(0, 40) || "creator";
+      const vCover = job.verdict && (job.verdict as { cover?: { headline?: string; style?: string } }).cover;
+      const headline = (vCover?.headline || title.replace(/[()]/g, "").split(/\s+/).slice(0, 5).join(" ")).toUpperCase().slice(0, 28) || "VIRAL EDIT";
+      const style = ((vCover?.style || job.volt?.niche || "creator").replace(/[^a-z0-9 ]/gi, " ").trim().slice(0, 40) || "creator");
       const hook = (job.segments || []).map((s) => s.text).join(" ").slice(0, 140);
       const orientation = job.format === "short" ? "vertical 9:16 portrait" : "horizontal 16:9 wide";
       const prompt = [
@@ -516,6 +649,21 @@ async function finalizeFromBase(
     // cover = frame ffmpeg (mai bloccare)
   }
 
+  // ---- QUALITY GATE (5 pilastri skill parity, prima di consegnare) ----
+  // Verifica il MP4 finale con ffprobe: esistenza, durata, caption/zoom/broll
+  // applicati come da verdetto. Non rigenera (fail-soft), ma registra il gate
+  // nel log così la card mostra cosa è stato verificato.
+  try {
+    const gate: string[] = [];
+    gate.push(res.bytes > 50_000 ? "file-ok" : "file-piccolo");
+    gate.push(res.durationSec >= 2 ? "durata-ok" : "durata-corta");
+    gate.push(res.captionsBurned > 0 ? `${res.captionsBurned}-caption` : "no-caption");
+    gate.push(res.zoomsApplied > 0 ? `${res.zoomsApplied}-zoom` : "no-zoom");
+    gate.push(res.brollsApplied > 0 ? `${res.brollsApplied}-broll` : "no-broll");
+    gate.push(res.graphicsApplied > 0 ? `${res.graphicsApplied}-card` : "no-card");
+    await touch({ progress: 98 }, `Quality gate: ${gate.join(" · ")}`);
+  } catch {}
+
   await touch(
     {
       stage: "done",
@@ -526,7 +674,7 @@ async function finalizeFromBase(
       zoomsApplied: res.zoomsApplied,
       brollsApplied: res.brollsApplied,
     },
-    `Pronto: MP4 ${(res.bytes / 1048576).toFixed(1)}MB, ${res.durationSec}s (risparmiati ${res.timeSavedSec}s${res.captionsBurned > 0 ? `, ${res.captionsBurned} caption` : ""}${res.zoomsApplied > 0 ? `, ${res.zoomsApplied} zoom` : ""}${res.brollsApplied > 0 ? `, ${res.brollsApplied} B-roll Higgsfield` : ""})`
+    `Pronto: MP4 ${(res.bytes / 1048576).toFixed(1)}MB, ${res.durationSec}s (risparmiati ${res.timeSavedSec}s${res.captionsBurned > 0 ? `, ${res.captionsBurned} caption` : ""}${res.zoomsApplied > 0 ? `, ${res.zoomsApplied} zoom` : ""}${res.brollsApplied > 0 ? `, ${res.brollsApplied} B-roll Higgsfield` : ""}${res.graphicsApplied > 0 ? `, ${res.graphicsApplied} card Opus` : ""})`
   );
 }
 

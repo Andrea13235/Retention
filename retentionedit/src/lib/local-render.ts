@@ -39,6 +39,17 @@ export interface BrollOverlay {
   finalEnd: number;
 }
 
+export interface GraphicOverlay {
+  kind: string;
+  /** Testo VERBATIM dal transcript (mai inventato). */
+  title: string;
+  subtitle?: string;
+  tag?: string;
+  /** Window on the FINAL timeline (seconds). */
+  at: number;
+  duration: number;
+}
+
 export interface LocalRenderResult {
   /** Absolute path of the rendered MP4. */
   mp4Path: string;
@@ -57,6 +68,8 @@ export interface LocalRenderResult {
   zoomsApplied: number;
   /** Number of Higgsfield B-rolls composited with Ken Burns (0 = none). */
   brollsApplied: number;
+  /** Number of Opus graphics/banner TOP burned in (0 = none). */
+  graphicsApplied: number;
 }
 
 export function cutsToKeep(
@@ -158,6 +171,12 @@ export async function renderLocalCut(params: {
    * Empty/undefined = none. Applied AFTER zoom so the B-roll fills frame.
    */
   brolls?: BrollOverlay[];
+  /**
+   * Opus graphics/banner TOP (content-aware, testo transcript-verbatim).
+   * Render come PNG overlay PRIMA dei B-roll (sotto il fullscreen ma sopra
+   * le caption). Empty/undefined = none. Applied AFTER zoom.
+   */
+  graphics?: GraphicOverlay[];
 }): Promise<LocalRenderResult> {
   const { sourcePath, format, outDir } = params;
   const timeoutMs = params.timeoutMs ?? 600_000;
@@ -266,7 +285,7 @@ export async function renderLocalCut(params: {
   for (const p of capPngPaths) {
     concatArgs.push("-i", p);
   }
-  // Filter graph: [0:v]vf → [v0], then caption overlays → [vout], then zoom.
+  // Filter graph: [0:v]vf → [v0], caption overlays → graphics → zoom → broll.
   let vfChain = `[0:v]${vf}[v0]`;
   let vOut = "[v0]";
   if (capPngPaths.length > 0) {
@@ -274,6 +293,35 @@ export async function renderLocalCut(params: {
     const chain = buildCaptionChain(1, captions.slice(0, burnedCues.length));
     vfChain += `;${chain.filter}`;
     vOut = chain.outLabel;
+  }
+  // Graphics Opus (banner TOP): PNG overlay PRIMA di zoom/broll.
+  const gfxList = (params.graphics || []).filter(
+    (g) => g && typeof g.title === "string" && g.title.trim().length > 1 && Number.isFinite(g.at) && Number.isFinite(g.duration) && g.duration >= 1
+  ).slice(0, 3);
+  const gfxPngPaths: string[] = [];
+  if (gfxList.length > 0) {
+    const { mkdirSync: mkGfx } = await import("node:fs");
+    mkGfx(path.join(workdir, "graphics"), { recursive: true });
+    const { renderGraphicPng, buildGraphicChain } = await import("./local-captions");
+    const fw = format === "short" ? 1080 : 1920;
+    const fh = format === "short" ? 1920 : 1080;
+    for (let i = 0; i < gfxList.length; i++) {
+      const p = path.join(workdir, "graphics", `gfx_${String(i).padStart(2, "0")}.png`);
+      await renderGraphicPng(gfxList[i], p, fw, fh);
+      gfxPngPaths.push(p);
+    }
+    for (const p of gfxPngPaths) concatArgs.push("-i", p);
+    // Catena diretta: vOut corrente + N overlay graphics (label proprie).
+    let gPrev = vOut;
+    gfxList.forEach((g, i) => {
+      const idx = 1 + capPngPaths.length + i;
+      const out = `[ggfx${i}]`;
+      const a = Math.max(0, g.at);
+      const b = a + Math.max(1, Math.min(6, g.duration));
+      vfChain += `;${gPrev}[${idx}:v]overlay=0:0:enable='between(t,${a.toFixed(2)},${b.toFixed(2)})'${out}`;
+      gPrev = out;
+    });
+    vOut = gPrev;
   }
   const zooms = (params.zooms || []).filter(
     (z) => Number.isFinite(z.finalStart) && Number.isFinite(z.finalEnd) && z.finalEnd > z.finalStart && z.peak > 1.0 && z.peak <= 1.5
@@ -304,13 +352,15 @@ export async function renderLocalCut(params: {
   if (brolls.length > 0) {
     const fw = format === "short" ? 1080 : 1920;
     const fh = format === "short" ? 1920 : 1080;
-    for (const b of brolls.slice(0, 2)) {
+    // Indice input: 0=video, 1..N=caption, poi graphics, poi broll.
+    const brollBase = 1 + capPngPaths.length + gfxPngPaths.length;
+    for (const b of brolls.slice(0, 3)) {
       // Cap the looped still to its window duration: without -t, `-loop 1`
       // feeds infinite frames and zoompan(d=N) never terminates the stream.
       const dur = Math.min(b.finalEnd - b.finalStart, 8); // guard: ≤8s per broll
       const endT = b.finalStart + dur;
       concatArgs.push("-loop", "1", "-t", String(Number(dur.toFixed(2))), "-i", b.imagePath);
-      const inIdx = 1 + capPngPaths.length + brollIdx;
+      const inIdx = brollBase + brollIdx;
       const frames = Math.max(30, Math.round(dur * KB_FPS));
       // Ken Burns: linear 1.0→1.12 over the window + gentle rightward drift.
       const kbZ = `1+0.12*min(max((in)/${frames},0),1)`;
@@ -370,6 +420,7 @@ export async function renderLocalCut(params: {
     captionsBurned: burnedCues.length,
     zoomsApplied: zooms.length,
     brollsApplied: brollIdx,
+    graphicsApplied: gfxPngPaths.length,
   };
 }
 

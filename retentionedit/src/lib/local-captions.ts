@@ -255,6 +255,66 @@ export function buildCaptionChain(
   return { filter: parts.join(";"), outLabel: prev, windows };
 }
 
+/**
+ * Render one graphic/banner PNG (skill parity, TOP placement).
+ * Apple-minimal: NO boxes/pills behind text — clean white 800-weight title
+ * with halo + stroke, optional small tag line above in yellow.
+ * Anchored TOP 12% (mai sopra la faccia: titolo alto, sotto il 10% safe).
+ * Testo SEMPRE transcript-verbatim (mai inventato da Opus).
+ */
+export async function renderGraphicPng(
+  g: { kind: string; title: string; subtitle?: string; tag?: string },
+  outPath: string,
+  frameW: number,
+  frameH: number
+): Promise<void> {
+  const fontFace = captionFontFace();
+  const titleSize = Math.round(Math.min(frameW, frameH) * (frameW <= frameH ? 0.062 : 0.05));
+  const tagSize = Math.round(titleSize * 0.42);
+  const subSize = Math.round(titleSize * 0.5);
+  const topY = Math.round(frameH * 0.12);
+  const sw = Math.max(2, Math.round(titleSize / 9));
+  const title = g.title.slice(0, 80);
+  const tag = (g.tag || "").slice(0, 24).toUpperCase();
+  const sub = (g.subtitle || "").slice(0, 120);
+  const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const lines = [
+    tag ? `<text x="${frameW / 2}" y="${topY}" text-anchor="middle" font-family="'CapFont','Helvetica Neue',Helvetica,Arial,sans-serif" font-size="${tagSize}" font-weight="800" fill="#ffd60a" style="${strokeStyle(Math.max(1, Math.round(sw / 2)))}">${esc(tag)}</text>` : "",
+    `<text x="${frameW / 2}" y="${topY + (tag ? titleSize * 1.1 : 0)}" text-anchor="middle" font-family="'CapFont','Helvetica Neue',Helvetica,Arial,sans-serif" font-size="${titleSize}" font-weight="800" fill="#ffffff" style="${strokeStyle(sw)}">${esc(title)}</text>`,
+    sub ? `<text x="${frameW / 2}" y="${topY + (tag ? titleSize * 1.1 : 0) + subSize * 1.4}" text-anchor="middle" font-family="'CapFont','Helvetica Neue',Helvetica,Arial,sans-serif" font-size="${subSize}" font-weight="700" fill="#e8e8e8" style="${strokeStyle(Math.max(1, Math.round(sw / 2)))}">${esc(sub)}</text>` : "",
+  ].filter(Boolean).join("\n  ");
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${frameW}" height="${frameH}">
+  <style>
+    ${fontFace}
+  </style>
+  ${lines}
+</svg>`;
+  mkdirSync(path.dirname(outPath), { recursive: true });
+  const buf = await sharp(Buffer.from(svg)).png().toBuffer();
+  writeFileSync(outPath, buf);
+}
+
+/**
+ * Overlay chain per le graphics: [prev][idx:v]overlay=0:0:enable=between[gg{i}].
+ * Max 1 alla volta per costruzione (Opus ne decide max 3, mai overlap in pipeline).
+ */
+export function buildGraphicChain(
+  pngStartIndex: number,
+  graphics: Array<{ at: number; duration: number }>
+): { filter: string; outLabel: string } {
+  let prev = "";
+  const parts: string[] = [];
+  graphics.forEach((g, i) => {
+    const idx = pngStartIndex + i;
+    const out = `[ggfx${i}]`;
+    const a = Math.max(0, g.at);
+    const b = a + Math.max(1, Math.min(6, g.duration));
+    parts.push(`${prev}[${idx}:v]overlay=0:0:enable='between(t,${a.toFixed(2)},${b.toFixed(2)})'${out}`);
+    prev = out;
+  });
+  return { filter: parts.join(";"), outLabel: prev };
+}
+
 export interface KeepSegmentLike {
   start: number;
   end: number;
