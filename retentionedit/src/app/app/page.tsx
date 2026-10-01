@@ -145,7 +145,7 @@ function AppWorkspaceContent() {
               setJobData((prev) => ({ ...prev, ...fullJob }));
               try {
                 const { loadProjectEntries, upsertProject } = await import("@/lib/projects-store");
-                const allEntries = loadProjectEntries();
+                const allEntries = loadProjectEntries(user?.id);
                 const existing = allEntries.find((p) => p.id === activeJobId);
                 const renderedUrl: string | undefined = fullJob.renderedVideoUrl;
                 // SOLO video reale: MP4 montato dal server (Modal GPU) oppure presigned/relay.
@@ -185,7 +185,8 @@ function AppWorkspaceContent() {
                     status: "ready",
                     editPlan: fullJob.editPlan || existing?.editPlan,
                   },
-                  null
+                  null,
+                  user?.id
                 ).catch(() => {});
                 // La card "Recent projects" ora è pronta con cover ad-hoc +
                 // titolo YouTube: apri subito la schematica video (deciso).
@@ -253,7 +254,8 @@ function AppWorkspaceContent() {
           status: "processing",
           rawDuration: params.duration,
         },
-        params.file ? params.file : null
+        params.file ? params.file : null,
+        user?.id
       ).catch(() => {});
     } catch {}
     }
@@ -309,7 +311,7 @@ function AppWorkspaceContent() {
       // aggiorna la card e cancella il pending — MAI duplicare.
       try {
         const store = await import("@/lib/projects-store");
-        const pending = store.loadProjectEntries().find((p) => p.id === pendingId);
+        const pending = store.loadProjectEntries(user?.id).find((p) => p.id === pendingId);
         const pendingBlob = await store.getProjectBlob(pendingId).catch(() => null);
         await upsertProject(
           {
@@ -323,10 +325,11 @@ function AppWorkspaceContent() {
             status: "processing",
             rawDuration: params.duration,
           },
-          params.file ? params.file : pendingBlob
+          params.file ? params.file : pendingBlob,
+          user?.id
         ).catch(() => {});
         if (pending) {
-          try { await store.deleteProject(pendingId); } catch {}
+          try { await store.deleteProject(pendingId, user?.id); } catch {}
           // deleteProject notifica; re-inserisci il job reale se la delete lo avesse toccato
           // (delete filtra per id, quindi il job reale resta — nessuna azione extra).
         }
@@ -407,11 +410,11 @@ function AppWorkspaceContent() {
       // (titolo con ⚠) invece di sparire in silenzio — l'utente sa sempre che è successo.
       try {
         const store = await import("@/lib/projects-store");
-        const pending = store.loadProjectEntries().find((p) => p.id === pendingId);
+        const pending = store.loadProjectEntries(user?.id).find((p) => p.id === pendingId);
         if (pending) {
           store.updateProject(pendingId, {
             title: `${pending.title} — ⚠ avvio fallito, riprova`,
-          });
+          }, user?.id);
         }
       } catch {}
       alert(`Errore avvio job: ${err.message}`);
@@ -485,15 +488,25 @@ function AppWorkspaceContent() {
                         uploadPct: 0,
                         rawDuration: 38,
                       },
-                      file
+                      file,
+                      user?.id
                     ).catch(() => {});
                   } catch {}
                   try {
                     try {
                       const { updateProject } = await import("@/lib/projects-store");
-                      updateProject(cardId, { status: "processing", uploadPct: undefined });
+                      updateProject(cardId, { status: "processing", uploadPct: undefined }, user?.id);
                     } catch {}
                     const final = await realEdit.startEdit(file, cleanTitle);
+                    // Titolo YouTube dal server (Claude + Vault, transcript reale).
+                    // Prima di questo fix la card mostrava il nome file RAW.
+                    const ytTitle = (final.title || cleanTitle).trim().slice(0, 100);
+                    // Cover: preferisci la cover YouTube Higgsfield ad-hoc;
+                    // fallback sul frame ffmpeg. Scarica ENTRAMBE in IDB così
+                    // la card resta visibile anche dopo il reload.
+                    const ytCoverUrl = final.youtubeCoverUrl || null;
+                    const frameCoverUrl = final.coverUrl || null;
+                    const bestCoverUrl = ytCoverUrl || frameCoverUrl || "";
                     // Scarica l'MP4 REALE montato dal server e salvalo in IDB
                     // così la card resta riproducibile anche dopo il reload.
                     let mp4Blob: Blob | null = null;
@@ -511,16 +524,30 @@ function AppWorkspaceContent() {
                     if (mp4Blob) {
                       try { await putProjectBlob(`${cardId}_rendered`, mp4Blob); } catch {}
                     }
+                    // Cover Higgsfield in IDB (stessa chiave della card).
+                    try {
+                      if (ytCoverUrl) {
+                        const rc = await fetch(ytCoverUrl, {
+                          headers: { ...(user?.id ? { "x-retentionedit-session": user.id } : {}) },
+                        });
+                        if (rc.ok) {
+                          const cb = await rc.blob();
+                          if (cb && cb.size > 2048) {
+                            try { await putProjectBlob(`${cardId}_cover`, cb); } catch {}
+                          }
+                        }
+                      }
+                    } catch {}
                     try {
                       const { updateProject } = await import("@/lib/projects-store");
                       updateProject(cardId, {
-                        title: final.title || cleanTitle,
-                        coverUrl: final.coverUrl || "",
+                        title: ytTitle,
+                        coverUrl: bestCoverUrl,
                         videoUrl: final.downloadUrl || "",
                         clipsCount: (final.cutsCount ?? 0) + 1,
                         status: "ready",
                         rawDuration: final.sourceDuration,
-                      });
+                      }, user?.id);
                     } catch {}
                     showToast("Video editato — MP4 pronto da scaricare", 4000);
                   } catch (e) {
@@ -528,7 +555,7 @@ function AppWorkspaceContent() {
                       const { updateProject } = await import("@/lib/projects-store");
                       updateProject(cardId, {
                         title: `${cleanTitle} — ⚠ edit fallito, riprova`,
-                      });
+                      }, user?.id);
                     } catch {}
                     showToast(e instanceof Error ? e.message : "Edit fallito", 5000);
                   }

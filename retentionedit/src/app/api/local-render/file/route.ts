@@ -6,10 +6,11 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 120;
 
 /**
- * GET /api/local-render/file?jobId=<id>&kind=final|cover
+ * GET /api/local-render/file?jobId=<id>&kind=final|cover|ytcover
  * Authenticated, owner-only, range-capable download of the REAL edited MP4.
  * Only serves `done` jobs; Content-Disposition: attachment with .mp4 name.
  * Serverless-safe: artifacts come from R2 (any instance can serve them).
+ * kind=ytcover → cover YouTube Higgsfield ad-hoc (PNG, inline per la card).
  */
 export async function GET(req: NextRequest) {
   const authResult = await requireAuth(req);
@@ -19,14 +20,31 @@ export async function GET(req: NextRequest) {
   const userId = sanitizeR2KeySegment(authResult.user.userId, 50);
   const url = new URL(req.url);
   const jobId = (url.searchParams.get("jobId") || "").trim().slice(0, 80);
-  const kind = url.searchParams.get("kind") === "cover" ? "cover" : "final";
+  const kindRaw = url.searchParams.get("kind");
+  const kind: "final" | "cover" | "ytcover" =
+    kindRaw === "cover" ? "cover" : kindRaw === "ytcover" ? "ytcover" : "final";
   if (!jobId) return NextResponse.json({ error: "Missing jobId" }, { status: 400 });
 
-  const { loadR2Job, fetchArtifact } = await import("@/lib/local-jobs-r2");
+  const { loadR2Job, fetchArtifact, fetchYoutubeCover } = await import("@/lib/local-jobs-r2");
   const job = await loadR2Job(userId, jobId);
   if (!job) return NextResponse.json({ error: "Job not found" }, { status: 404 });
   if (job.stage !== "done") {
     return NextResponse.json({ error: "Not ready yet", stage: job.stage }, { status: 409 });
+  }
+
+  // Cover YouTube Higgsfield: PNG inline (la card la mostra come <img>).
+  if (kind === "ytcover") {
+    const yt = await fetchYoutubeCover(job);
+    if (!yt) return NextResponse.json({ error: "YouTube cover missing" }, { status: 404 });
+    return new NextResponse(new Uint8Array(yt.bytes), {
+      status: 200,
+      headers: {
+        "Content-Length": String(yt.bytes.length),
+        "Content-Type": yt.mime,
+        "Cache-Control": "private, no-cache, no-store, must-revalidate",
+        "X-Content-Type-Options": "nosniff",
+      },
+    });
   }
 
   const art = await fetchArtifact(job, kind);

@@ -7,6 +7,7 @@ export type RealStage = "idle" | "uploading" | "transcribe" | "cuts" | "render" 
 export interface RealStatus {
   jobId: string;
   title: string;
+  rawTitle?: string;
   format: string;
   stage: RealStage;
   progress: number;
@@ -24,6 +25,8 @@ export interface RealStatus {
   error?: string;
   downloadUrl?: string | null;
   coverUrl?: string | null;
+  /** Cover YouTube Higgsfield ad-hoc (preferita dalla card al frame). */
+  youtubeCoverUrl?: string | null;
 }
 
 /**

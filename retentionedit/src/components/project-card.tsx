@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState } from "react";
 import { Play, RotateCcw } from "lucide-react";
-import { ProjectEntry, getProjectVideoUrl } from "@/lib/projects-store";
+import { ProjectEntry, getProjectVideoUrl, getProjectCoverUrl } from "@/lib/projects-store";
 import { ProjectMenu } from "./project-menu";
 
 interface ProjectCardProps {
@@ -28,7 +28,23 @@ export function ProjectCard({ project, onClearCover, onOpen }: ProjectCardProps)
   const [liveUrl, setLiveUrl] = useState<string | null>(
     project.coverUrl && project.coverUrl.length > 0 ? null : project.videoUrl || null
   );
+  // Cover risolta: IDB (PNG Higgsfield) prima, coverUrl remota poi.
+  const [coverSrc, setCoverSrc] = useState<string | null>(null);
   const [expired, setExpired] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    getProjectCoverUrl(project)
+      .then((url) => {
+        if (!cancelled) setCoverSrc(url);
+      })
+      .catch(() => {
+        if (!cancelled) setCoverSrc(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [project]);
 
   useEffect(() => {
     let cancelled = false;
@@ -53,7 +69,7 @@ export function ProjectCard({ project, onClearCover, onOpen }: ProjectCardProps)
     };
   }, [project]);
 
-  const hasCover = project.coverUrl && project.coverUrl.length > 0;
+  const hasCover = !!(coverSrc || (project.coverUrl && project.coverUrl.length > 0));
 
   return (
     <article className="group w-full cursor-pointer" onClick={onOpen} role={onOpen ? "button" : undefined} tabIndex={onOpen ? 0 : undefined} onKeyDown={onOpen ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onOpen(); } } : undefined}>
@@ -62,7 +78,7 @@ export function ProjectCard({ project, onClearCover, onOpen }: ProjectCardProps)
         {hasCover ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
-            src={project.coverUrl}
+            src={coverSrc || project.coverUrl}
             alt={project.title}
             className="w-full h-full object-cover group-hover:scale-[1.02] transition duration-200"
           />

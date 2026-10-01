@@ -185,6 +185,41 @@ function brollKey(userId: string, jobId: string): string {
   return `jobs/${userId}/${safeJob}/broll.png`;
 }
 
+function youtubeCoverKey(userId: string, jobId: string): string {
+  const safeJob = jobId.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 80);
+  return `jobs/${userId}/${safeJob}/youtube_cover.png`;
+}
+
+/**
+ * Persist la cover YouTube Higgsfield (PNG) su R2 — la card la serve via
+ * /api/local-render/file?kind=ytcover da qualsiasi instance.
+ */
+export async function persistYoutubeCover(job: LocalJob, localPngPath: string): Promise<void> {
+  if (!isR2Configured()) return;
+  try {
+    if (!existsSync(localPngPath)) return;
+    await uploadR2Object(youtubeCoverKey(job.userId, job.jobId), readFileSync(localPngPath), "image/png");
+  } catch {}
+}
+
+/**
+ * Recupera la cover YouTube (R2 prima, filesystem locale poi).
+ * Ritorna i bytes + mime, o null se assente (caller usa frame ffmpeg).
+ */
+export async function fetchYoutubeCover(job: LocalJob): Promise<{ bytes: Buffer; mime: string } | null> {
+  if (isR2Configured()) {
+    try {
+      const buf = await downloadR2Object(youtubeCoverKey(job.userId, job.jobId));
+      if (buf && buf.length > 2048) return { bytes: buf, mime: "image/png" };
+    } catch {}
+  }
+  try {
+    const p = job.youtubeCoverPath;
+    if (p && existsSync(p)) return { bytes: readFileSync(p), mime: "image/png" };
+  } catch {}
+  return null;
+}
+
 /**
  * Persist the SOUL B-roll PNG to R2 (cross-instance finalize needs it —
  * /tmp does not survive instance changes on serverless).

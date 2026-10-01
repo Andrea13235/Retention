@@ -383,6 +383,12 @@ export async function advanceJob(
 /**
  * Finalize: re-render base timeline + broll overlay → final.mp4 / cover.jpg → done.
  * Base render already proved the timeline; this adds the Ken Burns overlay.
+ *
+ * Poi (stesso finalize, mai un job separato):
+ *  - Titolo YouTube: Claude (transcript reale + match Vault) → job.youtubeTitle.
+ *  - Cover Higgsfield: SOUL text-to-image ad-hoc (headline dal titolo, stile
+ *    dal match Vault) → job.youtubeCoverPath. Poll SOLO dentro i budget
+ *    serverless (90s submit+poll una tantum); in fail → frame ffmpeg.
  */
 async function finalizeFromBase(
   job: LocalJob,
@@ -407,6 +413,73 @@ async function finalizeFromBase(
   const coverDst = localFilePath(job, "cover");
   if (res.mp4Path !== finalDst && existsSync(res.mp4Path)) copyFileSync(res.mp4Path, finalDst);
   if (res.coverPath !== coverDst && existsSync(res.coverPath)) copyFileSync(res.coverPath, coverDst);
+
+  // ---- TITOLO YOUTUBE (Claude regista + Vault, transcript reale) ----
+  // Non blocca mai la consegna: fallback euristico se Claude/Vault falliscono.
+  try {
+    const transcriptText = (job.segments || []).map((s) => s.text).join(" ").slice(0, 4000);
+    const { resolveYouTubeTitle } = await import("./claude-title");
+    const yt = await resolveYouTubeTitle({
+      rawTitle: job.title,
+      transcriptText,
+      niche: job.volt?.niche,
+    }).catch(() => job.title);
+    if (yt && yt.trim().length >= 8) {
+      await touch({ youtubeTitle: yt.trim().slice(0, 100) }, `Titolo YouTube: “${yt.trim().slice(0, 60)}”`);
+    }
+  } catch {
+    // fallback = job.title (mai bloccare)
+  }
+
+  // ---- COVER HIGGSFIELD (SOUL text-to-image ad-hoc, una tantum) ----
+  // Stile/headline dal titolo + match Vault. Budget 90s dentro questo finalize;
+  // in fail → cover = frame ffmpeg (cover.jpg già normalizzata sopra).
+  try {
+    const { submitSoulImage, pollSoulImage, higgsfieldConfigured } = await import("./higgsfield-soul");
+    if (higgsfieldConfigured()) {
+      const title = job.youtubeTitle || job.title;
+      const headline = title.replace(/[()]/g, "").split(/\s+/).slice(0, 5).join(" ").toUpperCase().slice(0, 28) || "VIRAL EDIT";
+      const style = (job.volt?.niche || "creator").replace(/[^a-z0-9 ]/gi, " ").trim().slice(0, 40) || "creator";
+      const hook = (job.segments || []).map((s) => s.text).join(" ").slice(0, 140);
+      const orientation = job.format === "short" ? "vertical 9:16 portrait" : "horizontal 16:9 wide";
+      const prompt = [
+        `High-CTR ${orientation} YouTube cover thumbnail, ${style} aesthetic`,
+        `expressive creator face in close-up looking straight at camera, strong emotion, neon emerald rim light, dark luxury background with subtle depth of field`,
+        `minimal bold headline text "${headline}" in heavy condensed sans-serif, huge, high contrast white with yellow glow accent, single line, top-safe placement`,
+        `small badge pill "VIRAL HOOK"`,
+        `photorealistic 85mm, cinematic studio lighting, 8k, no watermark, no extra text`,
+        hook ? `context: ${hook}` : "",
+      ].filter(Boolean).join(". ");
+      const pending = await submitSoulImage({
+        prompt,
+        aspectRatio: job.format === "short" ? "9:16" : "16:9",
+      }).catch(() => null);
+      if (pending) {
+        const coverPng = path.join(outDir, "youtube_cover.png");
+        const got = await pollSoulImage(
+          { requestId: pending.requestId, prompt: pending.prompt, aspectRatio: pending.aspectRatio },
+          coverPng,
+          90_000
+        ).catch(() => ({ done: false as const }));
+        if (got.done && "image" in got && got.image) {
+          await touch({ youtubeCoverPath: got.image.localPath }, `Cover Higgsfield pronta (${(got.image.bytes / 1024).toFixed(0)}KB)`);
+          try {
+            const { persistYoutubeCover } = await import("./local-jobs-r2");
+            await persistYoutubeCover(job, got.image.localPath);
+          } catch {}
+        } else {
+          await touch({ youtubeCoverPath: null }, "Cover Higgsfield non pronta — uso frame video");
+        }
+      } else {
+        await touch({ youtubeCoverPath: null }, "Higgsfield non disponibile — uso frame video");
+      }
+    } else {
+      await touch({ youtubeCoverPath: null }, "Higgsfield non configurato — uso frame video");
+    }
+  } catch {
+    // cover = frame ffmpeg (mai bloccare)
+  }
+
   await touch(
     {
       stage: "done",

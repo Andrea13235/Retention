@@ -140,7 +140,8 @@ export function HomeWorkspace({
             uploadPct: 0,
             rawDuration: 38,
           },
-          file
+          file,
+          user?.id
         ).catch(() => {});
       } catch {}
       const localBlob = URL.createObjectURL(file);
@@ -159,7 +160,7 @@ export function HomeWorkspace({
           v.src = localBlob;
         });
         if (probed > 0) duration = probed;
-        try { updateProject(instantId, { rawDuration: duration }); } catch {}
+        try { updateProject(instantId, { rawDuration: duration }, user?.id); } catch {}
       } catch {}
 
       // Upload chunked CORS-immune → R2, poi pipeline Opus balanced (unica).
@@ -169,11 +170,11 @@ export function HomeWorkspace({
           userId: user?.id,
           plan: user?.plan || "free",
           onProgress: (pct) => {
-            try { updateProject(instantId, { uploadPct: pct }); } catch {}
+            try { updateProject(instantId, { uploadPct: pct }, user?.id); } catch {}
           },
         });
         if (!uploaded.verified) {
-          try { updateProject(instantId, { title: `${baseName} — ⚠ upload non verificato, riprova` }); } catch {}
+          try { updateProject(instantId, { title: `${baseName} — ⚠ upload non verificato, riprova` }, user?.id); } catch {}
           alert("Upload non verificato su R2 — riprova.");
           return;
         }
@@ -187,7 +188,7 @@ export function HomeWorkspace({
         }).catch(() => {});
         // Promuovi la card istantanea a processing PRIMA di lanciare il job —
         // così non c'è mai un buco visivo tra upload e pipeline.
-        try { updateProject(instantId, { status: "processing", uploadPct: undefined, rawDuration: duration }); } catch {}
+        try { updateProject(instantId, { status: "processing", uploadPct: undefined, rawDuration: duration }, user?.id); } catch {}
         onStartJob({
           title: baseName,
           rawVideoUrl: `r2://${uploaded.key}`,
@@ -199,7 +200,7 @@ export function HomeWorkspace({
           pendingId: instantId,
         });
       } catch (e) {
-        try { updateProject(instantId, { title: `${baseName} — ⚠ upload fallito, riprova` }); } catch {}
+        try { updateProject(instantId, { title: `${baseName} — ⚠ upload fallito, riprova` }, user?.id); } catch {}
         alert(e instanceof Error ? e.message : "Upload fallito");
       }
       return;
@@ -225,8 +226,8 @@ export function HomeWorkspace({
   };
 
   const handleClearCover = async (project: ProjectEntry) => {
-    await deleteProject(project.id);
-    setProjects(loadProjectEntries());
+    await deleteProject(project.id, user?.id);
+    setProjects(loadProjectEntries(user?.id));
   };
 
   return (

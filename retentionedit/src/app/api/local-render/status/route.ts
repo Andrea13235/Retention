@@ -72,7 +72,8 @@ export async function GET(req: NextRequest) {
 
   const res = NextResponse.json({
     jobId: job.jobId,
-    title: job.title,
+    title: job.youtubeTitle || job.title,
+    rawTitle: job.title,
     format: job.format,
     stage: job.stage,
     progress: job.progress,
@@ -102,6 +103,8 @@ export async function GET(req: NextRequest) {
     hasFile: job.stage === "done",
     downloadUrl: job.stage === "done" ? `/api/local-render/file?jobId=${encodeURIComponent(job.jobId)}&kind=final` : null,
     coverUrl: job.stage === "done" ? `/api/local-render/file?jobId=${encodeURIComponent(job.jobId)}&kind=cover` : null,
+    // Cover YouTube Higgsfield ad-hoc (se generata) — la card la preferisce al frame.
+    youtubeCoverUrl: job.stage === "done" && job.youtubeCoverPath ? `/api/local-render/file?jobId=${encodeURIComponent(job.jobId)}&kind=ytcover` : null,
   });
   res.headers.set("Cache-Control", "private, no-cache, no-store, must-revalidate");
   return res;

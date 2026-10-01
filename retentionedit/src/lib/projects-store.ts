@@ -270,7 +270,8 @@ export function subscribeProjectsChanged(cb: () => void): () => void {
 /** Insert or replace an entry, then notify listeners. */
 export async function upsertProject(
   entry: ProjectEntry,
-  blob: Blob | File | null
+  blob: Blob | File | null,
+  userId?: string
 ): Promise<void> {
   if (blob) {
     try {
@@ -280,18 +281,18 @@ export async function upsertProject(
     }
   }
   const normNew = normalizeProjectTitle(entry.title);
-  const all = readAll().filter((e) => {
+  const all = readAll(userId).filter((e) => {
     if (e.id === entry.id) return false;
     if (normNew.length >= 3 && normalizeProjectTitle(e.title) === normNew) return false;
     if (entry.videoUrl && e.videoUrl && e.videoUrl === entry.videoUrl) return false;
     return true;
   });
-  writeAll([entry, ...all]);
+  writeAll([entry, ...all], userId);
   notifyProjectsChanged();
 }
 
-export async function deleteProject(id: string): Promise<void> {
-  writeAll(readAll().filter((e) => e.id !== id));
+export async function deleteProject(id: string, userId?: string): Promise<void> {
+  writeAll(readAll(userId).filter((e) => e.id !== id), userId);
   try {
     await deleteProjectBlob(id);
   } catch {
@@ -301,12 +302,12 @@ export async function deleteProject(id: string): Promise<void> {
 }
 
 /** Update specific fields of an existing project */
-export function updateProject(id: string, patch: Partial<ProjectEntry>): void {
-  const all = readAll();
+export function updateProject(id: string, patch: Partial<ProjectEntry>, userId?: string): void {
+  const all = readAll(userId);
   const index = all.findIndex((e) => e.id === id);
   if (index !== -1) {
     all[index] = { ...all[index], ...patch };
-    writeAll(all);
+    writeAll(all, userId);
     notifyProjectsChanged();
   }
 }
@@ -382,6 +383,22 @@ export async function getProjectVideoUrl(
     return entry.videoUrl;
   }
 
+  return null;
+}
+
+/**
+ * Cover della card: prima IDB (`<id>_cover`, PNG Higgsfield scaricata a fine
+ * job), poi coverUrl remota. Così la copertina resta visibile dopo il reload
+ * anche se l'URL firmato del server è scaduto.
+ */
+export async function getProjectCoverUrl(entry: ProjectEntry): Promise<string | null> {
+  try {
+    const cover = await getProjectBlob(`${entry.id}_cover`);
+    if (cover && cover.size > 2048) return URL.createObjectURL(cover);
+  } catch {
+    // ignore — fallback sotto
+  }
+  if (entry.coverUrl && entry.coverUrl.length > 0) return entry.coverUrl;
   return null;
 }
 

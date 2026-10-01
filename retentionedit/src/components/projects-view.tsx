@@ -8,6 +8,7 @@ import {
 } from "lucide-react";
 import { ProjectCard } from "@/components/project-card";
 import { ProcessingProjectCard, UploadingProjectCard } from "@/components/processing-project-card";
+import { useAuth } from "@/context/auth-context";
 import {
   ProjectEntry,
   deleteProject,
@@ -32,6 +33,7 @@ interface ProjectsViewProps {
  *   persist in localStorage (+ IndexedDB for upload bytes).
  */
 export function ProjectsView({ onNewEdit, onOpenPricing, onOpenJob }: ProjectsViewProps) {
+  const { user } = useAuth();
   const [activeTab, setActiveTab] = useState<"all" | "collections" | "projects">("all");
   const [selectedCollection, setSelectedCollection] = useState<string | null>(null);
   const [collections, setCollections] = useState<string[]>(() =>
@@ -40,21 +42,21 @@ export function ProjectsView({ onNewEdit, onOpenPricing, onOpenJob }: ProjectsVi
   const [autoSave, setAutoSave] = useState(true);
   const [autoImport, setAutoImport] = useState(false);
   const [projects, setProjects] = useState<ProjectEntry[]>(() =>
-    typeof window === "undefined" ? [] : loadProjectEntries()
+    typeof window === "undefined" ? [] : loadProjectEntries(user?.id)
   );
 
   useEffect(() => {
-    setProjects(loadProjectEntries());
+    setProjects(loadProjectEntries(user?.id));
     setCollections(loadCollections());
     return subscribeProjectsChanged(() => {
-      setProjects(loadProjectEntries());
+      setProjects(loadProjectEntries(user?.id));
       setCollections(loadCollections());
     });
-  }, []);
+  }, [user?.id]);
 
   const handleClearCover = async (project: ProjectEntry) => {
-    await deleteProject(project.id);
-    setProjects(loadProjectEntries());
+    await deleteProject(project.id, user?.id);
+    setProjects(loadProjectEntries(user?.id));
   };
 
   const displayedProjects = selectedCollection

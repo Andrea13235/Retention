@@ -21,6 +21,10 @@ export interface LocalJob {
   jobId: string;
   userId: string;
   title: string;
+  /** Titolo YouTube finale (Claude + Vault, dal transcript reale). Uguale a title finché non risolto. */
+  youtubeTitle?: string;
+  /** Cover Higgsfield SOUL ad-hoc (path assoluto server del PNG). Null = frame ffmpeg. */
+  youtubeCoverPath?: string | null;
   format: VideoFormat;
   stage: LocalStage;
   progress: number; // 0-100 within current stage semantics (overall)
