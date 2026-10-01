@@ -465,7 +465,73 @@ function AppWorkspaceContent() {
                     setAuthModalOpen(true);
                     return;
                   }
-                  await realEdit.startEdit(file, title);
+                  // Motore REALE: upload → ElevenLabs STT → silenzi → ffmpeg MP4.
+                  // startEdit risolve con lo status terminale (done/error).
+                  // A fine edit: card "ready" col MP4 reale scaricabile.
+                  const cleanTitle = title || file.name.replace(/\.[^/.]+$/, "");
+                  const { upsertProject, putProjectBlob } = await import("@/lib/projects-store");
+                  const cardId = `pending_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+                  try {
+                    await upsertProject(
+                      {
+                        id: cardId,
+                        title: cleanTitle,
+                        coverUrl: "",
+                        videoUrl: "",
+                        clipsCount: 1,
+                        createdAt: Date.now(),
+                        format: "short",
+                        status: "uploading",
+                        uploadPct: 0,
+                        rawDuration: 38,
+                      },
+                      file
+                    ).catch(() => {});
+                  } catch {}
+                  try {
+                    try {
+                      const { updateProject } = await import("@/lib/projects-store");
+                      updateProject(cardId, { status: "processing", uploadPct: undefined });
+                    } catch {}
+                    const final = await realEdit.startEdit(file, cleanTitle);
+                    // Scarica l'MP4 REALE montato dal server e salvalo in IDB
+                    // così la card resta riproducibile anche dopo il reload.
+                    let mp4Blob: Blob | null = null;
+                    try {
+                      if (final.downloadUrl) {
+                        const r = await fetch(final.downloadUrl, {
+                          headers: { ...(user?.id ? { "x-retentionedit-session": user.id } : {}) },
+                        });
+                        if (r.ok) {
+                          const buf = await r.blob();
+                          if (buf && buf.size > 0) mp4Blob = buf;
+                        }
+                      }
+                    } catch {}
+                    if (mp4Blob) {
+                      try { await putProjectBlob(`${cardId}_rendered`, mp4Blob); } catch {}
+                    }
+                    try {
+                      const { updateProject } = await import("@/lib/projects-store");
+                      updateProject(cardId, {
+                        title: final.title || cleanTitle,
+                        coverUrl: final.coverUrl || "",
+                        videoUrl: final.downloadUrl || "",
+                        clipsCount: (final.cutsCount ?? 0) + 1,
+                        status: "ready",
+                        rawDuration: final.sourceDuration,
+                      });
+                    } catch {}
+                    showToast("Video editato — MP4 pronto da scaricare", 4000);
+                  } catch (e) {
+                    try {
+                      const { updateProject } = await import("@/lib/projects-store");
+                      updateProject(cardId, {
+                        title: `${cleanTitle} — ⚠ edit fallito, riprova`,
+                      });
+                    } catch {}
+                    showToast(e instanceof Error ? e.message : "Edit fallito", 5000);
+                  }
                 }}
                 realEditBusy={realEdit.stage !== "idle" && realEdit.stage !== "done" && realEdit.stage !== "error"}
                 realEditStatus={

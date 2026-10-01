@@ -58,15 +58,22 @@ export interface LocalTranscribeResult {
 /**
  * Transcribe a local video/audio file with real word-level timestamps.
  *
- * M6 order: Meta Muse Voice API first (fast, $0.18/h), Whisper.cpp local
- * fallback (slow but free/offline). Returns null when neither can run —
+ * M6 order: ElevenLabs Scribe v2 first (real word timestamps, primary),
+ * Meta Muse Voice API second (fast, $0.18/h), Whisper.cpp local
+ * fallback (slow but free/offline). Returns null when none can run —
  * the caller decides the degraded path (silence-only cuts), never invents.
  */
 export async function transcribeLocalFile(
   mediaPath: string,
   opts?: { language?: string; timeoutMs?: number }
 ): Promise<LocalTranscribeResult | null> {
-  // Whisper.cpp fallback (slow local) when Muse unavailable.
+  // ElevenLabs Scribe v2 (primary: real word timestamps, no estimation).
+  try {
+    const { transcribeElevenFile } = await import("./elevenlabs-stt");
+    const eleven = await transcribeElevenFile(mediaPath);
+    if (eleven) return eleven;
+  } catch {}
+  // Meta Muse Voice API second (fast, $0.18/h).
   try {
     const { transcribeMuseFile } = await import("./muse-stt");
     const muse = await transcribeMuseFile(mediaPath);

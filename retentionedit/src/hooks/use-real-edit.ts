@@ -29,8 +29,11 @@ export interface RealStatus {
 /**
  * useRealEdit — motore reale "Edit with one click".
  * Stessa logica E2E verificata (R2 presigned PUT → /start → poll /status):
- * upload → Muse STT → silence cuts → PNG captions → zoom scene →
- * RetentionVolt → B-roll Higgsfield → MP4 H.264 download.
+ * upload → ElevenLabs STT → Muse STT → silence cuts → PNG captions →
+ * zoom scene → RetentionVolt → B-roll Higgsfield → MP4 H.264 download.
+ *
+ * startEdit risolve con lo status FINALE (stage done/error) così il
+ * chiamante può riconciliare card + download MP4 reale.
  */
 export function useRealEdit() {
   const { user } = useAuth();
@@ -51,7 +54,7 @@ export function useRealEdit() {
   useEffect(() => stopPoll, [stopPoll]);
 
   const startPoll = useCallback(
-    (id: string) => {
+    (id: string, onTerminal?: (final: RealStatus) => void) => {
       stopPoll();
       setJobId(id);
       const tick = async () => {
@@ -67,6 +70,7 @@ export function useRealEdit() {
           if (data.stage === "done" || data.stage === "error") {
             stopPoll();
             if (data.stage === "error") setError(data.error || "Render fallito");
+            onTerminal?.(data);
           }
         } catch {
           // il poll continua: errori di rete temporanei non uccidono il job
@@ -79,7 +83,7 @@ export function useRealEdit() {
   );
 
   const startEdit = useCallback(
-    async (file: File, title: string) => {
+    async (file: File, title: string): Promise<RealStatus> => {
       setError(null);
       setStatus(null);
       setStage("uploading");
@@ -114,11 +118,24 @@ export function useRealEdit() {
         });
         const startData = await startRes.json().catch(() => ({}));
         if (!startRes.ok) throw new Error(startData?.error || `Avvio fallito (${startRes.status})`);
-        startPoll(startData.jobId as string);
-        return;
+        // startEdit risolve con lo status TERMINALE così il chiamante può
+        // riconciliare card + download MP4 reale. Il poll interno aggiorna
+        // comunque stage/progress per la UI live.
+        return await new Promise<RealStatus>((resolve, reject) => {
+          try {
+            startPoll(startData.jobId as string, (final) => {
+              if (final.stage === "error") reject(new Error(final.error || "Render fallito"));
+              else resolve(final);
+            });
+          } catch (e) {
+            reject(e instanceof Error ? e : new Error("Poll non avviato"));
+          }
+        });
       } catch (e) {
+        const msg = e instanceof Error ? e.message : "Errore imprevisto";
         setStage("error");
-        setError(e instanceof Error ? e.message : "Errore imprevisto");
+        setError(msg);
+        throw e instanceof Error ? e : new Error(msg);
       }
     },
     [startPoll, user?.id]

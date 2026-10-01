@@ -106,15 +106,22 @@ export function HomeWorkspace({
       ? file.name.replace(/\.[^/.]+$/, "")
       : selectedName || "Creator Talking Head (9:16 Vertical)";
 
-    // Motore Opus balanced: Opus high + Higgsfield illimitati (RetentionVolt).
-    // Unico hot path del bottone "Edit in one click" — locale è solo eco on-demand.
-    // upload → /api/pipeline/start (balanced) → poll /api/pipeline/status → done.
-    //
-    // CARD ISTANTANEA: nasce QUI al click, prima di probe/upload/rete/backend —
-    // l'utente vede subito il video in My Projects con sfondo nero + animazione
-    // + % upload + tempo stimato. Id temporaneo → riconciliato in page.tsx.
+    // Bottone "Edit in one click" → SOLO motore REALE (upload → ElevenLabs STT
+    // → silenzi → ffmpeg MP4 scaricabile). La card istantanea nasce qui al
+    // click (sfondo nero + % + ETA), il poll live è in useRealEdit, la
+    // riconciliazione finale (ready + MP4) è nel chiamante page.tsx.
+    // Il vecchio onStartJob (/api/pipeline/*, transcript inventato) resta solo
+    // per il sample project? NO — anche quello userà realEdit (vedi sotto).
     if (file) {
       setSubmittedToast(true);
+      if (realEdit) {
+        try {
+          await realEdit(file, baseName);
+        } catch {
+          // l'errore è già mostrato dal chiamante (toast + card ⚠)
+        }
+        return;
+      }
       const instantId =
         typeof crypto !== "undefined" && "randomUUID" in crypto
           ? `pending_${crypto.randomUUID()}`
@@ -311,12 +318,28 @@ export function HomeWorkspace({
           </div>
         )}
 
-        {/* Sample project link — SOLO editing reale: il sample usa il pipeline
-            balanced completo e finisce in My Projects come MP4 scaricabile. */}
+        {/* Sample project link — editing REALE: il sample viene scaricato da
+            /public e passa dal motore reale (realEdit) come un upload,
+            finendo in My Projects come MP4 montato scaricabile. */}
         <button
           type="button"
-          onClick={() => {
+          disabled={realEditBusy}
+          onClick={async () => {
             setSubmittedToast(true);
+            if (realEdit) {
+              try {
+                const r = await fetch("/videos/raw-desktalk.mp4");
+                if (!r.ok) throw new Error("Sample non scaricabile");
+                const buf = await r.blob();
+                const sampleFile = new File([buf], "raw-desktalk.mp4", {
+                  type: "video/mp4",
+                });
+                await realEdit(sampleFile, "Creator Talking Head (9:16 Vertical)");
+              } catch {
+                // l'errore è già mostrato dal chiamante (toast + card ⚠)
+              }
+              return;
+            }
             onStartJob({
               title: "Creator Talking Head (9:16 Vertical)",
               rawVideoUrl: "/videos/raw-desktalk.mp4",
