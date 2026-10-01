@@ -1,0 +1,37 @@
+{
+  "name": "retention",
+  "version": "0.2.0",
+  "description": "AI video editing skill & MCP server: RAW footage to publish-ready video via Whisper + HyperFrames. Powered by RetentionVolt (retentionvolt.com).",
+  "license": "SEE LICENSE IN LICENSE.md",
+  "type": "module",
+  "bin": {
+    "retention": "./dist/server.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx src/server.ts",
+    "setup-check": "node scripts/setup-check.js",
+    "setup-whisper": "node scripts/setup-whisper.js",
+    "install-skill": "node scripts/install-skill.js",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run",
+    "start": "node dist/server.js"
+  },
+  "dependencies": {
+    "@hyperframes/core": "^0.8.40",
+    "@hyperframes/producer": "^0.8.40",
+    "@hyperframes/sdk": "^0.8.40",
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "hyperframes": "^0.8.40",
+    "zod": "^3.24.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0",
+    "vitest": "^5.0.0"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  }
+}

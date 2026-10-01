@@ -1,5 +1,4 @@
 # Local media and attachment specs (never push large raw files)
-.hermes/
 *.MP4
 *.mp4
 *.mov
@@ -22,3 +21,18 @@
 
 # Local skill symlinks
 .agents/skills/computer_use
+
+# Build / dist
+dist/
+build/
+*.tsbuildinfo
+
+# Spec interno — NON pubblicare (resta solo in locale)
+andrea-video-skill.md
+
+# test artifacts
+.tmp-e2e/
+tmp-dbg/
+
+# Local agent workspace (attachments, internal notes) — never publish
+.hermes/
