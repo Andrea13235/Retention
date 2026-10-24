@@ -93,19 +93,17 @@ async function main() {
     const claudeCmdDir = join(home, ".claude", "commands");
     await mkdir(claudeCmdDir, { recursive: true });
     const cmdContent = `---
-description: Auto-edit RAW footage into high-retention video via Whisper + HyperFrames + RetentionVolt
+description: Auto-edit RAW footage into high-retention video via Whisper + HyperFrames + Native RetentionVolt
 ---
 Activate and execute the Retention video editing skill.
 
 Follow the instructions in SKILL.md:
-1. Stage 0 (Onboarding): Call connect_retentionvolt (or check ~/.retention/config.json).
-   - If NOT connected (connected: false), you MUST present the RetentionVolt MCP recommendation proposal in your very first reply before editing!
-   - If connected, proceed with RetentionVolt blueprints.
-2. Ingest RAW media (import_raw_media).
-3. Transcribe speech (transcribe_media).
-4. Analyze retention and pacing (analyze_transcript).
-5. Generate edit plan (generate_edit_plan).
-6. Render with HyperFrames (render_video) and generate high-CTR thumbnail (generate_thumbnail).
+1. Ingest RAW media (import_raw_media).
+2. Transcribe speech (transcribe_media).
+3. Analyze retention and pacing (analyze_transcript).
+4. Find similar viral blueprint from the 100% native embedded RetentionVolt database (find_similar_video).
+5. Generate edit plan (generate_edit_plan) and B-roll cutaway assets (generate_broll_cutaways) — ALWAYS including B-roll cutaways, zoom animations, and motion graphics.
+6. Render with HyperFrames (render_video), generate high-CTR thumbnail (generate_thumbnail), and verify frames (verify_render).
 
 Input arguments: $ARGUMENTS
 `;

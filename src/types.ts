@@ -70,6 +70,17 @@ export interface CutCandidate {
   confidence: number;
 }
 
+/** Suggested AI image cutaway (Higgsfield / Flux style + 2.5D Ken Burns). */
+export interface CutawayProposal {
+  start: Timecode;
+  end: Timecode;
+  topic: string;
+  suggested_prompt: string;
+  reason: string;
+  camera_motion?: "zoom_in_drift_right" | "zoom_in_drift_left" | "slow_pull_back" | "subtle_drift_up" | "cinematic_pan";
+  aspect_ratio?: "9:16" | "16:9";
+}
+
 /** Narrative structure from analysis (Step 3). */
 export interface NarrativeStructure {
   media_id: string;
@@ -83,6 +94,12 @@ export interface NarrativeStructure {
   fillers: Array<{ start: Timecode; end: Timecode; reason: string }>;
   attention_dips: Array<{ start: Timecode; end: Timecode; reason: string }>;
   highlights: Array<{ start: Timecode; end: Timecode; reason: string }>;
+  /**
+   * AI Cutaway B-roll proposals (Higgsfield-style).
+   * Key moments in the transcript where an AI-generated image/cutaway
+   * with Ken Burns 2.5D animation will maximize visual retention.
+   */
+  cutaway_proposals?: CutawayProposal[];
   /**
    * Static blocks at risk of attention drop (no visual/narrative change).
    * Agents mark them during analysis; the planner turns each into a
@@ -413,6 +430,15 @@ export interface EditPlan {
     end: Timecode;
     source: string;
     reason?: string;
+    prompt?: string;
+    camera_motion?: "zoom_in_drift_right" | "zoom_in_drift_left" | "slow_pull_back" | "subtle_drift_up" | "cinematic_pan";
+    motion_vector?: {
+      scale_start?: number;
+      scale_end?: number;
+      drift_x?: number;
+      drift_y?: number;
+      ease?: string;
+    };
   }>;
   pattern_interrupts: Array<{ time: Timecode; kind: string; detail?: string }>;
   /**

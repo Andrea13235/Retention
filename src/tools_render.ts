@@ -5,9 +5,10 @@
  * render_video(project) runs `hyperframes render` with draft/standard/high presets.
  */
 import { execFile } from "node:child_process";
-import { mkdir, stat, writeFile } from "node:fs/promises";
+import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, extname, join } from "node:path";
 import { promisify } from "node:util";
+import { createRichBrollSvg } from "./tools_image.js";
 import {
   CANVAS,
   motionSpanAllowed,
@@ -68,14 +69,14 @@ export async function buildHyperframesProject(
   const width = opts.width ?? canvas.width;
   const height = opts.height ?? canvas.height;
   const portrait = height > width;
-  const compositionId = `retention-edit-${plan.media_id.slice(0, 8)}`;
+  const compositionId = `retention-edit-${(plan.media_id ?? "default").slice(0, 8)}`;
 
   // Duration + source→timeline map: KEEP cuts (exclude CUTs) are sorted
   // and laid edge-to-edge on the output timeline. For each KEEP range we
   // record { srcStart, tlStart } so animations authored in SOURCE time
   // remap onto the OUTPUT timeline (post-splice clock).
   const keepCuts = plan.cuts
-    .filter((c) => !c.reason.startsWith("CUT"))
+    .filter((c) => !c.reason?.startsWith("CUT"))
     .map((c) => ({ start: timecodeToSec(c.start), end: timecodeToSec(c.end) }))
     .filter((c) => c.end > c.start)
     .sort((a, b) => a.start - b.start);
@@ -100,7 +101,7 @@ export async function buildHyperframesProject(
   // but the renderer is the last gate: any violation throws with the
   // exact fix, instead of producing overlapping captions / visible seams.
   {
-    const karaoke = plan.animations.filter((a) => a.type === "karaoke_caption");
+    const karaoke = (plan.animations ?? []).filter((a) => a.type === "karaoke_caption");
     const spans = karaoke
       .map((a) => {
         const t = srcToTl(timecodeToSec(a.time));
@@ -118,14 +119,14 @@ export async function buildHyperframesProject(
       }
     }
     const cutStarts = plan.cuts
-      .filter((c) => c.reason.startsWith("CUT"))
+      .filter((c) => c.reason?.startsWith("CUT"))
       .map((c) => ({ s: timecodeToSec(c.start), e: timecodeToSec(c.end) }));
     // CUTS-FIRST last gate: hand-written plans must obey the same rule as
     // the planner — the FULL zoom span (not just its start) keeps clear of
     // every CUT edge on both sides (types.ts motionSpanAllowed). A zoom
     // landing on a cleanup resume, or a slow_zoom running across a splice,
     // renders as a visible scale jump — reject with the exact fix.
-    for (const a of plan.animations) {
+    for (const a of (plan.animations ?? [])) {
       if (a.type !== "zoom_in" && a.type !== "zoom_out" && a.type !== "slow_zoom") continue;
       const src = timecodeToSec(a.time);
       const spanDur = motionSpanDuration(a.type as MotionKind, a.duration);
@@ -194,15 +195,49 @@ export async function buildHyperframesProject(
     videoSrc = `./assets/${fileName}`;
   }
 
-  // Copy local B-roll files
+  // Copy or cache B-roll files (local files copied, remote URLs cached locally,
+  // SVG-in-JPG files renamed to .svg so Chromium decodes them properly, and
+  // missing cutaway assets automatically synthesized on disk).
+  const isSvgBuffer = (buf: Buffer): boolean => {
+    const head = buf.subarray(0, 160).toString("utf-8").trimStart();
+    return head.startsWith("<svg") || head.startsWith("<?xml");
+  };
+
   for (let bi = 0; bi < (plan.broll ?? []).length; bi++) {
     const b = plan.broll![bi];
-    if (b.source && !b.source.startsWith("http") && !b.source.startsWith("./assets/")) {
-      const st = await statFile(b.source).catch(() => null);
+    if (b.source && b.source.startsWith("http")) {
+      try {
+        const res = await fetch(b.source, { signal: AbortSignal.timeout(4000) });
+        if (res.ok) {
+          const buf = Buffer.from(await res.arrayBuffer());
+          const ext = isSvgBuffer(buf) ? "svg" : b.source.includes(".png") ? "png" : "jpg";
+          const fname = `broll_${bi}.${ext}`;
+          await writeFile(join(outDir, "assets", fname), buf);
+          b.source = `./assets/${fname}`;
+        }
+      } catch {
+        const svg = createRichBrollSvg(b.prompt || b.reason || `B-Roll ${bi + 1}`, width, height, bi + 1);
+        const fname = `broll_${bi}.svg`;
+        await writeFile(join(outDir, "assets", fname), Buffer.from(svg, "utf-8"));
+        b.source = `./assets/${fname}`;
+      }
+    } else if (b.source) {
+      const candidatePath = b.source.startsWith("./assets/")
+        ? join(outDir, b.source.slice(2))
+        : b.source;
+      const st = await statFile(candidatePath).catch(() => null);
       if (st && st.isFile()) {
-        const ext = b.source.split(".").pop() ?? "png";
+        const buf = await readFile(candidatePath);
+        const rawExt = b.source.split(".").pop() ?? "png";
+        const ext = isSvgBuffer(buf) ? "svg" : rawExt;
         const fname = `broll_${bi}.${ext}`;
-        await copyFile(b.source, join(outDir, "assets", fname));
+        await writeFile(join(outDir, "assets", fname), buf);
+        b.source = `./assets/${fname}`;
+      } else {
+        // Synthesize missing local cutaway asset directly in outDir/assets/
+        const svg = createRichBrollSvg(b.prompt || b.reason || `B-Roll ${bi + 1}`, width, height, bi + 1);
+        const fname = `broll_${bi}.svg`;
+        await writeFile(join(outDir, "assets", fname), Buffer.from(svg, "utf-8"));
         b.source = `./assets/${fname}`;
       }
     }
@@ -211,12 +246,22 @@ export async function buildHyperframesProject(
   // Copy local shot media files (demonstrative images & slides)
   for (let si = 0; si < (plan.shots ?? []).length; si++) {
     const s = plan.shots![si];
-    if (s.media_url && !s.media_url.startsWith("http") && !s.media_url.startsWith("./assets/")) {
-      const st = await statFile(s.media_url).catch(() => null);
+    if (s.media_url && !s.media_url.startsWith("http")) {
+      const candidatePath = s.media_url.startsWith("./assets/")
+        ? join(outDir, s.media_url.slice(2))
+        : s.media_url;
+      const st = await statFile(candidatePath).catch(() => null);
       if (st && st.isFile()) {
-        const ext = s.media_url.split(".").pop() ?? "png";
+        const buf = await readFile(candidatePath);
+        const rawExt = s.media_url.split(".").pop() ?? "png";
+        const ext = isSvgBuffer(buf) ? "svg" : rawExt;
         const fname = `shot_${si}.${ext}`;
-        await copyFile(s.media_url, join(outDir, "assets", fname));
+        await writeFile(join(outDir, "assets", fname), buf);
+        s.media_url = `./assets/${fname}`;
+      } else if (s.shot_type === "b_roll_fullscreen") {
+        const svg = createRichBrollSvg(s.title || s.subtitle || `Shot ${si + 1}`, width, height, si + 10);
+        const fname = `shot_${si}.svg`;
+        await writeFile(join(outDir, "assets", fname), Buffer.from(svg, "utf-8"));
         s.media_url = `./assets/${fname}`;
       }
     }
@@ -417,16 +462,58 @@ export async function buildHyperframesProject(
   });
   const graphicsHtml = graphicDivs.join("\n");
 
+  // Helper to safely map a [srcStart, srcEnd] span onto a single KEEP timeline span,
+  // clamping if either endpoint touches or overlaps a CUT range so B-roll & Shots
+  // are never silently dropped when an endpoint lands inside a cut.
+  const mapSpanToTimeline = (
+    srcStart: number,
+    srcEnd: number
+  ): { sTl: number; eTl: number; idx: number } | null => {
+    if (srcEnd <= srcStart) return null;
+    const directS = srcToTl(srcStart);
+    const directE = srcToTl(srcEnd);
+    if (directS !== null && directE !== null && directE > directS) {
+      return { sTl: directS, eTl: directE, idx: cutAt(directS) };
+    }
+    if (tlSpans.length === 0) return null;
+    const wantedDur = Math.max(1.2, srcEnd - srcStart);
+    // Find the KEEP span with the largest overlap with [srcStart, srcEnd], or nearest
+    let bestIdx = 0;
+    let bestOverlap = -1;
+    for (let i = 0; i < tlSpans.length; i++) {
+      const sp = tlSpans[i];
+      const spEnd = sp.srcStart + sp.dur;
+      const ov = Math.max(0, Math.min(srcEnd, spEnd) - Math.max(srcStart, sp.srcStart));
+      if (ov > bestOverlap && sp.dur >= 1.2) {
+        bestOverlap = ov;
+        bestIdx = i;
+      }
+    }
+    const chosen = tlSpans[bestIdx];
+    if (!chosen || chosen.dur < 1.0) return null;
+    const clampedSrcS = Math.max(
+      chosen.srcStart,
+      Math.min(srcStart, chosen.srcStart + chosen.dur - Math.min(wantedDur, chosen.dur - 0.1))
+    );
+    const clampedSrcE = Math.min(
+      chosen.srcStart + chosen.dur - 0.05,
+      clampedSrcS + Math.min(wantedDur, chosen.dur - 0.1)
+    );
+    if (clampedSrcE - clampedSrcS < 0.8) return null;
+    const sTl = chosen.tlStart + (clampedSrcS - chosen.srcStart);
+    const eTl = chosen.tlStart + (clampedSrcE - chosen.srcStart);
+    return { sTl: Math.round(sTl * 100) / 100, eTl: Math.round(eTl * 100) / 100, idx: bestIdx };
+  };
+
   // Demonstrative screens and background slides (for screen share, PiP, and B-roll visuals)
   const demoScreenDivs: string[] = [];
   const shotTweens: string[] = [];
 
   (plan.shots ?? []).forEach((shot, si) => {
-    const sTl = srcToTl(timecodeToSec(shot.start));
-    const eTl = srcToTl(timecodeToSec(shot.end));
-    if (sTl === null || eTl === null || eTl <= sTl) return;
+    const mapped = mapSpanToTimeline(timecodeToSec(shot.start), timecodeToSec(shot.end));
+    if (!mapped) return;
+    const { sTl, eTl, idx } = mapped;
     const dur = eTl - sTl;
-    const idx = cutAt(sTl);
     const target = idx >= 0 ? `#clip-${idx}` : ".fullbleed";
 
     const isScreenOrPip =
@@ -511,27 +598,46 @@ export async function buildHyperframesProject(
   // B-roll video & image overlays
   const brollDivs: string[] = [];
   (plan.broll ?? []).forEach((b, bi) => {
-    const sTl = srcToTl(timecodeToSec(b.start));
-    const eTl = srcToTl(timecodeToSec(b.end));
-    if (sTl === null || eTl === null || eTl <= sTl) return;
+    const mapped = mapSpanToTimeline(timecodeToSec(b.start), timecodeToSec(b.end));
+    if (!mapped) return;
+    const { sTl, eTl } = mapped;
     const dur = eTl - sTl;
-    const isImage = /\.(jpg|jpeg|png|webp|gif|svg)$/i.test(b.source);
+    const isImage = /\.(jpg|jpeg|png|webp|gif|svg)$/i.test(b.source) || !/\.(mp4|mov|webm|mkv)$/i.test(b.source);
     const mediaEl = isImage
-      ? `<img id="broll-img-${bi}" src="${escHtml(b.source)}" style="width:100%;height:100%;object-fit:cover;border-radius:18px;" />`
+      ? `<img id="broll-img-${bi}" src="${escHtml(b.source)}" style="width:100%;height:100%;object-fit:cover;border-radius:18px;transform-origin:center center;will-change:transform;" />`
       : `<video src="${escHtml(b.source)}" style="width:100%;height:100%;object-fit:cover;border-radius:18px;" autoplay muted loop></video>`;
     brollDivs.push(
       `      <div id="broll-${bi}" class="clip overlay broll-overlay" data-start="${sTl}" data-duration="${dur}">\n        ${mediaEl}\n      </div>`
     );
+    // 2.5D Ken Burns Motion Design: entrance whip/blur + smooth scale & camera drift
     overlayTimelines.push(
-      `      tl.fromTo("#broll-${bi}", { opacity: 0, scale: 0.95 }, { opacity: 1, scale: 1, duration: 0.35, ease: "power2.out", immediateRender: false }, ${sTl});`
+      `      tl.fromTo("#broll-${bi}", { opacity: 0, scale: 0.94, filter: "blur(6px)" }, { opacity: 1, scale: 1.0, filter: "blur(0px)", duration: 0.35, ease: "power2.out", immediateRender: false }, ${sTl});`
     );
     if (isImage) {
+      const motion = b.camera_motion ?? (bi % 2 === 0 ? "zoom_in_drift_right" : "zoom_in_drift_left");
+      let scaleStart = b.motion_vector?.scale_start ?? 1.0;
+      let scaleEnd = b.motion_vector?.scale_end ?? 1.14;
+      let xStart = 0;
+      let xEnd = b.motion_vector?.drift_x ?? (motion === "zoom_in_drift_right" ? 24 : motion === "zoom_in_drift_left" ? -24 : 0);
+      let yStart = 0;
+      let yEnd = b.motion_vector?.drift_y ?? (motion === "zoom_in_drift_right" ? -14 : motion === "zoom_in_drift_left" ? 14 : -18);
+      const ease = b.motion_vector?.ease ?? "sine.inOut";
+
+      if (motion === "slow_pull_back") {
+        scaleStart = b.motion_vector?.scale_start ?? 1.14;
+        scaleEnd = b.motion_vector?.scale_end ?? 1.02;
+        xStart = -16;
+        xEnd = b.motion_vector?.drift_x ?? 16;
+        yStart = 12;
+        yEnd = b.motion_vector?.drift_y ?? -8;
+      }
+
       overlayTimelines.push(
-        `      tl.fromTo("#broll-img-${bi}", { scale: 1.0 }, { scale: 1.12, duration: ${dur}, ease: "none", immediateRender: false }, ${sTl});`
+        `      tl.fromTo("#broll-img-${bi}", { scale: ${scaleStart}, x: ${xStart}, y: ${yStart} }, { scale: ${scaleEnd}, x: ${xEnd}, y: ${yEnd}, duration: ${dur}, ease: "${ease}", immediateRender: false }, ${sTl});`
       );
     }
     overlayTimelines.push(
-      `      tl.to("#broll-${bi}", { opacity: 0, scale: 0.98, duration: 0.3, ease: "power2.in" }, ${eTl - 0.3});`
+      `      tl.to("#broll-${bi}", { opacity: 0, scale: 0.98, filter: "blur(4px)", duration: 0.3, ease: "power2.in" }, ${eTl - 0.3});`
     );
   });
   const brollHtml = brollDivs.join("\n");
@@ -545,6 +651,7 @@ export async function buildHyperframesProject(
       if (t === null) return []; // interrupt inside a CUT range — gone
       return [
         `      tl.fromTo("#punch-${i}", { scale: 1 }, { scale: 1.06, duration: 0.25, yoyo: true, repeat: 1, ease: "power2.inOut" }, ${t});`,
+        `      tl.fromTo("#punch-${i}", { opacity: 0 }, { opacity: 0.85, duration: 0.18, yoyo: true, repeat: 1, ease: "power2.out", immediateRender: false }, ${t});`,
       ];
     }),
   ].join("\n");
@@ -677,7 +784,7 @@ export async function buildHyperframesProject(
          progress bar, like/comment rail and description over the bottom
          ~12–15% of a 9:16 frame; parking captions at 18% keeps every
          word readable on every platform, landscape or portrait. */
-      .overlay.karaoke { background: none; bottom: 18%; }
+      .overlay.karaoke { background: none; bottom: 18%; z-index: 20; }
       .overlay.karaoke .clean {
         background: none;
         padding: 0;
@@ -814,8 +921,12 @@ export async function buildHyperframesProject(
       .cmd-info { color: #ffd60a; margin-right: 6px; }
       .overlay.broll-overlay {
         position: absolute;
-        inset: 4%;
+        top: ${portrait ? "14%" : "6%"};
+        bottom: ${portrait ? "26%" : "18%"};
+        left: 4%;
+        right: 4%;
         z-index: 12;
+        opacity: 0;
         display: flex;
         justify-content: center;
         align-items: center;
@@ -824,8 +935,17 @@ export async function buildHyperframesProject(
         box-shadow: 0 20px 50px rgba(0,0,0,0.85);
         border: 1px solid rgba(255,255,255,0.18);
         pointer-events: none;
+        will-change: transform, opacity, filter;
       }
-      .punch { position: absolute; inset: 0; z-index: 5; pointer-events: none; }
+      .punch {
+        position: absolute;
+        inset: 0;
+        z-index: 5;
+        opacity: 0;
+        pointer-events: none;
+        background: radial-gradient(circle at 50% 45%, rgba(56, 189, 248, 0.16) 0%, rgba(255, 214, 10, 0.06) 45%, transparent 72%);
+        box-shadow: inset 0 0 70px rgba(56, 189, 248, 0.25);
+      }
     </style>
   </head>
   <body>
@@ -892,15 +1012,19 @@ export async function renderVideo(
   const quality = preset === "draft" ? "draft" : preset === "high" ? "delivery" : "looks";
 
   const { existsSync } = await import("node:fs");
+  const { fileURLToPath } = await import("node:url");
   const findLocalBin = (start: string): string | null => {
     let dir = start;
     for (let i = 0; i < 6; i++) {
       const cand = join(dir, "node_modules", "hyperframes", "bin", "hyperframes.mjs");
       if (existsSync(cand)) return cand;
       const parent = join(dir, "..");
-      if (parent === dir) return null;
+      if (parent === dir) break;
       dir = parent;
     }
+    const skillRoot = fileURLToPath(new URL("..", import.meta.url));
+    const skillCand = join(skillRoot, "node_modules", "hyperframes", "bin", "hyperframes.mjs");
+    if (existsSync(skillCand)) return skillCand;
     return null;
   };
   const localBin = process.env.HF_CLI_PATH ?? findLocalBin(project.dir);
@@ -1085,9 +1209,28 @@ export async function extractVerificationFrames(
   const targetBeats: Array<{ sec: number; label: string; beat: string }> = [];
 
   if (parsedPlan) {
+    // Build source -> spliced timeline map so verification screenshots are extracted
+    // at the exact post-splice timestamp in the rendered MP4!
+    const keepCuts = (parsedPlan.cuts ?? [])
+      .filter((c) => !c.reason?.startsWith("CUT"))
+      .map((c) => ({ start: timecodeToSec(c.start), end: timecodeToSec(c.end) }))
+      .filter((c) => c.end > c.start)
+      .sort((a, b) => a.start - b.start);
+    const toTl = (srcSec: number): number => {
+      if (keepCuts.length === 0) return srcSec;
+      let tl = 0;
+      for (const k of keepCuts) {
+        if (srcSec >= k.start && srcSec <= k.end) {
+          return tl + (srcSec - k.start);
+        }
+        tl += k.end - k.start;
+      }
+      return Math.min(tl - 0.2, srcSec);
+    };
+
     // 1. Hook / Intro
     const hookSec = parsedPlan.thumbnail?.frame_time
-      ? timecodeToSec(parsedPlan.thumbnail.frame_time)
+      ? toTl(timecodeToSec(parsedPlan.thumbnail.frame_time))
       : 1.0;
     targetBeats.push({
       sec: Math.max(0.5, hookSec),
@@ -1097,41 +1240,51 @@ export async function extractVerificationFrames(
 
     // 2. Graphic Cards
     for (const g of parsedPlan.graphics ?? []) {
-      const gSec = timecodeToSec(g.time);
+      const gSec = toTl(timecodeToSec(g.time));
       targetBeats.push({
-        sec: gSec + 0.3,
+        sec: gSec + 0.45,
         label: `graphic_${g.kind}`,
         beat: `Graphic card '${g.title ?? g.kind}' appearance (synced to spoken beat)`,
       });
     }
 
-    // 3. Shots / Demonstrative screens / PiP
-    for (const s of parsedPlan.shots ?? []) {
-      const sSec = timecodeToSec(s.start);
+    // 3. B-Roll Cutaways
+    for (const b of parsedPlan.broll ?? []) {
+      const bSec = toTl(timecodeToSec(b.start));
       targetBeats.push({
-        sec: sSec + 0.4,
+        sec: bSec + 0.6,
+        label: `broll_cutaway`,
+        beat: `2.5D B-roll cutaway '${b.reason ?? b.source}'`,
+      });
+    }
+
+    // 4. Shots / Demonstrative screens / PiP
+    for (const s of parsedPlan.shots ?? []) {
+      const sSec = toTl(timecodeToSec(s.start));
+      targetBeats.push({
+        sec: sSec + 0.5,
         label: `shot_${s.shot_type}`,
         beat: `Shot transition '${s.shot_type}' (${s.title ?? "Demonstration"})`,
       });
     }
 
-    // 4. Pattern Interrupts
+    // 5. Pattern Interrupts
     for (const p of parsedPlan.pattern_interrupts ?? []) {
-      const pSec = timecodeToSec(p.time);
+      const pSec = toTl(timecodeToSec(p.time));
       targetBeats.push({
-        sec: pSec,
+        sec: pSec + 0.15,
         label: `interrupt_${p.kind}`,
         beat: `Pattern interrupt '${p.kind}' cadence reset`,
       });
     }
 
-    // 5. Keyword emphasis in karaoke captions
+    // 6. Keyword emphasis in karaoke captions
     for (const a of parsedPlan.animations ?? []) {
       if (a.words) {
         for (const w of a.words) {
           if (w.emphasis) {
             targetBeats.push({
-              sec: timecodeToSec(w.start),
+              sec: toTl(timecodeToSec(w.start)) + 0.15,
               label: `keyword_${w.word.replace(/[^a-zA-Z0-9]/g, "")}`,
               beat: `Keyword pop on beat: '${w.word}'`,
             });

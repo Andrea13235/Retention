@@ -87,20 +87,21 @@ describe("buildAgentMessage", () => {
   });
 });
 
-describe("findSimilarVideo offline fallback", () => {
-  it("returns fallback blueprint safely with zero lock when unauthenticated or network unreachable", async () => {
-    const res = await findSimilarVideo("Questo è un video di test senza connessione", {
+describe("findSimilarVideo 100% Native RetentionVolt Database", () => {
+  it("queries the embedded 85-video native database directly with zero external connection", async () => {
+    const res = await findSimilarVideo("Oggi vediamo come usare Codex e Claude per automatizzare il video editing con l'AI", {
       format: "short",
       language: "it",
       niche: "tech",
-      endpoint: "http://127.0.0.1:1/invalid",
     });
 
     expect(res).toBeDefined();
-    expect(res.source).toBe("local_fallback");
-    expect(res.high_confidence).toBe(false);
+    expect(res.source).toBe("retentionvolt_cloud");
+    expect(res.high_confidence).toBe(true);
+    expect(res.matches.length).toBeGreaterThan(0);
     expect(res.best_blueprint).toBeDefined();
-    expect(res.best_blueprint.thumbnail).toBeDefined();
+    expect(res.best_blueprint?.events?.length).toBeGreaterThan(0);
+    expect(res.best_blueprint?.thumbnail).toBeDefined();
   });
 });
 

@@ -1,0 +1,157 @@
+[
+  {
+    "objective": "hook_0_15s",
+    "title": "Apple-Style Minimalist Hook Flow (VID-02)",
+    "total_duration_sec": 11.7,
+    "target_cpm": 25,
+    "shot_sequence": [
+      {
+        "shot": 1,
+        "duration": "2.4s",
+        "cut_type": "kinetic_text",
+        "pattern": "MG-001",
+        "note": "Coral red word-pop on off-white (\"to master\"). Immediate premise."
+      },
+      {
+        "shot": 2,
+        "duration": "2.9s",
+        "cut_type": "timer_card",
+        "pattern": "MG-002",
+        "note": "Proof object: iOS circular countdown timer (\"19:24 Under 20 min\")."
+      },
+      {
+        "shot": 3,
+        "duration": "2.6s",
+        "cut_type": "player_mockup",
+        "pattern": "MG-003",
+        "note": "Fake platform player mockup. Grounding the tutorial promise."
+      },
+      {
+        "shot": 4,
+        "duration": "2.4s",
+        "cut_type": "suspense_card",
+        "pattern": "MG-004",
+        "note": "White on black: \"question is..\" letter stagger reveal."
+      },
+      {
+        "shot": 5,
+        "duration": "1.5s",
+        "cut_type": "section_card",
+        "pattern": "MG-005",
+        "note": "Act header: \"Why you should learn it?\". Instant payoff segue."
+      }
+    ],
+    "why_it_works": "Zero dead air (206 WPM continuous speech). Visuals swap every 2.4s under continuous narration, locking attention before viewer can swipe away.",
+    "retention_impact": "+42% 30-second retention over standard talking head."
+  },
+  {
+    "objective": "problem_setup",
+    "title": "Deadpan Comedy Anti-Example Flow (VID-02)",
+    "total_duration_sec": 9,
+    "target_cpm": 13,
+    "shot_sequence": [
+      {
+        "shot": 1,
+        "duration": "4.0s",
+        "cut_type": "glowing_card",
+        "pattern": "MG-006",
+        "note": "Tilted cream card with outer bloom: sets up the problem."
+      },
+      {
+        "shot": 2,
+        "duration": "5.0s",
+        "cut_type": "mockup_gag",
+        "pattern": "MG-007",
+        "note": "Social proof / anti-example mockup card. Visual punchline."
+      }
+    ],
+    "why_it_works": "Visual payoff for spoken claim. The visual contrast earns a longer hold without retention drop.",
+    "retention_impact": "Prevents mid-intro churn; resets viewer attention span."
+  },
+  {
+    "objective": "interactive_demo",
+    "title": "PiP Workspace & B-Roll Demonstration Flow (MKBHD / Ali Abdaal)",
+    "total_duration_sec": 14,
+    "target_cpm": 20,
+    "shot_sequence": [
+      {
+        "shot": 1,
+        "duration": "3.0s",
+        "cut_type": "motion_graphic",
+        "pattern": "MG-010",
+        "note": "Tool / concept badge introduces the subject."
+      },
+      {
+        "shot": 2,
+        "duration": "4.5s",
+        "cut_type": "b_roll",
+        "pattern": "MG-011",
+        "note": "2.5D Ken Burns cutaway illustrating the concept in action."
+      },
+      {
+        "shot": 3,
+        "duration": "6.5s",
+        "cut_type": "camera_angle_switch",
+        "pattern": "MG-012",
+        "note": "PiP speaker bubble in bottom-right over interactive workspace demonstration."
+      }
+    ],
+    "why_it_works": "Breaks talking-head monotony by shifting from full-screen speaker to B-roll cutaway to Picture-in-Picture demonstration.",
+    "retention_impact": "+35% mid-video retention during technical or conceptual explanations."
+  },
+  {
+    "objective": "sponsor_segue",
+    "title": "Seamless Value-First Mid-Roll Bridge",
+    "total_duration_sec": 10,
+    "target_cpm": 18,
+    "shot_sequence": [
+      {
+        "shot": 1,
+        "duration": "2.5s",
+        "cut_type": "punch_zoom",
+        "pattern": "MG-013",
+        "note": "Metric stat stamp bridges core video problem to solution."
+      },
+      {
+        "shot": 2,
+        "duration": "4.0s",
+        "cut_type": "b_roll",
+        "pattern": "MG-011",
+        "note": "High-speed product demonstration B-roll with Ken Burns drift."
+      },
+      {
+        "shot": 3,
+        "duration": "3.5s",
+        "cut_type": "motion_graphic",
+        "pattern": "MG-008",
+        "note": "Actionable feature highlight box."
+      }
+    ],
+    "why_it_works": "Maintains narrative momentum without signaling an ad break.",
+    "retention_impact": "Reduces mid-roll skip rate by 58%."
+  },
+  {
+    "objective": "outro_loop",
+    "title": "Zero-Drop Loop Payoff Outro",
+    "total_duration_sec": 6,
+    "target_cpm": 24,
+    "shot_sequence": [
+      {
+        "shot": 1,
+        "duration": "3.0s",
+        "cut_type": "punch_zoom",
+        "pattern": "MG-015",
+        "note": "Final takeaway stamp + punch zoom on climax statement."
+      },
+      {
+        "shot": 2,
+        "duration": "3.0s",
+        "cut_type": "kinetic_text",
+        "pattern": "MG-001",
+        "note": "Fast verbal callback to opening hook for seamless loop."
+      }
+    ],
+    "why_it_works": "Eliminates end-of-video signaling (‘that’s all for today’) so viewers watch to 100% and loop.",
+    "retention_impact": "+28% full-watch completion rate on Shorts/Reels/TikTok."
+  }
+]

@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -7,6 +7,7 @@ import { analyzeTranscript } from "../src/tools_analyze.js";
 import { importRawMedia } from "../src/tools_ingest.js";
 import { generateEditPlan } from "../src/tools_plan.js";
 import { buildHyperframesProject, extractVerificationFrames, renderThumbnail } from "../src/tools_render.js";
+import { generateCutaways, generateCutawayImage } from "../src/tools_image.js";
 import { connectRetentionVolt, fetchRetentionVoltBlueprint, startLocalAuthServer } from "../src/retentionvolt_client.js";
 import { detectHardware, selectModel } from "../src/tools_transcribe.js";
 import {
@@ -352,6 +353,25 @@ describe("plan", () => {
     const s = analyzeTranscript(SAMPLE_TRANSCRIPT);
     const plan = generateEditPlan(s, { brollSources: ["./broll/a.mp4"] });
     for (const b of plan.broll) expect(b.reason).toBeTruthy();
+  });
+
+  it("supports customBroll and proposes cutaways Higgsfield-style", () => {
+    const s = analyzeTranscript(SAMPLE_TRANSCRIPT);
+    expect(s.cutaway_proposals).toBeDefined();
+
+    const plan = generateEditPlan(s, {
+      customBroll: [
+        {
+          start: "00:00:13.000",
+          end: "00:00:16.000",
+          source: "./assets/cutaway_microchip.png",
+          reason: "visual metaphor for hardware",
+        },
+      ],
+    });
+    expect(plan.broll).toHaveLength(1);
+    expect(plan.broll[0].source).toBe("./assets/cutaway_microchip.png");
+    expect(plan.broll[0].reason).toBe("visual metaphor for hardware");
   });
 });
 
@@ -894,64 +914,24 @@ describe("render: HyperFrames project build", () => {
       expect(plan.thumbnail?.style).toBe("bold");
     });
 
-    it("connectRetentionVolt returns login url and instructions when no key is present", async () => {
-      const testDir = mkdtempSync(join(tmpdir(), "retention-test-config-"));
-      const oldEnv = process.env.RETENTION_CONFIG_DIR;
-      process.env.RETENTION_CONFIG_DIR = testDir;
-      try {
-        const status = await connectRetentionVolt(undefined, "http://127.0.0.1:9999/api/mcp");
-        expect(status.login_url).toBe("https://retentionvolt.com/login-mcp");
-        expect(status.settings_url).toBe("https://retentionvolt.com/settings/mcp");
-        expect(["needs_key", "authenticated", "server_unreachable"]).toContain(status.status);
-      } finally {
-        if (oldEnv !== undefined) process.env.RETENTION_CONFIG_DIR = oldEnv;
-        else delete process.env.RETENTION_CONFIG_DIR;
-        rmSync(testDir, { recursive: true, force: true });
-      }
+    it("connectRetentionVolt operates 100% natively without external key or login", async () => {
+      const status = await connectRetentionVolt();
+      expect(status.connected).toBe(true);
+      expect(status.status).toBe("authenticated");
+      expect(status.plan).toBe("native_embedded");
+      expect(status.message).toContain("85 video virali");
     });
 
-    it("connectRetentionVolt handles live key format gracefully", async () => {
-      const testDir = mkdtempSync(join(tmpdir(), "retention-test-config-"));
-      const oldEnv = process.env.RETENTION_CONFIG_DIR;
-      process.env.RETENTION_CONFIG_DIR = testDir;
-      try {
-        const status = await connectRetentionVolt("rv_live_test_key_123", "http://127.0.0.1:9999/api/mcp");
-        expect(status.connected).toBe(true);
-        expect(status.login_url).toBe("https://retentionvolt.com/login-mcp");
-      } finally {
-        if (oldEnv !== undefined) process.env.RETENTION_CONFIG_DIR = oldEnv;
-        else delete process.env.RETENTION_CONFIG_DIR;
-        rmSync(testDir, { recursive: true, force: true });
-      }
-    });
-
-    it("startLocalAuthServer captures callback key and serves confirmation HTML", async () => {
-      const testDir = mkdtempSync(join(tmpdir(), "retention-test-loopback-"));
-      const oldEnv = process.env.RETENTION_CONFIG_DIR;
-      process.env.RETENTION_CONFIG_DIR = testDir;
-      try {
-        const authPromise = startLocalAuthServer(19877);
-        const res = await fetch("http://localhost:19877/callback?key=rv_live_loopback_test");
-        expect(res.status).toBe(200);
-        const text = await res.text();
-        expect(text).toContain("RetentionVolt Connesso");
-        const key = await authPromise;
-        expect(key).toBe("rv_live_loopback_test");
-      } finally {
-        if (oldEnv !== undefined) process.env.RETENTION_CONFIG_DIR = oldEnv;
-        else delete process.env.RETENTION_CONFIG_DIR;
-        rmSync(testDir, { recursive: true, force: true });
-      }
-    });
-
-    it("fetchRetentionVoltBlueprint returns structured retention patterns", async () => {
+    it("fetchRetentionVoltBlueprint returns rich native retention patterns (shots, zooms, graphics, interrupts)", async () => {
       const bp = await fetchRetentionVoltBlueprint("MrBeast Challenge", {
         niche: "entertainment",
         format: "short",
-        endpoint: "http://127.0.0.1:9999/api/mcp",
       });
       expect(bp.pattern_id).toBeDefined();
+      expect(bp.events?.length).toBeGreaterThan(0);
       expect(bp.animations?.length).toBeGreaterThan(0);
+      expect(bp.graphics?.length).toBeGreaterThan(0);
+      expect(bp.pattern_interrupts?.length).toBeGreaterThan(0);
       expect(bp.thumbnail?.title).toBeDefined();
     });
   });
@@ -1021,4 +1001,83 @@ describe("render: HyperFrames project build", () => {
       }
     });
   });
+
+  describe("2.5D Ken Burns Cutaways (Flux / Higgsfield style)", () => {
+    it("generates cutaway images with 2.5D motion parameters", async () => {
+      const dir = mkdtempSync(join(tmpdir(), "cutaways-test-"));
+      try {
+        const proposals = [
+          {
+            start: "00:00:04.000",
+            end: "00:00:07.500",
+            topic: "microchip",
+            suggested_prompt: "Photorealistic glowing microchip circuit, 8k",
+            reason: "visual metaphor for silicon speed",
+            camera_motion: "zoom_in_drift_right" as const,
+          },
+        ];
+
+        const brolls = await generateCutaways({
+          proposals,
+          outputDir: dir,
+          aspectRatio: "16:9",
+          provider: "local",
+        });
+
+        expect(brolls).toHaveLength(1);
+        expect(brolls[0].source).toContain("cutaway_1.jpg");
+        expect(brolls[0].camera_motion).toBe("zoom_in_drift_right");
+        expect(brolls[0].motion_vector?.scale_end).toBe(1.14);
+        expect(brolls[0].motion_vector?.drift_x).toBe(24);
+        expect(brolls[0].motion_vector?.drift_y).toBe(-14);
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    });
+
+    it("builds HyperFrames GSAP timeline with 2.5D camera drift and whip blur for images", async () => {
+      const dir = mkdtempSync(join(tmpdir(), "hf-kenburns-"));
+      try {
+        const plan = {
+          version: "1.3",
+          media_id: "test123456",
+          duration: "00:00:10.000",
+          format: "short",
+          cuts: [{ start: "00:00:00.000", end: "00:00:10.000", source: "A", reason: "KEEP" }],
+          broll: [
+            {
+              start: "00:00:02.000",
+              end: "00:00:05.500",
+              source: "./assets/cutaway_microchip.png",
+              camera_motion: "zoom_in_drift_right" as const,
+              motion_vector: {
+                scale_start: 1.0,
+                scale_end: 1.14,
+                drift_x: 24,
+                drift_y: -14,
+                ease: "sine.inOut",
+              },
+            },
+          ],
+          captions: [],
+          animations: [],
+          graphics: [],
+          pattern_interrupts: [],
+        };
+
+        const project = await buildHyperframesProject(plan as any, dir);
+        expect(project.compositionId).toBeDefined();
+
+        const html = readFileSync(join(dir, "index.html"), "utf-8");
+        expect(html).toContain("scale: 1.14");
+        expect(html).toContain("x: 24");
+        expect(html).toContain("y: -14");
+        expect(html).toContain('filter: "blur(6px)"');
+        expect(html).toContain("broll-overlay");
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    });
+  });
 });
+

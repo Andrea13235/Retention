@@ -11,6 +11,7 @@
 import {
   secToTimecode,
   timecodeToSec,
+  type CutawayProposal,
   type NarrativeStructure,
   type Transcript,
 } from "./types.js";
@@ -349,6 +350,15 @@ export function analyzeTranscript(
     flush();
   }
 
+  const cut_candidates = buildCutCandidates({
+    words,
+    segs,
+    hookEndSec,
+    deadAirSec,
+    mediaStart: 0,
+    mediaEnd: timecodeToSec(endAll),
+  });
+
   return {
     media_id: transcript.media_id,
     hook: { start: startAll, end: secToTimecode(hookEndSec), summary: hookText },
@@ -361,15 +371,14 @@ export function analyzeTranscript(
     slow_spots,
     speech: buildSpeech(words, 0, timecodeToSec(endAll)),
     duration_sec: Math.round(timecodeToSec(endAll) * 1000) / 1000,
-    cut_candidates: buildCutCandidates({
-      words,
-      segs,
-      hookEndSec,
-      deadAirSec,
-      mediaStart: 0,
-      mediaEnd: timecodeToSec(endAll),
-    }),
+    cut_candidates,
     needs_review: buildNeedsReview(words, segs),
+    cutaway_proposals: buildCutawayProposals({
+      words,
+      keywords,
+      mediaEnd: timecodeToSec(endAll),
+      cut_candidates,
+    }),
   };
 }
 
@@ -564,3 +573,128 @@ function buildCutCandidates(args: {
   }
   return merged;
 }
+
+/**
+ * Proposes AI image/video cutaways (Higgsfield-style).
+ * Identifies key semantic moments where a visual cutaway with Ken Burns motion
+ * will elevate engagement without obstructing the speaker's face during key hooks.
+ */
+function buildCutawayProposals(args: {
+  words: Array<{ word: string; start: number; end: number }>;
+  keywords: Array<{ word: string; start: string; score: number }>;
+  mediaEnd: number;
+  cut_candidates?: NarrativeStructure["cut_candidates"];
+}): CutawayProposal[] {
+  const { words, keywords, mediaEnd, cut_candidates = [] } = args;
+  const proposals: CutawayProposal[] = [];
+  if (words.length === 0 || keywords.length === 0 || mediaEnd <= 4) return proposals;
+
+  // Build KEEP intervals from cut_candidates (confidence >= 0.5) so a cutaway
+  // never starts or ends inside a CUT range.
+  const activeCuts = cut_candidates
+    .filter((c) => (c.confidence ?? 0.7) >= 0.5)
+    .map((c) => ({
+      s: Math.max(0, timecodeToSec(c.start)),
+      e: Math.min(mediaEnd, timecodeToSec(c.end)),
+    }))
+    .filter((c) => c.e > c.s)
+    .sort((a, b) => a.s - b.s);
+
+  const keepWindows: Array<{ s: number; e: number }> = [];
+  let cursor = 0;
+  for (const c of activeCuts) {
+    if (c.s > cursor + 0.2) keepWindows.push({ s: cursor, e: c.s });
+    cursor = Math.max(cursor, c.e);
+  }
+  if (cursor < mediaEnd - 0.2) keepWindows.push({ s: cursor, e: mediaEnd });
+  if (keepWindows.length === 0) keepWindows.push({ s: 0, e: mediaEnd });
+
+  const fitIntoKeepWindow = (
+    wantedStart: number,
+    wantedDur: number
+  ): { s: number; e: number } | null => {
+    // Find keep window containing wantedStart or nearest keep window >= 2.0s
+    let win = keepWindows.find(
+      (w) => wantedStart >= w.s && wantedStart < w.e && w.e - w.s >= 1.8
+    );
+    if (!win) {
+      win = keepWindows
+        .filter((w) => w.e - w.s >= 2.0)
+        .sort(
+          (a, b) =>
+            Math.min(Math.abs(a.s - wantedStart), Math.abs(a.e - wantedStart)) -
+            Math.min(Math.abs(b.s - wantedStart), Math.abs(b.e - wantedStart))
+        )[0];
+    }
+    if (!win) return null;
+    const avail = win.e - win.s - 0.2;
+    if (avail < 1.6) return null;
+    const dur = Math.min(wantedDur, Math.max(1.6, avail));
+    const s = Math.max(win.s + 0.1, Math.min(wantedStart, win.e - dur - 0.1));
+    const e = Math.min(win.e - 0.1, s + dur);
+    return e - s >= 1.5 ? { s, e } : null;
+  };
+
+  // Preserve creator face during the opening hook (first ~2.8s)
+  const safeStart = Math.min(2.8, Math.max(1.5, mediaEnd * 0.1));
+  const maxProposals = Math.min(6, Math.max(2, Math.round(mediaEnd / 11)));
+  const minSeparation = Math.max(4.5, Math.min(7.5, (mediaEnd - safeStart) / (maxProposals + 0.5)));
+
+  const candidateKeywords = keywords.filter((k) => {
+    const t = timecodeToSec(k.start);
+    return t >= safeStart && t <= mediaEnd - 1.8 && !/^\d+$/.test(k.word) && k.word.length >= 4;
+  });
+
+  const cameraMotions: Array<CutawayProposal["camera_motion"]> = [
+    "zoom_in_drift_right",
+    "zoom_in_drift_left",
+    "slow_pull_back",
+    "cinematic_pan",
+  ];
+
+  for (const kw of candidateKeywords) {
+    if (proposals.length >= maxProposals) break;
+    const rawT = timecodeToSec(kw.start);
+    const fitted = fitIntoKeepWindow(rawT, 3.0);
+    if (!fitted || fitted.s < safeStart) continue;
+
+    // Enforce minimum separation across all already-selected proposals
+    const tooClose = proposals.some((p) => {
+      const ps = timecodeToSec(p.start);
+      const pe = timecodeToSec(p.end);
+      return (
+        Math.abs(ps - fitted.s) < minSeparation ||
+        (fitted.s < pe + 1.0 && fitted.e > ps - 1.0)
+      );
+    });
+    if (tooClose) continue;
+
+    const wordIdx = words.findIndex(
+      (w) => cleanWord(w.word) === cleanWord(kw.word) && Math.abs(w.start - rawT) < 0.8
+    );
+    const sliceStart = Math.max(0, wordIdx - 2);
+    const sliceEnd = Math.min(words.length, wordIdx + 4);
+    const contextPhrase =
+      wordIdx >= 0
+        ? words
+            .slice(sliceStart, sliceEnd)
+            .map((w) => w.word)
+            .join(" ")
+        : kw.word;
+
+    const camera_motion = cameraMotions[proposals.length % cameraMotions.length];
+
+    proposals.push({
+      start: secToTimecode(fitted.s),
+      end: secToTimecode(fitted.e),
+      topic: kw.word,
+      suggested_prompt: `Cinematic photorealistic 85mm photograph illustrating "${contextPhrase}", dramatic lighting, shallow depth of field, high resolution, 8k`,
+      reason: `Visual cutaway for keyword "${kw.word}" to maintain audience retention`,
+      camera_motion,
+    });
+  }
+
+  proposals.sort((a, b) => timecodeToSec(a.start) - timecodeToSec(b.start));
+  return proposals;
+}
+

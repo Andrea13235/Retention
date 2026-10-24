@@ -23,8 +23,8 @@ import {
   renderThumbnail,
   renderVideo,
 } from "./tools_render.js";
+import { generateCutaways } from "./tools_image.js";
 import {
-  connectRetentionVolt,
   fetchRetentionVoltBlueprint,
   findSimilarVideo,
 } from "./retentionvolt_client.js";
@@ -33,43 +33,15 @@ import { RENDER_PRESETS } from "./types.js";
 
 const server = new McpServer({
   name: "retention",
-  version: "0.2.0",
+  version: "0.3.0",
 });
 
 server.tool(
-  "connect_retentionvolt",
-  "Step 0 — Check status, launch one-click browser login, or authenticate with RetentionVolt (retentionvolt.com). If open_browser is true, automatically opens the user's default browser directly to the login page and listens for one-click callback. When api_key is passed, verifies and saves it locally in ~/.retention/config.json.",
-  {
-    api_key: z
-      .string()
-      .optional()
-      .describe("RetentionVolt Pro API key (rv_live_...) obtained from https://retentionvolt.com/settings/mcp"),
-    open_browser: z
-      .boolean()
-      .optional()
-      .describe("If true, automatically opens the RetentionVolt login/authorization page in the user's browser"),
-  },
-  async ({ api_key, open_browser }) => {
-    try {
-      const status = await connectRetentionVolt(api_key, undefined, { openBrowser: open_browser });
-      return {
-        content: [{ type: "text", text: JSON.stringify(status, null, 2) }],
-      };
-    } catch (err) {
-      return {
-        isError: true,
-        content: [{ type: "text", text: `connect_retentionvolt failed: ${(err as Error).message}` }],
-      };
-    }
-  }
-);
-
-server.tool(
   "fetch_retentionvolt_blueprint",
-  "Query the RetentionVolt database for matching analyzed video retention curves, motion graphics patterns, and high-CTR thumbnail recipes.",
+  "Query the 100% Native RetentionVolt database (85 analyzed viral videos, 13,487 shot/cut events, 49 high-CTR thumbnails, 15 motion graphics patterns, 5 retention flows) for matching retention curves, motion graphics patterns, and high-CTR thumbnail recipes. Zero external login or API key needed.",
   {
     query: z.string().min(1).describe("Topic or title of the video (e.g. 'Coding Tutorial', 'MrBeast Challenge', 'Crypto Explainer')"),
-    niche: z.enum(["tech", "productivity", "entertainment", "finance", "storytelling", "fitness"]).optional(),
+    niche: z.enum(["tech", "productivity", "entertainment", "finance", "storytelling", "fitness", "education"]).optional(),
     format: z.enum(["short", "long"]).optional(),
   },
   async ({ query, niche, format }) => {
@@ -89,7 +61,7 @@ server.tool(
 
 server.tool(
   "find_similar_video",
-  "Step 3b (RetentionVolt Enhanced) — Trova il video top-performer più simile nel database RetentionVolt usando 4 dimensioni (niche, video_type, topic, format). Da chiamare DOPO analyze_transcript e PRIMA di generate_edit_plan.",
+  "Step 3b (RetentionVolt Native DB) — Trova il video top-performer più simile nel database nativo RetentionVolt (85 video virali, 13.487 cut, 49 thumbnail, 15 motion graphics) usando 4 dimensioni (niche, video_type, topic, format). Da chiamare DOPO analyze_transcript e PRIMA di generate_edit_plan (oppure eseguito automaticamente dentro generate_edit_plan).",
   {
     transcript_text: z.string().min(1).describe("Testo completo delle parole parlate"),
     structure_json: z.string().describe("NarrativeStructure JSON restituito da analyze_transcript"),
@@ -260,6 +232,17 @@ server.tool(
     sourcePortrait: z.boolean().optional().describe("Set when the source footage is portrait (forces 9:16 short canvas)"),
     takesCount: z.number().int().min(1).optional().describe("Takes in hand (default 1 = single_take: no faked coverage, caption pops only). Pass the real count — ≥2 unlocks show rhythm and punch zooms."),
     brollSources: z.array(z.string()).optional(),
+    customBroll: z
+      .array(
+        z.object({
+          start: z.string().describe("Start timecode HH:MM:SS.mmm"),
+          end: z.string().describe("End timecode HH:MM:SS.mmm"),
+          source: z.string().describe("Path to generated cutaway image or video file"),
+          reason: z.string().optional().describe("Why this cutaway was placed here"),
+        })
+      )
+      .optional()
+      .describe("Explicit semantic cutaways (Higgsfield-style AI images/videos with Ken Burns motion)."),
     attentionRiskPoints: z
       .array(RiskPoint)
       .optional()
@@ -275,11 +258,11 @@ server.tool(
     retentionvolt_blueprint: z
       .string()
       .optional()
-      .describe("Optional RetentionVolt blueprint JSON (from retentionvolt.com MCP server). Injects proven animations, motion graphics and pattern interrupts directly, bypassing heuristic guesswork."),
+      .describe("Optional RetentionVolt blueprint JSON (from find_similar_video or fetch_retentionvolt_blueprint). If omitted, generate_edit_plan automatically queries the 100% native RetentionVolt database so RetentionVolt is ALWAYS applied on every video."),
     disableGraphics: z
       .boolean()
       .optional()
-      .describe("When true, no TOP graphic banner (act_title/highlight) is generated. Default: true on single_take (restraint), false when RetentionVolt blueprint provides graphics or takesCount ≥2. Pass false to force banners."),
+      .describe("When true, disables motion graphic banners. Default: false (motion graphics, B-roll cutaways, and dynamic zoom animations are ALWAYS enabled by default on every video)."),
     shots: z
       .array(
         z.object({
@@ -304,7 +287,7 @@ server.tool(
       .optional()
       .describe("Directorial camera and visual setups (screen share, PiP, demonstrative slides/images)"),
   },
-  async ({ structure, transcript, style, sourcePortrait, takesCount, brollSources, attentionRiskPoints, extraCuts, corrections, retentionvolt_blueprint, disableGraphics, shots }) => {
+  async ({ structure, transcript, style, sourcePortrait, takesCount, brollSources, customBroll, attentionRiskPoints, extraCuts, corrections, retentionvolt_blueprint, disableGraphics, shots }) => {
     let parsedStructure: any;
     try {
       parsedStructure = JSON.parse(structure);
@@ -358,6 +341,7 @@ server.tool(
                   sourcePortrait,
                   takesCount,
                   brollSources,
+                  customBroll,
                   attentionRiskPoints,
                   extraCuts,
                   corrections,
@@ -377,6 +361,44 @@ server.tool(
       return {
         isError: true,
         content: [{ type: "text", text: `generate_edit_plan failed: ${(err as Error).message}` }],
+      };
+    }
+  }
+);
+
+server.tool(
+  "generate_broll_cutaways",
+  "Step 3c — Generate ultra-sharp 4K photorealistic still images for 2.5D Ken Burns cutaways (Flux.1 / Higgsfield style). Automatically executes in 1-2s and returns customBroll ready for generate_edit_plan.",
+  {
+    proposals: z.string().describe("Cutaway proposals JSON (array from analyze_transcript.cutaway_proposals)"),
+    output_dir: z.string().describe("Directory to save generated cutaway images (e.g. ./assets)"),
+    aspect_ratio: z.enum(["16:9", "9:16"]).optional().describe("Canvas aspect ratio (default 16:9)"),
+    provider: z.enum(["auto", "pollinations", "fal", "replicate", "higgsfield", "local"]).optional().describe("Image generator provider (default 'auto')"),
+  },
+  async ({ proposals, output_dir, aspect_ratio, provider }) => {
+    let parsed: any;
+    try {
+      parsed = JSON.parse(proposals);
+    } catch {
+      return {
+        isError: true,
+        content: [{ type: "text", text: "generate_broll_cutaways: 'proposals' must be valid JSON array from analyze_transcript" }],
+      };
+    }
+    try {
+      const customBroll = await generateCutaways({
+        proposals: Array.isArray(parsed) ? parsed : (parsed.cutaway_proposals ?? []),
+        outputDir: output_dir,
+        aspectRatio: aspect_ratio ?? "16:9",
+        provider,
+      });
+      return {
+        content: [{ type: "text", text: JSON.stringify({ customBroll, count: customBroll.length, status: "generated" }, null, 2) }],
+      };
+    } catch (err) {
+      return {
+        isError: true,
+        content: [{ type: "text", text: `generate_broll_cutaways failed: ${(err as Error).message}` }],
       };
     }
   }
